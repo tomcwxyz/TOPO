@@ -40,6 +40,23 @@ Build:
 
 **Exit:** a complete useful memory can be created, reviewed, searched and exported without a browser extension or cloud service.
 
+## Iteration 2.5 — Desktop runtime alignment
+
+**Goal:** make the local architecture compatible with a native Windows/macOS/Linux desktop application before CLI/MCP contracts harden.
+
+Build:
+
+- `@topo/schemas` runtime/interchange package
+- runtime-neutral `@topo/store`
+- Node-only `@topo/store-node`
+- Tauri + React desktop shell
+- Rust interchange contract crate
+- shared TypeScript/Rust domain fixtures
+- Linux/Windows desktop smoke checks and macOS main/manual smoke
+- ADR documenting the native boundary
+
+**Exit:** desktop packaging no longer depends on a Node native SQLite module, and TypeScript/Rust agree on canonical interchange records.
+
 ## Phase 2 — MCP
 
 **Goal:** let multiple AI clients use and contribute to one local TOPO store.
@@ -193,6 +210,13 @@ Managed features must not make the local-first implementation second-class.
 - migrations
 - candidate review persistence
 - event log
+
+### Iteration 2.5 — Desktop alignment
+- shared schema package
+- storage adapter split
+- Tauri desktop shell
+- Rust interchange types
+- cross-language fixtures and desktop CI
 
 ### Iteration 3 — CLI and portability
 - add/propose/review/confirm/search commands
