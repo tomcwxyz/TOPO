@@ -175,3 +175,14 @@ test("serialization rejects invalid records even when TypeScript is bypassed", (
   assert.throws(() => serializeBundle(bundle), BundleValidationError);
   store.close();
 });
+
+test("native exports are deterministic for the same store and creation time", () => {
+  const store = new SqliteMemoryStore(":memory:");
+  seed(store);
+
+  const first = serializeBundle(exportBundle(store, time3));
+  const second = serializeBundle(exportBundle(store, time3));
+
+  assert.deepEqual(second, first);
+  store.close();
+});
