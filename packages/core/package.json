@@ -13,5 +13,8 @@
     "build": "tsc -p tsconfig.build.json",
     "check": "tsc -p tsconfig.json --noEmit",
     "test": "npm run build && node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@topo/schemas": "0.1.0"
   }
 }
