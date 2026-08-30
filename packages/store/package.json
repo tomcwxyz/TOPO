@@ -14,10 +14,6 @@
     "check": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@topo/core": "0.1.0",
-    "better-sqlite3": "^13.0.3"
-  },
-  "devDependencies": {
-    "@types/better-sqlite3": "^9.6.0"
+    "@topo/schemas": "0.1.0"
   }
 }
