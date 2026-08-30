@@ -1,0 +1,70 @@
+name: desktop-smoke
+
+on:
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "crates/**"
+      - "test-fixtures/domain/**"
+      - "package.json"
+      - ".github/workflows/desktop-smoke.yml"
+  push:
+    branches: [main]
+    paths:
+      - "apps/desktop/**"
+      - "crates/**"
+      - "test-fixtures/domain/**"
+      - "package.json"
+      - ".github/workflows/desktop-smoke.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Desktop smoke (Linux)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - run: npm install
+      - run: npm run build --workspace @topo/desktop
+      - run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+  windows:
+    name: Desktop smoke (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm install
+      - run: npm run build --workspace @topo/desktop
+      - run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+  macos:
+    name: Desktop smoke (macOS)
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: dtolnay/rust-toolchain@stable
+      - run: npm install
+      - run: npm run build --workspace @topo/desktop
+      - run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml

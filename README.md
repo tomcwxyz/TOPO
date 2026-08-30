@@ -24,9 +24,21 @@ TOPO treats memory as governed context rather than an opaque store of inferred f
 
 ## Status
 
-TOPO is at the foundation stage. The initial work is to establish the canonical data model, local store, candidate-review lifecycle, portable format and MCP interface before migrating browser capture features from earlier prototypes.
+TOPO is in early implementation. The canonical claim lifecycle and local Node SQLite adapter are working, and the desktop architecture now follows the same Tauri/React pattern as RACK.
+
+The desktop application is intended to become the primary local manager. CLI, MCP and browser-extension clients will use the same portable domain contract rather than owning separate definitions of memory.
 
 See [PLAN.md](PLAN.md), [ROADMAP.md](ROADMAP.md) and [docs/adr](docs/adr).
+
+## Repository shape
+
+- `packages/schemas` — canonical runtime/interchange schemas.
+- `packages/core` — claim lifecycle and domain policy.
+- `packages/store` — runtime-neutral persistence interfaces.
+- `packages/store-node` — Node SQLite adapter for CLI/MCP use.
+- `crates/topo-contracts` — Rust representation of the native interchange boundary.
+- `apps/desktop` — Tauri + React desktop application.
+- `test-fixtures/domain` — contract fixtures shared by TypeScript and Rust.
 
 ## Prior work
 

@@ -1,0 +1,22 @@
+{
+  "id": "claim-preference-1",
+  "subject": "self",
+  "key": "writing.locale",
+  "value": "en-GB",
+  "category": "preferences",
+  "tags": ["writing", "language"],
+  "epistemicType": "preference",
+  "confidence": 0.98,
+  "provenance": {
+    "sourceType": "conversation",
+    "provider": "example",
+    "sourceId": "source-1",
+    "evidence": "Please use British English.",
+    "capturedAt": "2026-08-30T17:00:00.000Z"
+  },
+  "status": "confirmed",
+  "sensitivity": "ordinary",
+  "supersedes": [],
+  "createdAt": "2026-08-30T17:01:00.000Z",
+  "updatedAt": "2026-08-30T17:02:00.000Z"
+}

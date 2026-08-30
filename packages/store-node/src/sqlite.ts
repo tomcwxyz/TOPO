@@ -3,15 +3,17 @@ import {
   validateClaim,
   validateEvent,
   validateSource,
-  type ClaimFilter,
   type ClaimTransition,
-  type EventFilter,
   type JsonValue,
   type MemoryClaim,
   type MemoryEvent,
   type MemorySource,
-  type MemoryStore,
-} from "@topo/core";
+} from "@topo/schemas";
+import type {
+  ClaimFilter,
+  EventFilter,
+  MemoryStore,
+} from "@topo/store";
 
 const SCHEMA_VERSION = 1;
 const DEFAULT_LIMIT = 1000;

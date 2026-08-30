@@ -9,15 +9,17 @@
     "adapters/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace @topo/core && npm run build --workspace @topo/store",
-    "check": "npm run check --workspace @topo/core && npm run build --workspace @topo/core && npm run check --workspace @topo/store",
-    "test": "npm run build && node --test packages/core/test/*.test.mjs packages/store/test/*.test.mjs",
-    "validate": "npm run check && npm test"
+    "build": "npm run build --workspace @topo/schemas && npm run build --workspace @topo/core && npm run build --workspace @topo/store && npm run build --workspace @topo/store-node && npm run build --workspace @topo/desktop",
+    "check": "npm run check --workspace @topo/schemas && npm run build --workspace @topo/schemas && npm run check --workspace @topo/core && npm run build --workspace @topo/core && npm run check --workspace @topo/store && npm run build --workspace @topo/store && npm run check --workspace @topo/store-node && npm run check --workspace @topo/desktop",
+    "test": "npm run build --workspace @topo/schemas && npm run build --workspace @topo/core && npm run build --workspace @topo/store && npm run build --workspace @topo/store-node && node --test packages/schemas/test/*.test.mjs packages/core/test/*.test.mjs packages/store-node/test/*.test.mjs",
+    "test:contracts:rust": "cargo test --manifest-path crates/topo-contracts/Cargo.toml",
+    "validate": "npm run check && npm test && npm run test:contracts:rust",
+    "dev:desktop": "npm run tauri --workspace @topo/desktop -- dev"
   },
   "devDependencies": {
-    "typescript": "^5.8.3"
+    "typescript": "^5.9.2"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12.0"
   }
 }
