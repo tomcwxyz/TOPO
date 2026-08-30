@@ -1,0 +1,14 @@
+{
+  "id": "event-confirmed-1",
+  "type": "claim.confirmed",
+  "entityType": "claim",
+  "entityId": "claim-preference-1",
+  "occurredAt": "2026-08-30T17:02:00.000Z",
+  "actor": {
+    "type": "user"
+  },
+  "data": {
+    "fromStatus": "candidate",
+    "toStatus": "confirmed"
+  }
+}
