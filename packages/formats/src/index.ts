@@ -127,6 +127,17 @@ function assertUniqueIds(
 }
 
 function validateIntegrity(bundle: TopoBundle): void {
+  try {
+    topoBundleManifestSchema.parse(bundle.manifest);
+    for (const source of bundle.sources) memorySourceSchema.parse(source);
+    for (const claim of bundle.claims) memoryClaimSchema.parse(claim);
+    for (const event of bundle.events) memoryEventSchema.parse(event);
+  } catch (error) {
+    throw new BundleValidationError(
+      `bundle record does not match the TOPO contract: ${String(error)}`,
+    );
+  }
+
   assertUniqueIds("sources.jsonl", bundle.sources);
   assertUniqueIds("claims.jsonl", bundle.claims);
   assertUniqueIds("events.jsonl", bundle.events);
@@ -224,9 +235,17 @@ export function serializeBundle(bundle: TopoBundle): TopoBundleFiles {
 }
 
 export function parseBundle(files: TopoBundleFiles): TopoBundle {
+  const required = (name: keyof TopoBundleFiles): string => {
+    const content = (files as Partial<TopoBundleFiles>)[name];
+    if (typeof content !== "string") {
+      throw new BundleValidationError(`${name} is missing from the TOPO bundle`);
+    }
+    return content;
+  };
+
   let manifestValue: unknown;
   try {
-    manifestValue = JSON.parse(files[BUNDLE_FILES.manifest]);
+    manifestValue = JSON.parse(required(BUNDLE_FILES.manifest));
   } catch (error) {
     throw new BundleValidationError(
       `manifest.json is not valid JSON: ${String(error)}`,
@@ -245,17 +264,17 @@ export function parseBundle(files: TopoBundleFiles): TopoBundle {
   const bundle: TopoBundle = {
     manifest,
     sources: parseJsonl(
-      files[BUNDLE_FILES.sources],
+      required(BUNDLE_FILES.sources),
       BUNDLE_FILES.sources,
       (value) => memorySourceSchema.parse(value),
     ),
     claims: parseJsonl(
-      files[BUNDLE_FILES.claims],
+      required(BUNDLE_FILES.claims),
       BUNDLE_FILES.claims,
       (value) => memoryClaimSchema.parse(value),
     ),
     events: parseJsonl(
-      files[BUNDLE_FILES.events],
+      required(BUNDLE_FILES.events),
       BUNDLE_FILES.events,
       (value) => memoryEventSchema.parse(value),
     ),
