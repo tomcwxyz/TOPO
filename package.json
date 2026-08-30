@@ -1,0 +1,23 @@
+{
+  "name": "topo",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "adapters/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspace @topo/core",
+    "check": "npm run check --workspace @topo/core",
+    "test": "npm run test --workspace @topo/core",
+    "validate": "npm run check && npm test"
+  },
+  "devDependencies": {
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
