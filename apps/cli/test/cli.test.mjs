@@ -4,11 +4,12 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
-const cli = new URL("../dist/index.js", import.meta.url);
+const cli = fileURLToPath(new URL("../dist/index.js", import.meta.url));
 
 function run(args) {
-  return spawnSync(process.execPath, [cli.pathname, ...args], {
+  return spawnSync(process.execPath, [cli, ...args], {
     encoding: "utf8",
   });
 }
