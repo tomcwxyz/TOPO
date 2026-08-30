@@ -4,6 +4,7 @@ import {
   InvalidTransitionError,
   ValidationError,
   confirmClaim,
+  editCandidateClaim,
   expireClaim,
   proposeClaim,
   rejectClaim,
@@ -60,6 +61,70 @@ test("confirmation preserves epistemic type instead of turning an inference into
   assert.equal(confirmed.claim.status, "confirmed");
   assert.equal(confirmed.claim.epistemicType, "inference");
   assert.equal(confirmed.event.data.fromStatus, "candidate");
+});
+
+test("a user can edit a candidate without losing its epistemic type or provenance", () => {
+  const proposed = candidate({ epistemicType: "inference", confidence: 0.6 });
+  const edited = editCandidateClaim(
+    proposed.claim,
+    {
+      value: "software architecture",
+      confidence: 0.75,
+      category: "work",
+    },
+    {
+      now: time2,
+      eventId: "event-edit",
+      actor: { type: "user" },
+    },
+  );
+
+  assert.equal(edited.claim.status, "candidate");
+  assert.equal(edited.claim.epistemicType, "inference");
+  assert.equal(edited.claim.value, "software architecture");
+  assert.equal(edited.claim.confidence, 0.75);
+  assert.equal(edited.claim.category, "work");
+  assert.equal(
+    edited.claim.provenance.sourceId,
+    proposed.claim.provenance.sourceId,
+  );
+  assert.equal(edited.event.type, "claim.edited");
+  assert.deepEqual(edited.event.data.changes.value, {
+    from: "en-GB",
+    to: "software architecture",
+  });
+});
+
+test("candidate edits require a user and an actual change", () => {
+  const proposed = candidate();
+
+  assert.throws(
+    () =>
+      editCandidateClaim(
+        proposed.claim,
+        { value: "en-US" },
+        {
+          now: time2,
+          eventId: "event-edit",
+          actor: { type: "agent" },
+        },
+      ),
+    InvalidTransitionError,
+  );
+
+  assert.throws(
+    () =>
+      editCandidateClaim(
+        proposed.claim,
+        { value: "en-GB" },
+        {
+          now: time2,
+          eventId: "event-edit",
+          actor: { type: "user" },
+        },
+      ),
+    InvalidTransitionError,
+  );
 });
 
 test("an agent cannot confirm a candidate under the default trust model", () => {

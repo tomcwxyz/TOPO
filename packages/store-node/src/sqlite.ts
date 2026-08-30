@@ -13,6 +13,7 @@ import type {
   ClaimFilter,
   EventFilter,
   MemoryStore,
+  SourceFilter,
 } from "@topo/store";
 
 const SCHEMA_VERSION = 1;
@@ -83,6 +84,14 @@ function boundedLimit(value: number | undefined): number {
   return value;
 }
 
+function boundedOffset(value: number | undefined): number {
+  if (value === undefined) return 0;
+  if (!Number.isInteger(value) || value < 0) {
+    throw new RangeError("offset must be a non-negative integer");
+  }
+  return value;
+}
+
 export class SqliteMemoryStore implements MemoryStore {
   private readonly db: Database.Database;
 
@@ -118,6 +127,7 @@ export class SqliteMemoryStore implements MemoryStore {
     const clauses: string[] = [];
     const params: Record<string, SqlValue> = {
       limit: boundedLimit(filter.limit),
+      offset: boundedOffset(filter.offset),
     };
 
     if (filter.status !== undefined) {
@@ -142,7 +152,7 @@ export class SqliteMemoryStore implements MemoryStore {
       .prepare(
         `SELECT * FROM claims ${where}
          ORDER BY updated_at DESC, id ASC
-         LIMIT @limit`,
+         LIMIT @limit OFFSET @offset`,
       )
       .all(params) as ClaimRow[];
 
@@ -220,6 +230,34 @@ export class SqliteMemoryStore implements MemoryStore {
     return row === undefined ? undefined : this.sourceFromRow(row);
   }
 
+  listSources(filter: SourceFilter = {}): MemorySource[] {
+    const clauses: string[] = [];
+    const params: Record<string, SqlValue> = {
+      limit: boundedLimit(filter.limit),
+      offset: boundedOffset(filter.offset),
+    };
+
+    if (filter.type !== undefined) {
+      clauses.push("type = @type");
+      params.type = filter.type;
+    }
+    if (filter.sensitivity !== undefined) {
+      clauses.push("sensitivity = @sensitivity");
+      params.sensitivity = filter.sensitivity;
+    }
+
+    const where = clauses.length === 0 ? "" : `WHERE ${clauses.join(" AND ")}`;
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM sources ${where}
+         ORDER BY captured_at DESC, id ASC
+         LIMIT @limit OFFSET @offset`,
+      )
+      .all(params) as SourceRow[];
+
+    return rows.map((row) => this.sourceFromRow(row));
+  }
+
   putSource(source: MemorySource): void {
     validateSource(source);
 
@@ -256,6 +294,14 @@ export class SqliteMemoryStore implements MemoryStore {
       });
   }
 
+  getEvent(id: string): MemoryEvent | undefined {
+    const row = this.db
+      .prepare("SELECT * FROM events WHERE id = ?")
+      .get(id) as EventRow | undefined;
+
+    return row === undefined ? undefined : this.eventFromRow(row);
+  }
+
   appendEvent(event: MemoryEvent): void {
     validateEvent(event);
 
@@ -285,6 +331,7 @@ export class SqliteMemoryStore implements MemoryStore {
     const clauses: string[] = [];
     const params: Record<string, SqlValue> = {
       limit: boundedLimit(filter.limit),
+      offset: boundedOffset(filter.offset),
     };
 
     if (filter.entityType !== undefined) {
@@ -305,7 +352,7 @@ export class SqliteMemoryStore implements MemoryStore {
       .prepare(
         `SELECT * FROM events ${where}
          ORDER BY occurred_at DESC, id ASC
-         LIMIT @limit`,
+         LIMIT @limit OFFSET @offset`,
       )
       .all(params) as EventRow[];
 

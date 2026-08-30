@@ -63,6 +63,15 @@ Multi-device or multi-user features add authentication, authorisation, tenancy a
 8. **Credential leakage** — provider or MCP keys appear in query strings, logs or exports.
    - Mitigation: never put secrets in URLs; separate secret storage from portable memory bundles.
 
+9. **Accidental source-control disclosure** — a local SQLite memory store is created inside a project and committed.
+   - Mitigation: TOPO's own repository ignores SQLite/WAL/SHM files and `.topo/`; documentation should tell client projects to do the same; desktop should default storage to the OS application-data directory.
+
+10. **Plaintext bundle disclosure** — a native export is copied, synced or shared more broadly than intended.
+   - Mitigation: treat bundles as sensitive personal data; keep credentials out of bundles; make encrypted/signed bundles an explicit later design decision rather than implying v0.1 exports are encrypted.
+
+11. **Partial or destructive import** — an invalid or conflicting bundle leaves the destination memory half-written or silently overwrites established records.
+   - Mitigation: validate the complete bundle before import; check conflicts and write inside one transaction; v0.1 rejects existing IDs instead of overwriting them.
+
 ## Security invariants for v0.1
 
 - No required network service for core operation.

@@ -179,6 +179,33 @@ export interface ClaimTransition {
   event: MemoryEvent;
 }
 
+
+export const DOMAIN_CONTRACT_VERSION = "0.1" as const;
+
+export const topoBundleManifestSchema = z
+  .object({
+    format: z.literal("topo.bundle"),
+    version: z.literal("0.1"),
+    contractVersion: z.literal(DOMAIN_CONTRACT_VERSION),
+    createdAt: dateTime,
+    counts: z
+      .object({
+        sources: z.number().int().nonnegative(),
+        claims: z.number().int().nonnegative(),
+        events: z.number().int().nonnegative(),
+      })
+      .strict(),
+    files: z
+      .object({
+        sources: z.literal("sources.jsonl"),
+        claims: z.literal("claims.jsonl"),
+        events: z.literal("events.jsonl"),
+      })
+      .strict(),
+  })
+  .strict();
+export type TopoBundleManifest = z.infer<typeof topoBundleManifestSchema>;
+
 export class ValidationError extends Error {
   readonly issues: string[];
 

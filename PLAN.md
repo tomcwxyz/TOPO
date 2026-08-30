@@ -206,28 +206,38 @@ TOPO should be a monorepo with the domain model isolated from UI, storage and tr
 ```text
 topo/
 ├── apps/
-│   ├── manager/
+│   ├── desktop/
 │   ├── extension/
 │   └── cli/
 ├── packages/
+│   ├── schemas/
 │   ├── core/
 │   ├── store/
+│   ├── store-node/
+│   ├── formats/
 │   ├── capture/
 │   ├── retrieval/
 │   ├── providers/
-│   ├── formats/
 │   └── mcp/
+├── crates/
+│   └── topo-contracts/
 ├── adapters/
 │   └── rack/
 ├── docs/
-└── tests/
+└── test-fixtures/
 ```
 
+### Schemas
+`packages/schemas` owns the canonical serialisable/runtime-validated interchange contract. Stable fixtures are shared with the Rust native boundary so TypeScript and Rust agree on the same claim, source and event records.
+
 ### Core
-`packages/core` owns the canonical domain model and lifecycle rules with minimal infrastructure dependencies.
+`packages/core` owns lifecycle and authority policy over those contracts. It should remain independent of UI, database and transport implementations.
 
 ### Store
-Storage sits behind repository interfaces. The first-class local implementation should use an embedded database rather than one giant JSON document. Browser-only standalone mode can use IndexedDB behind the same conceptual interfaces.
+`packages/store` owns runtime-neutral persistence interfaces. `packages/store-node` is the Node SQLite implementation used by CLI and later MCP. TOPO Desktop uses a native Rust persistence implementation behind the same conceptual contract rather than embedding a Node native SQLite module. Browser-only standalone mode can use IndexedDB.
+
+### Desktop
+`apps/desktop` follows the RACK pattern: React/TypeScript for the application layer, with Tauri/Rust owning native capabilities such as SQLite, filesystem access, secrets and local-service integration. Rust should not independently reimplement TOPO lifecycle policy.
 
 ### Capture
 Capture is a reusable pipeline:
@@ -250,21 +260,19 @@ The current `llm-memory-extractor` provides useful capture adapters, review UX, 
 
 ## 7. Portable format
 
-TOPO should define a versioned native bundle independent of internal database layout:
+TOPO defines a versioned native bundle independent of internal database layout. The first contract is intentionally small:
 
 ```text
 topo-bundle/
 ├── manifest.json
-├── claims.jsonl
 ├── sources.jsonl
-├── events.jsonl
-├── schema.json
-└── documents/
-    ├── profile.md
-    └── ...
+├── claims.jsonl
+└── events.jsonl
 ```
 
-Adapters may additionally support Markdown, JSON, OKF and MCP resources.
+The v0.1 bundle is complete for the records implemented today, validates internal references, and imports conservatively without overwriting existing IDs. Future format versions may add `schema.json`, derived documents and other assets explicitly through the manifest.
+
+Adapters may additionally support Markdown, JSON, OKF and MCP resources. See `docs/BUNDLE_FORMAT.md`.
 
 ## 8. Security posture
 

@@ -9,12 +9,13 @@
     "adapters/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace @topo/schemas && npm run build --workspace @topo/core && npm run build --workspace @topo/store && npm run build --workspace @topo/store-node && npm run build --workspace @topo/desktop",
-    "check": "npm run check --workspace @topo/schemas && npm run build --workspace @topo/schemas && npm run check --workspace @topo/core && npm run build --workspace @topo/core && npm run check --workspace @topo/store && npm run build --workspace @topo/store && npm run check --workspace @topo/store-node && npm run check --workspace @topo/desktop",
-    "test": "npm run build --workspace @topo/schemas && npm run build --workspace @topo/core && npm run build --workspace @topo/store && npm run build --workspace @topo/store-node && node --test packages/schemas/test/*.test.mjs packages/core/test/*.test.mjs packages/store-node/test/*.test.mjs",
+    "build": "npm run build --workspace @topo/schemas && npm run build --workspace @topo/core && npm run build --workspace @topo/store && npm run build --workspace @topo/store-node && npm run build --workspace @topo/formats && npm run build --workspace @topo/cli && npm run build --workspace @topo/desktop",
+    "check": "npm run check --workspace @topo/schemas && npm run build --workspace @topo/schemas && npm run check --workspace @topo/core && npm run build --workspace @topo/core && npm run check --workspace @topo/store && npm run build --workspace @topo/store && npm run check --workspace @topo/store-node && npm run build --workspace @topo/store-node && npm run check --workspace @topo/formats && npm run build --workspace @topo/formats && npm run check --workspace @topo/cli && npm run check --workspace @topo/desktop",
+    "test": "npm run build --workspace @topo/schemas && npm run build --workspace @topo/core && npm run build --workspace @topo/store && npm run build --workspace @topo/store-node && npm run build --workspace @topo/formats && npm run build --workspace @topo/cli && node --test packages/schemas/test/*.test.mjs packages/core/test/*.test.mjs packages/store-node/test/*.test.mjs packages/formats/test/*.test.mjs apps/cli/test/*.test.mjs",
     "test:contracts:rust": "cargo test --manifest-path crates/topo-contracts/Cargo.toml",
     "validate": "npm run check && npm test && npm run test:contracts:rust",
-    "dev:desktop": "npm run tauri --workspace @topo/desktop -- dev"
+    "dev:desktop": "npm run tauri --workspace @topo/desktop -- dev",
+    "topo": "npm run build --workspace @topo/cli && node apps/cli/dist/index.js"
   },
   "devDependencies": {
     "typescript": "^5.9.2"
