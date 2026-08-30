@@ -1,0 +1,14 @@
+{
+  "id": "source-1",
+  "type": "conversation",
+  "title": "Writing preferences",
+  "provider": "example",
+  "externalId": "conversation-123",
+  "capturedAt": "2026-08-30T17:00:00.000Z",
+  "createdAt": "2026-08-30T17:00:00.000Z",
+  "sensitivity": "ordinary",
+  "metadata": {
+    "platform": "test",
+    "messageCount": 4
+  }
+}
