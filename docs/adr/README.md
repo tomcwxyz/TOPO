@@ -9,3 +9,4 @@ TOPO uses ADRs for durable architectural choices. Implementation details can cha
 | [0003](0003-local-first-core-and-portable-storage.md) | Core is local-first; storage is replaceable; portable format is independent | Accepted |
 | [0004](0004-proposal-first-agent-writes.md) | Agent writes are proposal-first by default | Accepted |
 | [0005](0005-derived-documents-are-projections.md) | Generated memory documents are derived projections, not evidence | Accepted |
+| [0006](0006-sqlite-local-store.md) | SQLite is the first-class local store, behind a replaceable adapter | Accepted |
