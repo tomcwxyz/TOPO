@@ -1,0 +1,22 @@
+{
+  "id": "claim-inference-1",
+  "subject": "self",
+  "key": "work.possible-domain",
+  "value": "software development",
+  "category": "work",
+  "tags": ["work"],
+  "epistemicType": "inference",
+  "confidence": 0.62,
+  "provenance": {
+    "sourceType": "conversation",
+    "provider": "example",
+    "sourceId": "source-1",
+    "evidence": "Repeated detailed questions about software architecture.",
+    "capturedAt": "2026-08-30T17:00:00.000Z"
+  },
+  "status": "candidate",
+  "sensitivity": "personal",
+  "supersedes": [],
+  "createdAt": "2026-08-30T17:03:00.000Z",
+  "updatedAt": "2026-08-30T17:03:00.000Z"
+}
