@@ -9,9 +9,9 @@
     "adapters/*"
   ],
   "scripts": {
-    "build": "npm run build --workspace @topo/core",
-    "check": "npm run check --workspace @topo/core",
-    "test": "npm run test --workspace @topo/core",
+    "build": "npm run build --workspace @topo/core && npm run build --workspace @topo/store",
+    "check": "npm run check --workspace @topo/core && npm run build --workspace @topo/core && npm run check --workspace @topo/store",
+    "test": "npm run build && node --test packages/core/test/*.test.mjs packages/store/test/*.test.mjs",
     "validate": "npm run check && npm test"
   },
   "devDependencies": {
