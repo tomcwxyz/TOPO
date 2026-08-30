@@ -76,7 +76,10 @@ test("CLI can create, review, search, export and import memory", () => {
 
     result = run(["--store", store, "--json", "export", bundle]);
     assert.equal(result.status, 0, result.stderr);
-    assert.equal(JSON.parse(result.stdout).manifest.counts.claims, 1);
+    const manifest = JSON.parse(result.stdout).manifest;
+    assert.equal(manifest.counts.claims, 1);
+    assert.equal(manifest.counts.sources, 1);
+    assert.equal(manifest.counts.events, 4);
 
     result = run(["--store", restored, "--json", "import", bundle]);
     assert.equal(result.status, 0, result.stderr);
