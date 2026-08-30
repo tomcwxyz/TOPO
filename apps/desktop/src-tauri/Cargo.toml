@@ -1,0 +1,20 @@
+[package]
+name = "topo"
+version = "0.0.0"
+description = "Portable, user-owned context for AI."
+authors = ["The Good Ship"]
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+name = "topo_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = [] }
+topo-contracts = { path = "../../../crates/topo-contracts" }
