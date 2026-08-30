@@ -153,3 +153,25 @@ test("parse rejects incomplete provenance rather than accepting a partial export
   assert.throws(() => parseBundle(files), BundleValidationError);
   store.close();
 });
+
+test("parse rejects a bundle with a missing required file", () => {
+  const store = new SqliteMemoryStore(":memory:");
+  seed(store);
+
+  const files = serializeBundle(exportBundle(store, time3));
+  delete files["events.jsonl"];
+
+  assert.throws(() => parseBundle(files), BundleValidationError);
+  store.close();
+});
+
+test("serialization rejects invalid records even when TypeScript is bypassed", () => {
+  const store = new SqliteMemoryStore(":memory:");
+  seed(store);
+
+  const bundle = exportBundle(store, time3);
+  bundle.claims[0].confidence = 2;
+
+  assert.throws(() => serializeBundle(bundle), BundleValidationError);
+  store.close();
+});
