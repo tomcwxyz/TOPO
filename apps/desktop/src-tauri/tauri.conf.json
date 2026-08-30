@@ -1,0 +1,42 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "TOPO",
+  "version": "0.0.0",
+  "identifier": "uk.co.good-ship.topo",
+  "build": {
+    "beforeDevCommand": {
+      "script": "npm run dev --workspace @topo/desktop",
+      "cwd": "../..",
+      "wait": false
+    },
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": {
+      "script": "npm run build --workspace @topo/desktop",
+      "cwd": "../.."
+    },
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "TOPO",
+        "width": 1120,
+        "height": 760,
+        "minWidth": 760,
+        "minHeight": 560,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "category": "DeveloperTool",
+    "shortDescription": "Portable, user-owned context for AI.",
+    "longDescription": "Keep useful AI context local, inspectable, portable and under your control."
+  }
+}
