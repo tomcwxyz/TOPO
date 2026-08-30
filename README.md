@@ -37,8 +37,29 @@ See [PLAN.md](PLAN.md), [ROADMAP.md](ROADMAP.md) and [docs/adr](docs/adr).
 - `packages/store` — runtime-neutral persistence interfaces.
 - `packages/store-node` — Node SQLite adapter for CLI/MCP use.
 - `crates/topo-contracts` — Rust representation of the native interchange boundary.
+- `packages/formats` — portable TOPO bundle import/export.
+- `apps/cli` — local command-line workflows for claims, review, search and portability.
 - `apps/desktop` — Tauri + React desktop application.
 - `test-fixtures/domain` — contract fixtures shared by TypeScript and Rust.
+
+## Local CLI
+
+The CLI is intentionally a thin client over the same core/store contracts that MCP and desktop will use.
+
+```bash
+npm run topo -- init
+npm run topo -- claim add writing.locale en-GB --type preference
+npm run topo -- claim propose work.focus "software architecture" --type inference --confidence 0.6
+npm run topo -- candidate list
+npm run topo -- candidate confirm <claim-id>
+npm run topo -- search "en-GB"
+npm run topo -- export ./topo-export
+npm run topo -- --store ./other.sqlite import ./topo-export
+```
+
+The default store is `~/.topo/topo.sqlite`. Pass `--store <path>` or set `TOPO_DB` to use another store.
+
+Native bundles are documented in [docs/BUNDLE_FORMAT.md](docs/BUNDLE_FORMAT.md). Import is conservative: existing record IDs are treated as conflicts rather than overwritten.
 
 ## Prior work
 

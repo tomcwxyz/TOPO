@@ -39,6 +39,19 @@ export interface ProposeClaimInput {
   supersedes?: string[];
 }
 
+export interface EditCandidatePatch {
+  subject?: string;
+  key?: string;
+  value?: JsonValue;
+  category?: string | null;
+  tags?: string[];
+  epistemicType?: EpistemicType;
+  confidence?: number;
+  sensitivity?: Sensitivity;
+  validFrom?: string | null;
+  validUntil?: string | null;
+}
+
 function cloneClaim(claim: MemoryClaim): MemoryClaim {
   return {
     ...claim,
@@ -92,6 +105,104 @@ export function proposeClaim(
 
   validateClaim(claim);
   return { claim, event: eventFor(claim, "claim.proposed", context) };
+}
+
+export function editCandidateClaim(
+  claim: MemoryClaim,
+  patch: EditCandidatePatch,
+  context: TransitionContext,
+): ClaimTransition {
+  validateClaim(claim);
+  if (claim.status !== "candidate") {
+    throw new InvalidTransitionError(
+      `Only candidate claims can be edited; ${claim.id} is ${claim.status}`,
+    );
+  }
+  if (context.actor.type !== "user") {
+    throw new InvalidTransitionError(
+      "Editing a candidate requires a user actor in the default trust model",
+    );
+  }
+
+  const next = cloneClaim(claim);
+  const changes: Record<string, JsonValue> = {};
+
+  const change = (
+    field: string,
+    before: JsonValue,
+    after: JsonValue,
+    apply: () => void,
+  ): void => {
+    if (JSON.stringify(before) === JSON.stringify(after)) return;
+    changes[field] = { from: before, to: after };
+    apply();
+  };
+
+  if (patch.subject !== undefined) {
+    change("subject", claim.subject, patch.subject, () => {
+      next.subject = patch.subject!;
+    });
+  }
+  if (patch.key !== undefined) {
+    change("key", claim.key, patch.key, () => {
+      next.key = patch.key!;
+    });
+  }
+  if (patch.value !== undefined) {
+    change("value", claim.value, patch.value, () => {
+      next.value = patch.value!;
+    });
+  }
+  if (patch.category !== undefined) {
+    change("category", claim.category ?? null, patch.category, () => {
+      if (patch.category === null) delete next.category;
+      else next.category = patch.category;
+    });
+  }
+  if (patch.tags !== undefined) {
+    change("tags", claim.tags, patch.tags, () => {
+      next.tags = [...patch.tags!];
+    });
+  }
+  if (patch.epistemicType !== undefined) {
+    change("epistemicType", claim.epistemicType, patch.epistemicType, () => {
+      next.epistemicType = patch.epistemicType!;
+    });
+  }
+  if (patch.confidence !== undefined) {
+    change("confidence", claim.confidence, patch.confidence, () => {
+      next.confidence = patch.confidence!;
+    });
+  }
+  if (patch.sensitivity !== undefined) {
+    change("sensitivity", claim.sensitivity, patch.sensitivity, () => {
+      next.sensitivity = patch.sensitivity!;
+    });
+  }
+  if (patch.validFrom !== undefined) {
+    change("validFrom", claim.validFrom ?? null, patch.validFrom, () => {
+      if (patch.validFrom === null) delete next.validFrom;
+      else next.validFrom = patch.validFrom;
+    });
+  }
+  if (patch.validUntil !== undefined) {
+    change("validUntil", claim.validUntil ?? null, patch.validUntil, () => {
+      if (patch.validUntil === null) delete next.validUntil;
+      else next.validUntil = patch.validUntil;
+    });
+  }
+
+  if (Object.keys(changes).length === 0) {
+    throw new InvalidTransitionError("Candidate edit did not change any fields");
+  }
+
+  next.updatedAt = context.now;
+  validateClaim(next);
+
+  return {
+    claim: next,
+    event: eventFor(next, "claim.edited", context, { changes }),
+  };
 }
 
 export function confirmClaim(

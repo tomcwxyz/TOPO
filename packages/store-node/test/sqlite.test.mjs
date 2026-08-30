@@ -114,3 +114,18 @@ test("file-backed stores survive close and reopen", () => {
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test("supports paginated source/event reads and direct event lookup", () => {
+  const store = new SqliteMemoryStore(":memory:");
+  store.putSource(source());
+  store.putSource({ ...source(), id: "source-2", title: "Second" });
+  store.applyTransition(proposed());
+
+  assert.equal(store.listSources({ limit: 1, offset: 0 }).length, 1);
+  assert.equal(store.listSources({ limit: 1, offset: 1 }).length, 1);
+  assert.equal(store.listSources({ limit: 1, offset: 2 }).length, 0);
+  assert.equal(store.getEvent("event-proposed").type, "claim.proposed");
+  assert.equal(store.listEvents({ limit: 1, offset: 1 }).length, 0);
+
+  store.close();
+});
