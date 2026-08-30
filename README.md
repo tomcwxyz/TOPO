@@ -38,7 +38,9 @@ See [PLAN.md](PLAN.md), [ROADMAP.md](ROADMAP.md) and [docs/adr](docs/adr).
 - `packages/store-node` — Node SQLite adapter for CLI/MCP use.
 - `crates/topo-contracts` — Rust representation of the native interchange boundary.
 - `packages/formats` — portable TOPO bundle import/export.
+- `packages/mcp` — proposal-first MCP service and tool adapter.
 - `apps/cli` — local command-line workflows for claims, review, search and portability.
+- `apps/mcp` — stdio MCP server process.
 - `apps/desktop` — Tauri + React desktop application.
 - `test-fixtures/domain` — contract fixtures shared by TypeScript and Rust.
 
@@ -60,6 +62,26 @@ npm run topo -- --store ./other.sqlite import ./topo-export
 The default store is `~/.topo/topo.sqlite`. Pass `--store <path>` or set `TOPO_DB` to use another store.
 
 Native bundles are documented in [docs/BUNDLE_FORMAT.md](docs/BUNDLE_FORMAT.md). Import is conservative: existing record IDs are treated as conflicts rather than overwritten.
+
+## MCP
+
+TOPO's MCP connection is proposal-first by default:
+
+```bash
+npm run topo:mcp
+```
+
+The default connection can propose candidate claims and retrieve confirmed memory within a `personal` sensitivity ceiling. It cannot confirm, reject or edit candidates as though the AI were the user.
+
+Trusted review delegation is explicit:
+
+```bash
+npm run topo:mcp -- --allow-review-decisions
+```
+
+Use `--max-sensitivity` to change the MCP disclosure ceiling. The first implementation is stdio-only and intentionally does not expose a broad automatic profile resource.
+
+See [docs/MCP.md](docs/MCP.md) and [ADR 0008](docs/adr/0008-mcp-review-authority-is-explicit.md).
 
 ## Prior work
 

@@ -63,17 +63,19 @@ Build:
 
 Build:
 
+- MCP TypeScript SDK v2
 - stdio MCP transport
-- `memory_search`
-- context retrieval
-- candidate proposal/review/edit/discard/confirm
-- explicit higher-trust direct-write permission
-- stale review
+- `topo_search` and explicit claim retrieval
+- candidate proposal and review listing
+- explicit delegated review mode for edit/confirm/reject
+- sensitivity ceiling on MCP reads and proposals
 - change history
+- real MCP client + stdio integration tests
+- stale review
 - schema inspection
 - import/export
-- resources
-- rate limiting and safe transport defaults
+- purpose-aware context resources after context resolution exists
+- rate limiting and safe transport defaults before any network transport
 
 **Exit:** two different MCP-compatible clients can safely use the same local store.
 
@@ -226,10 +228,14 @@ Managed features must not make the local-first implementation second-class.
 
 ### Iteration 4 — MCP
 - shared-core MCP package
+- MCP TypeScript SDK v2
 - stdio server
 - proposal-first tools
-- retrieval resources
-- permissions/security hardening
+- scoped confirmed-memory retrieval
+- explicit review-authority delegation
+- sensitivity ceiling
+- protocol/stdio integration tests
+- defer broad context resources until context resolution
 
 ### Iteration 5 — Browser end-to-end
 - extension shell

@@ -72,6 +72,12 @@ Multi-device or multi-user features add authentication, authorisation, tenancy a
 11. **Partial or destructive import** — an invalid or conflicting bundle leaves the destination memory half-written or silently overwrites established records.
    - Mitigation: validate the complete bundle before import; check conflicts and write inside one transaction; v0.1 rejects existing IDs instead of overwriting them.
 
+12. **MCP authority laundering** — an AI invokes a review tool and the adapter records it as a user decision merely because it arrived over MCP.
+   - Mitigation: normal MCP connections are agent-authority only; edit/confirm/reject tools are absent unless the server operator explicitly delegates review authority; delegated decisions carry a distinct audit actor ID.
+
+13. **MCP sensitivity escalation** — a client retrieves or creates data above the disclosure scope the user intended for that connection.
+   - Mitigation: enforce a server-side maximum sensitivity on both reads and proposals; default to `personal`; require explicit configuration for `sensitive` or `restricted`.
+
 ## Security invariants for v0.1
 
 - No required network service for core operation.
