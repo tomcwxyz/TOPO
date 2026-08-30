@@ -154,9 +154,10 @@ export function editCandidateClaim(
     });
   }
   if (patch.category !== undefined) {
-    change("category", claim.category ?? null, patch.category, () => {
-      if (patch.category === null) delete next.category;
-      else next.category = patch.category;
+    const category = patch.category;
+    change("category", claim.category ?? null, category, () => {
+      if (category === null) delete next.category;
+      else next.category = category;
     });
   }
   if (patch.tags !== undefined) {
@@ -180,15 +181,17 @@ export function editCandidateClaim(
     });
   }
   if (patch.validFrom !== undefined) {
-    change("validFrom", claim.validFrom ?? null, patch.validFrom, () => {
-      if (patch.validFrom === null) delete next.validFrom;
-      else next.validFrom = patch.validFrom;
+    const validFrom = patch.validFrom;
+    change("validFrom", claim.validFrom ?? null, validFrom, () => {
+      if (validFrom === null) delete next.validFrom;
+      else next.validFrom = validFrom;
     });
   }
   if (patch.validUntil !== undefined) {
-    change("validUntil", claim.validUntil ?? null, patch.validUntil, () => {
-      if (patch.validUntil === null) delete next.validUntil;
-      else next.validUntil = patch.validUntil;
+    const validUntil = patch.validUntil;
+    change("validUntil", claim.validUntil ?? null, validUntil, () => {
+      if (validUntil === null) delete next.validUntil;
+      else next.validUntil = validUntil;
     });
   }
 
