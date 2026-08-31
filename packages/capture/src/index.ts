@@ -1,4 +1,8 @@
 import { proposeClaim } from "@topo/core";
+import {
+  validateCapturedInteraction,
+  validateExtractedMemoryProposal,
+} from "@topo/schemas";
 import type {
   Actor,
   CapturedInteraction,
@@ -10,6 +14,7 @@ import type {
   MemoryEvent,
   MemorySource,
   Sensitivity,
+  SourceRetention,
 } from "@topo/schemas";
 
 export type {
@@ -23,7 +28,11 @@ export type {
   SourceRetention,
 } from "@topo/schemas";
 
-export type CapturedInteractionInput = Omit<CapturedInteraction, "retention"> & {\n  retention?: SourceRetention;\n};\n\nexport type ProposalComparison =
+export type CapturedInteractionInput = Omit<CapturedInteraction, "retention"> & {
+  retention?: SourceRetention;
+};
+
+export type ProposalComparison =
   | "new"
   | "supporting-evidence"
   | "potential-change";
@@ -66,7 +75,7 @@ function cloneJson<T extends JsonValue>(value: T): T {
 }
 
 export function normaliseCapturedInteraction(
-  input: CapturedInteraction,
+  input: CapturedInteractionInput,
 ): CapturedInteraction {
   const seen = new Set<string>();
   const turns = input.turns
@@ -95,7 +104,7 @@ export function normaliseCapturedInteraction(
     throw new Error("Captured interaction must contain at least one user turn");
   }
 
-  return {
+  const normalised: CapturedInteraction = {
     ...input,
     id: requireNonEmpty(input.id, "interaction.id"),
     provider: requireNonEmpty(input.provider, "interaction.provider"),
@@ -116,6 +125,8 @@ export function normaliseCapturedInteraction(
       ? {}
       : { metadata: cloneJson(input.metadata) }),
   };
+  validateCapturedInteraction(normalised);
+  return normalised;
 }
 
 function referencedTurns(
