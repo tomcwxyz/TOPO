@@ -18,9 +18,11 @@ import type {
 } from "@topo/schemas";
 
 export type {
+  CaptureClient,
   CaptureKind,
+  CaptureMode,
+  CaptureProduct,
   CaptureRole,
-  CaptureSurface,
   CapturedInteraction,
   CapturedTurn,
   ExtractedMemoryProposal,
@@ -152,7 +154,9 @@ function sourceMetadata(
 ): Record<string, JsonValue> {
   const metadata: Record<string, JsonValue> = {
     "topo.capture.kind": interaction.kind,
-    "topo.capture.surface": interaction.surface,
+    "topo.capture.product": interaction.product,
+    "topo.capture.client": interaction.client,
+    "topo.capture.mode": interaction.mode,
     "topo.capture.retention": interaction.retention ?? "review-window",
     "topo.capture.turnCount": interaction.turns.length,
     "topo.capture.evidenceTurns": referencedTurns(interaction, proposals).map((turn) => ({
@@ -265,7 +269,9 @@ export function prepareCaptureBatch(
     occurredAt: context.now,
     actor: { ...context.actor },
     data: {
-      captureSurface: interaction.surface,
+      captureProduct: interaction.product,
+      captureClient: interaction.client,
+      captureMode: interaction.mode,
       captureKind: interaction.kind,
       proposalCount: proposals.length,
       retention: interaction.retention ?? "review-window",
