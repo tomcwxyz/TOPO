@@ -31,7 +31,10 @@ chrome.action.onClicked.addListener(async (tab) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const run = async () => {
     if (message?.type === "TOPO_CAPTURE_STATUS") {
-      return { enabled: await captureEnabled(message.product) };
+      return {
+        enabled: await captureEnabled(message.product),
+        queued: (await readQueue()).length,
+      };
     }
 
     if (message?.type === "TOPO_TOGGLE_CAPTURE") {
@@ -49,8 +52,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
 
     if (message?.type === "TOPO_CAPTURE_SNAPSHOT") {
-      await deliverOrQueue(message.interaction as CapturedInteraction);
-      return { ok: true };
+      const result = await deliverOrQueue(message.interaction as CapturedInteraction);
+      if (sender.tab?.id !== undefined) {
+        await chrome.action.setBadgeText({
+          tabId: sender.tab.id,
+          text: result.delivery === "queued" ? "Q" : "ON",
+        });
+      }
+      return { ok: true, ...result };
     }
 
     return { ok: false };
@@ -85,7 +94,9 @@ async function setCaptureEnabled(
   });
 }
 
-async function deliverOrQueue(interaction: CapturedInteraction): Promise<void> {
+async function deliverOrQueue(
+  interaction: CapturedInteraction,
+): Promise<{ delivery: "delivered" | "queued"; queued: number }> {
   try {
     const response = await chrome.runtime.sendNativeMessage(NATIVE_HOST, {
       type: "capture.interaction",
@@ -95,8 +106,10 @@ async function deliverOrQueue(interaction: CapturedInteraction): Promise<void> {
       throw new Error(response?.error ?? "TOPO native host did not accept capture");
     }
     await flushQueue();
+    return { delivery: "delivered", queued: (await readQueue()).length };
   } catch {
     await queue(interaction);
+    return { delivery: "queued", queued: (await readQueue()).length };
   }
 }
 
