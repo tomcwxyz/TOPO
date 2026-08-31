@@ -14,7 +14,7 @@ TOPO is early-stage software handling potentially sensitive personal context. Tr
 - Analytics/telemetry are off by default.
 - MCP clients are proposal-first by default; confirmation/rejection tools require explicit review-authority delegation.
 - The initial MCP transport is stdio only.
-- The desktop OOS endpoint binds only to loopback, uses an ephemeral port and requires a random per-process bearer token discovered through a local file. It exposes read-only purpose-bound context and capabilities, not memory writes or review authority.
+- The desktop OOS endpoint binds only to loopback, uses an ephemeral port and requires a random per-process bearer token discovered through a local file. Context sharing is disabled by default on every launch and must be explicitly enabled in the TOPO UI for the current session. It exposes read-only purpose-bound context and capabilities, not memory writes or review authority.
 - TOPO will not claim zero-knowledge or end-to-end encryption unless the implementation actually provides those guarantees.
 
 ## Threat-model work required before remote use
