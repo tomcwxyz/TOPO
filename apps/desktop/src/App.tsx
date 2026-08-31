@@ -56,6 +56,7 @@ type ContextPreview = {
 
 type LocalContextSharingStatus = {
   enabled: boolean;
+  contributionsEnabled: boolean;
   maxSensitivity: "personal";
   resetsOnRestart: boolean;
 };
@@ -299,6 +300,27 @@ export function App() {
     }
   };
 
+  const setLocalContributionsEnabled = async (enabled: boolean) => {
+    setSharingBusy(true);
+    setError(null);
+    try {
+      const next = await invoke<LocalContextSharingStatus>(
+        "set_local_contributions",
+        { enabled },
+      );
+      setLocalSharing(next);
+      setMessage(
+        enabled
+          ? "Local tools may propose reviewable memory candidates for this session."
+          : "Local memory contributions stopped.",
+      );
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setSharingBusy(false);
+    }
+  };
+
   const selectExtractorModel = (model: string) => {
     setExtractorModel(model);
     if (model) window.localStorage.setItem("topo.ollamaModel", model);
@@ -483,11 +505,18 @@ export function App() {
             <div className="local-sharing-control">
               <div className="local-sharing-heading">
                 <div>
-                  <strong>Local tools</strong>
+                  <strong>Local connections</strong>
+                  <span>Separate authority for reading context and suggesting memory</span>
+                </div>
+              </div>
+
+              <div className="local-permission-row">
+                <div>
+                  <strong>Share context</strong>
                   <span>
                     {localSharing?.enabled
-                      ? "Allowed for this session"
-                      : "Not allowed"}
+                      ? "Ordinary + personal context allowed this session"
+                      : "Context sharing off"}
                   </span>
                 </div>
                 <button
@@ -501,16 +530,43 @@ export function App() {
                   {sharingBusy
                     ? "Updating…"
                     : localSharing?.enabled
-                      ? "Stop local access"
-                      : "Allow local tools"}
+                      ? "Stop sharing"
+                      : "Allow context"}
                 </button>
               </div>
+
+              <div className="local-permission-row">
+                <div>
+                  <strong>Accept contributions</strong>
+                  <span>
+                    {localSharing?.contributionsEnabled
+                      ? "Local tools may add reviewable candidates"
+                      : "Candidate suggestions off"}
+                  </span>
+                </div>
+                <button
+                  className={localSharing?.contributionsEnabled ? "quiet" : "secondary"}
+                  type="button"
+                  disabled={sharingBusy || localSharing === null}
+                  onClick={() =>
+                    void setLocalContributionsEnabled(
+                      !localSharing?.contributionsEnabled,
+                    )
+                  }
+                >
+                  {sharingBusy
+                    ? "Updating…"
+                    : localSharing?.contributionsEnabled
+                      ? "Stop suggestions"
+                      : "Allow suggestions"}
+                </button>
+              </div>
+
               <p>
-                When enabled, RACK and other compatible local tools can request
-                purpose-bound ordinary and personal context. They connect
-                automatically while TOPO is open. Sensitive and restricted
-                memory is never shared through this connection, and access
-                turns off again when TOPO restarts.
+                RACK, Claude Desktop and other compatible local tools only receive
+                the authority you enable here. Sharing context never implies write
+                authority. Contributions can create candidates only; confirmation
+                and rejection stay in TOPO. Both permissions reset when TOPO restarts.
               </p>
             </div>
 
