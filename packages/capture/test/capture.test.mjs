@@ -156,3 +156,41 @@ test("extraction prompt is conservative about questions and agent output", () =>
   assert.match(prompt, /user-authored evidence/);
   assert.match(prompt, /candidate memories only/);
 });
+
+test("partial desktop capture cannot create an inference", () => {
+  let sequence = 0;
+  assert.throws(
+    () =>
+      prepareCaptureBatch(
+        {
+          ...baseInteraction,
+          client: "desktop",
+          mode: "work",
+          captureMethod: "desktop-observer",
+          fidelity: "partial-visible",
+        },
+        [
+          {
+            key: "working.preference",
+            value: "local-first",
+            epistemicType: "inference",
+            confidence: 0.7,
+            evidenceTurnIds: ["u1"],
+            evidence: "Please use British English in future.",
+          },
+        ],
+        {
+          now: "2026-08-31T20:01:00.000Z",
+          actor: { type: "agent", id: "capture-extractor" },
+          createId: (prefix) => `${prefix}-${++sequence}`,
+        },
+      ),
+    /only supports directly evidenced assertions and preferences/,
+  );
+});
+
+test("partial-source extraction prompt disables inference", () => {
+  const prompt = buildCaptureExtractionPrompt("partial-visible");
+  assert.match(prompt, /This source is incomplete/);
+  assert.match(prompt, /Do not propose observations, inferences or derived patterns/);
+});
