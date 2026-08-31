@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "node scripts/build.mjs",
-    "check": "tsc -p tsconfig.json --noEmit && mcpb validate manifest.json",
+    "check": "tsc -p tsconfig.json --noEmit && npm run build && mcpb validate bundle",
     "pack": "npm run build && mcpb pack bundle dist/topo-claude-desktop.mcpb"
   },
   "dependencies": {
