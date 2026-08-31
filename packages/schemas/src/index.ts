@@ -98,6 +98,27 @@ export const captureModeSchema = z.enum([
 export type CaptureMode = z.infer<typeof captureModeSchema>;
 export const CAPTURE_MODES = captureModeSchema.options;
 
+export const captureMethodSchema = z.enum([
+  "browser-extension",
+  "desktop-observer",
+  "local-mcp",
+  "remote-mcp",
+  "agent-hook",
+  "history-import",
+  "manual",
+]);
+export type CaptureMethod = z.infer<typeof captureMethodSchema>;
+export const CAPTURE_METHODS = captureMethodSchema.options;
+
+export const captureFidelitySchema = z.enum([
+  "full-transcript",
+  "conversation-turns",
+  "task-summary",
+  "partial-visible",
+]);
+export type CaptureFidelity = z.infer<typeof captureFidelitySchema>;
+export const CAPTURE_FIDELITIES = captureFidelitySchema.options;
+
 export const captureKindSchema = z.enum([
   "conversation",
   "agent-session",
@@ -144,6 +165,8 @@ export const capturedInteractionSchema = z
     product: captureProductSchema,
     client: captureClientSchema,
     mode: captureModeSchema,
+    captureMethod: captureMethodSchema,
+    fidelity: captureFidelitySchema,
     provider: nonEmptyString,
     subject: nonEmptyString,
     title: nonEmptyString.optional(),
