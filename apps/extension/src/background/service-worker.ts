@@ -132,15 +132,20 @@ async function flushQueue(): Promise<void> {
   if (entries.length === 0) return;
 
   const remaining: QueueEntry[] = [];
-  for (const entry of entries) {
+  for (let index = 0; index < entries.length; index += 1) {
+    const entry = entries[index];
+    if (!entry) continue;
+
     try {
       const response = await chrome.runtime.sendNativeMessage(NATIVE_HOST, {
         type: "capture.interaction",
         interaction: entry.interaction,
       });
-      if (!response || response.ok !== true) remaining.push(entry);
+      if (!response || response.ok !== true) {
+        remaining.push(entry);
+      }
     } catch {
-      remaining.push(entry);
+      remaining.push(...entries.slice(index));
       break;
     }
   }
