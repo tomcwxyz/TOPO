@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import {
+  capturedInteractionSchema,
   memoryClaimSchema,
   memoryEventSchema,
   memorySourceSchema,
@@ -37,7 +38,9 @@ test("TypeScript accepts the shared event fixture", () => {
 
 test("TypeScript accepts the shared capture fixture", () => {
   const result = capturedInteractionSchema.parse(read("capture-conversation.json"));
-  assert.equal(result.surface, "chatgpt");
+  assert.equal(result.product, "chatgpt");
+  assert.equal(result.client, "desktop");
+  assert.equal(result.mode, "work");
   assert.equal(result.retention, "review-window");
   assert.equal(result.turns.length, 2);
 });
