@@ -146,19 +146,23 @@ The working distinction is:
 
 Hermes maintains bounded MEMORY.md and USER.md state and can also use one external memory provider alongside built-in memory.
 
-The first TOPO integration should be a companion MCP/tool integration rather than requiring TOPO to become the selected external provider. This lets people keep whichever Hermes memory provider they already use.
+The preferred TOPO integration is a **general Hermes plugin**, not a memory-provider replacement. Hermes exposes a post_llm_call hook after a successful turn with the user message, assistant response and conversation history. A TOPO plugin can use that hook to send a completed interaction to local TOPO automatically, without relying on the model remembering to call a tool.
 
-Hermes can send completed interaction batches to TOPO, ask TOPO for purpose-bound context, propose explicit “remember this” requests, and use TOPO when its own bounded memory would otherwise become a dumping ground.
+The same integration can register TOPO tools or use MCP for explicit retrieval and “remember this” actions.
 
-A native Hermes MemoryProvider can be explored later for people who explicitly want TOPO in that slot.
+This means people can keep whichever Hermes external memory provider they already use. Hermes native memory remains its compact hot cache; TOPO receives durable cross-agent candidates through the normal governance pipeline.
+
+A native Hermes MemoryProvider remains an optional later adapter for people who explicitly want TOPO in that provider slot, but it is not the default architecture.
 
 ### OpenClaw
 
 OpenClaw has workspace memory, daily notes, active recall and an exclusive primary memory capability.
 
-TOPO should initially integrate as a companion tool/plugin or MCP source rather than replacing memory-core or another active memory plugin.
+The preferred TOPO integration is a **companion OpenClaw plugin**. OpenClaw exposes an agent_end observation hook after a turn, and plugins can register ordinary agent tools without claiming the exclusive memory capability. With explicit conversation-access permission, the hook can submit completed interaction material to TOPO automatically.
 
-OpenClaw can keep daily/session notes locally while TOPO receives only durable cross-agent candidates. TOPO context can be retrieved when needed rather than mirrored wholesale into MEMORY.md.
+TOPO retrieval can initially remain tool/MCP based so context is fetched when useful rather than injected wholesale into every prompt. A later opt-in before_prompt_build integration can add selected purpose-bound TOPO context when the user explicitly enables that behaviour.
+
+OpenClaw can therefore keep memory-core, LanceDB or another selected memory capability while TOPO receives only durable cross-agent candidates.
 
 ### Memory pressure
 
