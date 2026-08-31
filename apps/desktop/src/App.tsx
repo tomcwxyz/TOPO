@@ -79,6 +79,23 @@ type CaptureInboxStatus = {
   items: CaptureInboxItem[];
 };
 
+type OllamaStatus = {
+  available: boolean;
+  models: string[];
+  error?: string;
+};
+
+type CaptureProcessResult = {
+  interactionId: string;
+  extractor: string;
+  duplicateSnapshot: boolean;
+  proposalsExtracted: number;
+  candidatesCreated: number;
+  supportingEvidenceAdded: number;
+  potentialChanges: number;
+  sourceId?: string;
+};
+
 const emptyForm = {
   subject: "",
   key: "",
@@ -136,6 +153,11 @@ export function App() {
     useState<LocalContextSharingStatus | null>(null);
   const [sharingBusy, setSharingBusy] = useState(false);
   const [captureInbox, setCaptureInbox] = useState<CaptureInboxStatus | null>(null);
+  const [ollama, setOllama] = useState<OllamaStatus | null>(null);
+  const [extractorModel, setExtractorModel] = useState(
+    () => window.localStorage.getItem("topo.ollamaModel") ?? "",
+  );
+  const [captureBusy, setCaptureBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -164,6 +186,23 @@ export function App() {
     void invoke<LocalContextSharingStatus>("local_context_sharing_status")
       .then(setLocalSharing)
       .catch((cause) => setError(String(cause)));
+  }, []);
+
+  useEffect(() => {
+    void invoke<OllamaStatus>("ollama_extractor_status")
+      .then((next) => {
+        setOllama(next);
+        if (next.available && next.models.length > 0) {
+          setExtractorModel((current) => {
+            const selected = current && next.models.includes(current)
+              ? current
+              : next.models[0];
+            if (selected) window.localStorage.setItem("topo.ollamaModel", selected);
+            return selected ?? "";
+          });
+        }
+      })
+      .catch((cause) => setOllama({ available: false, models: [], error: String(cause) }));
   }, []);
 
   const candidateCount = status?.candidates ?? 0;
@@ -260,6 +299,52 @@ export function App() {
     }
   };
 
+  const selectExtractorModel = (model: string) => {
+    setExtractorModel(model);
+    if (model) window.localStorage.setItem("topo.ollamaModel", model);
+    else window.localStorage.removeItem("topo.ollamaModel");
+  };
+
+  const processCapturedInteractions = async () => {
+    if (!captureInbox || captureInbox.items.length === 0) return;
+    if (!extractorModel) {
+      setError("Choose a local Ollama model before extracting captured interactions.");
+      return;
+    }
+
+    setCaptureBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const results: CaptureProcessResult[] = [];
+      for (const item of captureInbox.items) {
+        results.push(
+          await invoke<CaptureProcessResult>("process_capture_with_ollama", {
+            interactionId: item.id,
+            model: extractorModel,
+          }),
+        );
+      }
+
+      const candidates = results.reduce((sum, result) => sum + result.candidatesCreated, 0);
+      const evidence = results.reduce(
+        (sum, result) => sum + result.supportingEvidenceAdded,
+        0,
+      );
+      const changes = results.reduce((sum, result) => sum + result.potentialChanges, 0);
+      setMessage(
+        `Capture processed locally: ${candidates} candidate${candidates === 1 ? "" : "s"}, ` +
+          `${evidence} supporting evidence update${evidence === 1 ? "" : "s"}` +
+          (changes > 0 ? `, ${changes} potential change${changes === 1 ? "" : "s"} flagged.` : "."),
+      );
+      await refresh();
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setCaptureBusy(false);
+    }
+  };
+
   const previewContext = async () => {
     setBusy(true);
     setError(null);
@@ -331,6 +416,49 @@ export function App() {
                 ChatGPT, Claude and Gemini browser capture can queue locally even when TOPO is closed.
                 Captured interactions remain source material until TOPO extracts candidates and you review them.
               </p>
+              <div className="capture-extractor">
+                <div>
+                  <strong>Local extractor</strong>
+                  <span>
+                    {ollama === null
+                      ? "Checking Ollama…"
+                      : ollama.available
+                        ? `${ollama.models.length} model${ollama.models.length === 1 ? "" : "s"} available`
+                        : "Ollama not available"}
+                  </span>
+                </div>
+                {ollama?.available && ollama.models.length > 0 ? (
+                  <select
+                    aria-label="Ollama extraction model"
+                    value={extractorModel}
+                    onChange={(event) => selectExtractorModel(event.target.value)}
+                  >
+                    {ollama.models.map((model) => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <small>
+                    {ollama?.error ?? "Install/start Ollama to extract captures locally."}
+                  </small>
+                )}
+                <button
+                  className="secondary"
+                  type="button"
+                  disabled={
+                    captureBusy ||
+                    !captureInbox ||
+                    captureInbox.pending === 0 ||
+                    !ollama?.available ||
+                    !extractorModel
+                  }
+                  onClick={() => void processCapturedInteractions()}
+                >
+                  {captureBusy
+                    ? "Extracting locally…"
+                    : `Extract ${captureInbox?.pending ?? 0} waiting`}
+                </button>
+              </div>
               {captureInbox && captureInbox.items.length > 0 && (
                 <div className="capture-inbox-list">
                   {captureInbox.items.slice(0, 4).map((item) => (
