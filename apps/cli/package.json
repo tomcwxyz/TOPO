@@ -15,7 +15,9 @@
     "@topo/formats": "0.1.0",
     "@topo/schemas": "0.1.0",
     "@topo/store-node": "0.1.0",
-    "commander": "^14.0.0"
+    "commander": "^14.0.0",
+    "@topo/oos": "0.1.0",
+    "@topo/store": "0.1.0"
   },
   "devDependencies": {
     "@types/node": "^24.3.0"
