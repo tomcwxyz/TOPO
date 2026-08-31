@@ -142,10 +142,14 @@ pub(crate) fn load_capture(interaction_id: &str) -> Result<LoadedCapture, String
             continue;
         }
 
-        let interaction = serde_json::from_slice::<CapturedInteraction>(
-            &fs::read(&path).map_err(|error| format!("Could not read capture: {error}"))?,
-        )
-        .map_err(|error| format!("Could not parse capture: {error}"))?;
+        let bytes = match fs::read(&path) {
+            Ok(bytes) => bytes,
+            Err(_) => continue,
+        };
+        let interaction = match serde_json::from_slice::<CapturedInteraction>(&bytes) {
+            Ok(interaction) => interaction,
+            Err(_) => continue,
+        };
 
         if interaction.id == interaction_id {
             return Ok(LoadedCapture { path, interaction });
