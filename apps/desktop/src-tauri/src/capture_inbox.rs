@@ -39,6 +39,116 @@ fn enum_text<T: Serialize>(value: &T) -> Result<String, String> {
         .ok_or_else(|| "Expected capture enum to serialise as a string.".to_owned())
 }
 
+pub(crate) fn queue_capture(interaction: &CapturedInteraction) -> Result<PathBuf, String> {
+    queue_capture_at(&inbox_path()?, interaction)
+}
+
+pub(crate) fn queue_capture_at(
+    directory: &std::path::Path,
+    interaction: &CapturedInteraction,
+) -> Result<PathBuf, String> {
+    validate_interaction(interaction)?;
+    fs::create_dir_all(directory)
+        .map_err(|error| format!("Could not prepare TOPO capture inbox: {error}"))?;
+    secure_directory(directory)?;
+
+    let filename = format!("{}.json", safe_filename(&interaction.id));
+    let destination = directory.join(filename);
+    let temporary = directory.join(format!(
+        ".{}.{}.tmp",
+        safe_filename(&interaction.id),
+        std::process::id()
+    ));
+    let content = serde_json::to_vec_pretty(interaction)
+        .map_err(|error| format!("Could not encode TOPO capture: {error}"))?;
+
+    fs::write(&temporary, content)
+        .map_err(|error| format!("Could not write TOPO capture: {error}"))?;
+    secure_file(&temporary)?;
+
+    if destination.exists() {
+        let metadata = fs::symlink_metadata(&destination)
+            .map_err(|error| format!("Could not inspect existing TOPO capture: {error}"))?;
+        if metadata.file_type().is_symlink() || !metadata.is_file() {
+            let _ = fs::remove_file(&temporary);
+            return Err("TOPO capture destination is not an ordinary file.".to_owned());
+        }
+        fs::remove_file(&destination)
+            .map_err(|error| format!("Could not replace queued TOPO capture: {error}"))?;
+    }
+
+    fs::rename(&temporary, &destination)
+        .map_err(|error| format!("Could not publish TOPO capture: {error}"))?;
+    Ok(destination)
+}
+
+fn validate_interaction(interaction: &CapturedInteraction) -> Result<(), String> {
+    if interaction.id.trim().is_empty()
+        || interaction.provider.trim().is_empty()
+        || interaction.subject.trim().is_empty()
+    {
+        return Err("Captured interaction id, provider and subject are required.".to_owned());
+    }
+    if interaction.turns.is_empty() {
+        return Err("Captured interaction has no turns.".to_owned());
+    }
+    if !interaction
+        .turns
+        .iter()
+        .any(|turn| matches!(turn.role, topo_contracts::CaptureRole::User))
+    {
+        return Err("Captured interaction has no user-authored turn.".to_owned());
+    }
+    if interaction
+        .turns
+        .iter()
+        .any(|turn| turn.id.trim().is_empty() || turn.content.trim().is_empty())
+    {
+        return Err("Captured interaction contains an empty turn.".to_owned());
+    }
+    Ok(())
+}
+
+fn safe_filename(value: &str) -> String {
+    let mut output = String::with_capacity(value.len());
+    for character in value.chars() {
+        if character.is_ascii_alphanumeric() || matches!(character, '-' | '_' | '.') {
+            output.push(character);
+        } else {
+            output.push('_');
+        }
+    }
+    if output.is_empty() {
+        "capture".to_owned()
+    } else {
+        output.chars().take(180).collect()
+    }
+}
+
+#[cfg(unix)]
+fn secure_directory(path: &std::path::Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o700))
+        .map_err(|error| format!("Could not secure TOPO capture inbox: {error}"))
+}
+
+#[cfg(not(unix))]
+fn secure_directory(_path: &std::path::Path) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(unix)]
+fn secure_file(path: &std::path::Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))
+        .map_err(|error| format!("Could not secure TOPO capture file: {error}"))
+}
+
+#[cfg(not(unix))]
+fn secure_file(_path: &std::path::Path) -> Result<(), String> {
+    Ok(())
+}
+
 pub fn read_capture_inbox_at(directory: PathBuf) -> Result<CaptureInboxStatus, String> {
     if !directory.exists() {
         return Ok(CaptureInboxStatus {
@@ -189,6 +299,57 @@ pub fn capture_inbox_status() -> Result<CaptureInboxStatus, String> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    fn agent_interaction() -> CapturedInteraction {
+        serde_json::from_value(json!({
+            "id": "hermes-agent-session-1",
+            "kind": "agent-session",
+            "product": "hermes",
+            "client": "agent-runtime",
+            "mode": "agent",
+            "captureMethod": "agent-hook",
+            "fidelity": "conversation-turns",
+            "provider": "hermes",
+            "subject": "self",
+            "capturedAt": "2026-08-31T22:00:00Z",
+            "turns": [
+                { "id": "u1", "role": "user", "content": "Keep this project local-first." },
+                { "id": "a1", "role": "assistant", "content": "Understood." }
+            ],
+            "retention": "review-window"
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn queued_snapshot_replaces_earlier_version_atomically() {
+        let directory = tempfile::tempdir().unwrap();
+        let first = agent_interaction();
+        let path = queue_capture_at(directory.path(), &first).unwrap();
+
+        let mut newer = first.clone();
+        newer.turns.push(topo_contracts::CapturedTurn {
+            id: "u2".to_owned(),
+            role: topo_contracts::CaptureRole::User,
+            content: "And use British English.".to_owned(),
+            occurred_at: None,
+        });
+        queue_capture_at(directory.path(), &newer).unwrap();
+
+        let stored: CapturedInteraction =
+            serde_json::from_slice(&fs::read(path).unwrap()).unwrap();
+        assert_eq!(stored.turns.len(), 3);
+    }
+
+    #[test]
+    fn queued_capture_requires_user_authored_evidence() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut invalid = agent_interaction();
+        invalid
+            .turns
+            .retain(|turn| turn.role != topo_contracts::CaptureRole::User);
+        assert!(queue_capture_at(directory.path(), &invalid).is_err());
+    }
 
     #[test]
     fn empty_missing_inbox_is_valid() {
