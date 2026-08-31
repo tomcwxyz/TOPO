@@ -1,3 +1,4 @@
+mod capture_inbox;
 mod oos_local;
 
 use chrono::{DateTime, Utc};
@@ -749,6 +750,7 @@ pub fn run() {
             edit_candidate_claim,
             review_candidate,
             preview_context,
+            capture_inbox::capture_inbox_status,
             oos_local::local_context_sharing_status,
             oos_local::set_local_context_sharing
         ])
