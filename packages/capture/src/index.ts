@@ -221,6 +221,17 @@ function validateProposal(
   }
 
   if (
+    (interaction.fidelity === "task-summary" ||
+      interaction.fidelity === "partial-visible") &&
+    proposal.epistemicType !== "assertion" &&
+    proposal.epistemicType !== "preference"
+  ) {
+    throw new Error(
+      `${interaction.fidelity} capture only supports directly evidenced assertions and preferences`,
+    );
+  }
+
+  if (
     (proposal.epistemicType === "assertion" ||
       proposal.epistemicType === "preference") &&
     evidenceTurns.every((turn) => turn.role !== "user")
@@ -357,7 +368,17 @@ export function compareProposalToConfirmedClaims(
   return sameKey.length > 0 ? "potential-change" : "new";
 }
 
-export function buildCaptureExtractionPrompt(): string {
+export function buildCaptureExtractionPrompt(
+  fidelity: CaptureFidelity = "conversation-turns",
+): string {
+  const fidelityRules =
+    fidelity === "task-summary" || fidelity === "partial-visible"
+      ? [
+          "- This source is incomplete. Only propose assertion or preference candidates directly supported by user-authored evidence.",
+          "- Do not propose observations, inferences or derived patterns from incomplete capture.",
+        ]
+      : [];
+
   return [
     "You are identifying durable user context that may be worth remembering across future AI interactions.",
     "",
@@ -371,6 +392,7 @@ export function buildCaptureExtractionPrompt(): string {
     "- Temporary memories should include validUntil where the conversation provides a reasonable boundary. Do not invent dates.",
     "- Do not extract passwords, API keys, authentication tokens, financial credentials or other secrets.",
     "- Be conservative with sensitive personal data and mark sensitivity explicitly.",
+    ...fidelityRules,
     "",
     "Return JSON only as an array of objects with:",
     "key, value, category?, tags?, epistemicType, confidence, sensitivity?, horizon?, evidenceTurnIds, evidence, validUntil?.",
