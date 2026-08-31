@@ -6,6 +6,7 @@ import {
   compareProposalToConfirmedClaims,
   normaliseCapturedInteraction,
   prepareCaptureBatch,
+  recommendedCaptureStrategy,
 } from "../dist/index.js";
 
 const baseInteraction = {
@@ -193,4 +194,47 @@ test("partial-source extraction prompt disables inference", () => {
   const prompt = buildCaptureExtractionPrompt("partial-visible");
   assert.match(prompt, /This source is incomplete/);
   assert.match(prompt, /Do not propose observations, inferences or derived patterns/);
+});
+
+test("surface strategy prefers browser capture for ChatGPT web Work", () => {
+  const strategy = recommendedCaptureStrategy({
+    product: "chatgpt",
+    client: "web",
+    mode: "work",
+  });
+  assert.equal(strategy.availability, "ambient");
+  assert.equal(strategy.primaryMethod, "browser-extension");
+});
+
+test("surface strategy prefers observer plus local MCP for Claude desktop Cowork", () => {
+  const strategy = recommendedCaptureStrategy({
+    product: "claude",
+    client: "desktop",
+    mode: "cowork",
+  });
+  assert.equal(strategy.availability, "ambient");
+  assert.equal(strategy.primaryMethod, "desktop-observer");
+  assert.equal(strategy.secondaryMethods.includes("local-mcp"), true);
+});
+
+test("Claude Chrome side panel is explicit-only", () => {
+  const strategy = recommendedCaptureStrategy({
+    product: "claude",
+    client: "chrome-sidepanel",
+    mode: "cowork",
+  });
+  assert.equal(strategy.availability, "explicit-only");
+  assert.equal(strategy.primaryMethod, "remote-mcp");
+});
+
+test("agent runtimes use lifecycle hooks before memory-provider replacement", () => {
+  for (const product of ["hermes", "openclaw"]) {
+    const strategy = recommendedCaptureStrategy({
+      product,
+      client: "agent-runtime",
+      mode: "agent",
+    });
+    assert.equal(strategy.primaryMethod, "agent-hook");
+    assert.equal(strategy.secondaryMethods.includes("local-mcp"), true);
+  }
 });
