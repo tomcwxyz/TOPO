@@ -60,8 +60,26 @@ Before FlowLance events are ingested, TOPO needs one of two explicit designs:
 
 The first option currently looks more faithful to the Organisational OS model.
 
+## Local desktop endpoint
+
+The TOPO desktop now exposes a deliberately narrow local-only OOS endpoint while the app is running.
+
+Discovery is written to `~/.topo/oos-local.json`. The file contains a loopback endpoint and a per-process bearer token. On Unix the discovery file is written with mode `0600`.
+
+The endpoint:
+
+- binds only to `127.0.0.1` on an ephemeral port;
+- requires the bearer token for every request;
+- exposes capability discovery at `GET /v0/capabilities`;
+- exposes purpose-bound context at `POST /v0/context`;
+- caps request bodies at 64 KiB;
+- never exposes sensitive or restricted memory through this transport;
+- does not expose write/review/action capabilities.
+
+This is **not** a general HTTP API and must not be bound to a non-loopback interface. It is a local-alpha transport intended to let another installed local application such as RACK request context without reading TOPO's SQLite database or requiring a Node CLI path.
+
 ## Next step
 
-Use this adapter as the local ContextSource for RACK.
+Use this authenticated local endpoint from the RACK desktop and test desktop-to-desktop context consumption.
 
 After that, design the external-object/event ledger required for FlowLance catch-up without weakening TOPO's claim-review model.
