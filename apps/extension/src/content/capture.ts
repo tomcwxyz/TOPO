@@ -8,12 +8,16 @@ let observer: MutationObserver | undefined;
 let timer: number | undefined;
 let indicator: HTMLButtonElement | undefined;
 let lastSignature = "";
+let delivery: "unknown" | "delivered" | "queued" = "unknown";
+let queuedCount = 0;
 
 if (adapter) {
   chrome.runtime.sendMessage({
     type: "TOPO_CAPTURE_STATUS",
     product: adapter.product,
   }).then((response) => {
+    queuedCount = Number(response?.queued ?? 0);
+    delivery = queuedCount > 0 ? "queued" : "unknown";
     setEnabled(Boolean(response?.enabled));
   }).catch(() => undefined);
 
@@ -110,7 +114,16 @@ function captureSnapshot(): void {
   chrome.runtime.sendMessage({
     type: "TOPO_CAPTURE_SNAPSHOT",
     interaction,
-  }).catch(() => undefined);
+  }).then((response) => {
+    if (response?.delivery === "delivered" || response?.delivery === "queued") {
+      delivery = response.delivery;
+      queuedCount = Number(response.queued ?? 0);
+      renderIndicator();
+    }
+  }).catch(() => {
+    delivery = "queued";
+    renderIndicator();
+  });
 }
 
 function renderIndicator(): void {
@@ -139,9 +152,17 @@ function renderIndicator(): void {
     document.documentElement.appendChild(indicator);
   }
 
-  indicator.textContent = enabled ? "TOPO capture on" : "TOPO capture paused";
-  indicator.title = enabled
-    ? "Click to pause TOPO capture for this AI"
-    : "Click to enable TOPO capture for this AI";
+  indicator.textContent = !enabled
+    ? "TOPO capture paused"
+    : delivery === "queued"
+      ? `TOPO capture on · ${queuedCount || 1} queued`
+      : delivery === "delivered"
+        ? "TOPO capture on · local"
+        : "TOPO capture on";
+  indicator.title = !enabled
+    ? "Click to enable TOPO capture for this AI"
+    : delivery === "queued"
+      ? "Capture is enabled but the native TOPO bridge is unavailable; interaction snapshots are queued in the extension."
+      : "Capture is enabled and interaction snapshots are being handed to local TOPO.";
   indicator.style.opacity = enabled ? "0.92" : "0.65";
 }
