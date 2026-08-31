@@ -84,6 +84,27 @@ pub enum CaptureMode {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
+pub enum CaptureMethod {
+    BrowserExtension,
+    DesktopObserver,
+    LocalMcp,
+    RemoteMcp,
+    AgentHook,
+    HistoryImport,
+    Manual,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CaptureFidelity {
+    FullTranscript,
+    ConversationTurns,
+    TaskSummary,
+    PartialVisible,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum CaptureKind {
     Conversation,
     AgentSession,
@@ -245,6 +266,8 @@ pub struct CapturedInteraction {
     pub product: CaptureProduct,
     pub client: CaptureClient,
     pub mode: CaptureMode,
+    pub capture_method: CaptureMethod,
+    pub fidelity: CaptureFidelity,
     pub provider: String,
     pub subject: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -316,6 +339,8 @@ mod tests {
         assert_eq!(parsed.product, CaptureProduct::Chatgpt);
         assert_eq!(parsed.client, CaptureClient::Desktop);
         assert_eq!(parsed.mode, CaptureMode::Work);
+        assert_eq!(parsed.capture_method, CaptureMethod::DesktopObserver);
+        assert_eq!(parsed.fidelity, CaptureFidelity::ConversationTurns);
         assert_eq!(parsed.retention, SourceRetention::ReviewWindow);
         assert_eq!(serde_json::to_value(parsed).unwrap(), original);
     }
