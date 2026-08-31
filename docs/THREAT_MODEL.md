@@ -72,6 +72,9 @@ Multi-device or multi-user features add authentication, authorisation, tenancy a
 11. **Partial or destructive import** — an invalid or conflicting bundle leaves the destination memory half-written or silently overwrites established records.
    - Mitigation: validate the complete bundle before import; check conflicts and write inside one transaction; v0.1 rejects existing IDs instead of overwriting them.
 
+12. **MCP review delegation mistaken for ordinary access** — a connected agent is accidentally allowed to make durable review decisions.
+   - Mitigation: proposal-first default; review tools are absent unless explicitly delegated; delegated actions use a distinct auditable user actor ID; sensitivity ceiling applies independently.
+
 ## Security invariants for v0.1
 
 - No required network service for core operation.
