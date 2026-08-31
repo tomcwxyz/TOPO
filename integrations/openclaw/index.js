@@ -293,7 +293,8 @@ export default definePluginEntry({
   register(api) {
     api.on(
       "before_prompt_build",
-      async (event) => {
+      async (event, ctx) => {
+        if (ctx.trigger && ctx.trigger !== "user") return undefined;
         try {
           await flushQueue();
         } catch {}
