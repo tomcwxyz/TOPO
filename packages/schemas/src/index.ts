@@ -293,6 +293,7 @@ export type MemorySource = z.infer<typeof memorySourceSchema>;
 export const eventTypeSchema = z.enum([
   "source.captured",
   "claim.proposed",
+  "claim.evidence_added",
   "claim.confirmed",
   "claim.edited",
   "claim.rejected",
