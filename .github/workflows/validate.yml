@@ -24,4 +24,6 @@ jobs:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
       - run: npm install
+      - name: Validate Hermes adapter syntax
+        run: python3 -m py_compile adapters/hermes/__init__.py scripts/install-hermes-topo-plugin.py
       - run: npm run validate
