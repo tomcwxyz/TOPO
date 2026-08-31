@@ -24,18 +24,18 @@ TOPO treats memory as governed context rather than an opaque store of inferred f
 
 ## Status
 
-TOPO is now in **local alpha**. The canonical claim lifecycle, local SQLite store, CLI, proposal-first MCP server and a usable Tauri desktop memory manager are working. Desktop, CLI, MCP and interoperability adapters share the same local store rather than maintaining parallel memory.
+TOPO is now in **local alpha**. The canonical claim lifecycle, local SQLite store, CLI, proposal-first MCP server and a usable Tauri desktop memory manager are working. The immediate product focus is ambient capture: learning candidate memory from normal AI interactions without weakening the review model. Desktop, CLI, MCP and interoperability adapters share the same local store rather than maintaining parallel memory.
 
 The desktop application is intended to become the primary local manager. CLI, MCP and browser-extension clients will use the same portable domain contract rather than owning separate definitions of memory.
 
 TOPO is also beginning to act as a local memory/context node for the draft [Organisational OS](https://github.com/tomcwxyz/Organisational-OS). The first adapter exposes purpose-bound Context Packets while deliberately keeping external operational state distinct from canonical memory Claims.
 
-See [PLAN.md](PLAN.md), [ROADMAP.md](ROADMAP.md), [Organisational OS adapter](docs/OOS_ADAPTER.md), [local alpha releases](docs/RELEASE.md) and [docs/adr](docs/adr).
+See [PLAN.md](PLAN.md), [ROADMAP.md](ROADMAP.md), [capture architecture](docs/CAPTURE.md), [Organisational OS adapter](docs/OOS_ADAPTER.md), [local alpha releases](docs/RELEASE.md) and [docs/adr](docs/adr).
 
 ## Repository shape
 
 - `packages/schemas` — canonical runtime/interchange schemas.
-- `packages/core` — claim lifecycle and domain policy.
+- `packages/core` — claim lifecycle and domain policy.\n- `packages/capture` — captured interaction contracts, evidence policy and candidate preparation.
 - `packages/store` — runtime-neutral persistence interfaces.
 - `packages/store-node` — Node SQLite adapter for CLI/MCP use.
 - `crates/topo-contracts` — Rust representation of the native interchange boundary.
