@@ -1,0 +1,53 @@
+{
+  "manifest_version": "0.3",
+  "name": "topo-local-context",
+  "display_name": "TOPO",
+  "version": "0.1.0",
+  "description": "Use governed local TOPO context from Claude Desktop and propose reviewable memory candidates.",
+  "long_description": "Connect Claude Desktop to a running TOPO Desktop instance. Claude can request purpose-bound confirmed context and search confirmed memory only when context sharing is enabled in TOPO. It can propose candidate memories only when contribution access is separately enabled. Claude never receives confirmation or rejection authority.",
+  "author": {
+    "name": "The Good Ship",
+    "url": "https://good-ship.co.uk"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tomcwxyz/TOPO"
+  },
+  "support": "https://github.com/tomcwxyz/TOPO/issues",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": ["${__dirname}/server/index.js"],
+      "env": {}
+    }
+  },
+  "tools": [
+    {
+      "name": "topo_capabilities",
+      "description": "Check which TOPO local permissions are currently enabled."
+    },
+    {
+      "name": "topo_context",
+      "description": "Request purpose-bound confirmed TOPO context for the current task."
+    },
+    {
+      "name": "topo_search",
+      "description": "Search confirmed TOPO memory within the local sharing ceiling."
+    },
+    {
+      "name": "topo_propose_claims",
+      "description": "Propose reviewable candidate memories; this never confirms memory."
+    }
+  ],
+  "keywords": ["memory", "context", "local-first", "governance"],
+  "license": "Apache-2.0",
+  "compatibility": {
+    "claude_desktop": ">=1.0.0",
+    "platforms": ["darwin", "win32"],
+    "runtimes": {
+      "node": ">=18.0.0"
+    }
+  }
+}
