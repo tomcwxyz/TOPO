@@ -748,7 +748,9 @@ pub fn run() {
             create_claim,
             edit_candidate_claim,
             review_candidate,
-            preview_context
+            preview_context,
+            oos_local::local_context_sharing_status,
+            oos_local::set_local_context_sharing
         ])
         .run(tauri::generate_context!())
         .expect("error while running TOPO");

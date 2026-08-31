@@ -50,8 +50,17 @@ struct WantedContext {
     max_items: Option<usize>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalContextSharingStatus {
+    enabled: bool,
+    max_sensitivity: &'static str,
+    resets_on_restart: bool,
+}
+
 pub struct LocalOosEndpoint {
     shutdown: Arc<AtomicBool>,
+    sharing_enabled: Arc<AtomicBool>,
     discovery_path: PathBuf,
     token: String,
 }
@@ -70,6 +79,7 @@ impl LocalOosEndpoint {
         let endpoint = format!("http://{}", server.server_addr());
         let token = format!("{}{}", Uuid::new_v4().simple(), Uuid::new_v4().simple());
         let shutdown = Arc::new(AtomicBool::new(false));
+        let sharing_enabled = Arc::new(AtomicBool::new(false));
 
         let discovery = DiscoveryFile {
             protocol: PROTOCOL.to_owned(),
@@ -87,6 +97,7 @@ impl LocalOosEndpoint {
 
         let server_token = token.clone();
         let server_shutdown = shutdown.clone();
+        let server_sharing = sharing_enabled.clone();
         thread::Builder::new()
             .name("topo-oos-local".to_owned())
             .spawn(move || {
@@ -96,16 +107,25 @@ impl LocalOosEndpoint {
                         Ok(None) => continue,
                         Err(_) => break,
                     };
-                    handle_request(request, &server_token);
+                    handle_request(request, &server_token, &server_sharing);
                 }
             })
             .map_err(|error| format!("Could not start TOPO local endpoint thread: {error}"))?;
 
         Ok(Self {
             shutdown,
+            sharing_enabled,
             discovery_path,
             token,
         })
+    }
+
+    fn sharing_enabled(&self) -> bool {
+        self.sharing_enabled.load(Ordering::Acquire)
+    }
+
+    fn set_sharing_enabled(&self, enabled: bool) {
+        self.sharing_enabled.store(enabled, Ordering::Release);
     }
 }
 
@@ -121,6 +141,30 @@ impl Drop for LocalOosEndpoint {
         if owned_by_this_process {
             let _ = fs::remove_file(&self.discovery_path);
         }
+    }
+}
+
+#[tauri::command]
+pub fn local_context_sharing_status(
+    endpoint: tauri::State<'_, LocalOosEndpoint>,
+) -> LocalContextSharingStatus {
+    LocalContextSharingStatus {
+        enabled: endpoint.sharing_enabled(),
+        max_sensitivity: "personal",
+        resets_on_restart: true,
+    }
+}
+
+#[tauri::command]
+pub fn set_local_context_sharing(
+    endpoint: tauri::State<'_, LocalOosEndpoint>,
+    enabled: bool,
+) -> LocalContextSharingStatus {
+    endpoint.set_sharing_enabled(enabled);
+    LocalContextSharingStatus {
+        enabled,
+        max_sensitivity: "personal",
+        resets_on_restart: true,
     }
 }
 
@@ -175,14 +219,22 @@ fn authorised(request: &tiny_http::Request, token: &str) -> bool {
         .is_some_and(|header| header.value.as_str() == expected)
 }
 
-fn handle_request(mut request: tiny_http::Request, token: &str) {
+fn handle_request(
+    mut request: tiny_http::Request,
+    token: &str,
+    sharing_enabled: &Arc<AtomicBool>,
+) {
     if !authorised(&request, token) {
         let _ = request.respond(json_response(json!({ "error": "unauthorised" }), 401));
         return;
     }
 
+    let sharing = sharing_enabled.load(Ordering::Acquire);
+
     match (request.method(), request.url()) {
         (&Method::Get, "/v0/capabilities") => {
+            let queries: Vec<&str> = if sharing { vec!["context"] } else { vec![] };
+            let provides: Vec<&str> = if sharing { vec!["context"] } else { vec![] };
             let _ = request.respond(json_response(
                 json!({
                     "protocol": "oos/0.1-draft",
@@ -191,21 +243,34 @@ fn handle_request(mut request: tiny_http::Request, token: &str) {
                         "name": "TOPO",
                         "version": env!("CARGO_PKG_VERSION")
                     },
-                    "provides": ["context"],
+                    "provides": provides,
                     "emits": [],
                     "accepts": [],
-                    "queries": ["context"],
+                    "queries": queries,
                     "actions": [],
                     "extensions": {
                         "transport": PROTOCOL,
                         "scope": "local-only",
-                        "sensitivity_ceiling": "personal"
+                        "sensitivity_ceiling": "personal",
+                        "sharing_enabled": sharing,
+                        "sharing_resets_on_restart": true
                     }
                 }),
                 200,
             ));
         }
         (&Method::Post, "/v0/context") => {
+            if !sharing {
+                let _ = request.respond(json_response(
+                    json!({
+                        "error": "local context sharing is disabled in TOPO",
+                        "code": "TOPO_LOCAL_SHARING_DISABLED"
+                    }),
+                    403,
+                ));
+                return;
+            }
+
             let mut body = String::new();
             if request
                 .as_reader()
@@ -257,6 +322,27 @@ fn handle_request(mut request: tiny_http::Request, token: &str) {
 mod tests {
     use super::*;
 
+    fn endpoint_for_test(path: PathBuf, token: &str) -> LocalOosEndpoint {
+        LocalOosEndpoint {
+            shutdown: Arc::new(AtomicBool::new(false)),
+            sharing_enabled: Arc::new(AtomicBool::new(false)),
+            discovery_path: path,
+            token: token.to_owned(),
+        }
+    }
+
+    #[test]
+    fn local_sharing_is_off_by_default_and_explicitly_mutable() {
+        let directory = tempfile::tempdir().unwrap();
+        let endpoint = endpoint_for_test(directory.path().join("missing.json"), "test-token");
+
+        assert!(!endpoint.sharing_enabled());
+        endpoint.set_sharing_enabled(true);
+        assert!(endpoint.sharing_enabled());
+        endpoint.set_sharing_enabled(false);
+        assert!(!endpoint.sharing_enabled());
+    }
+
     #[test]
     fn discovery_file_is_private_on_unix() {
         let directory = tempfile::tempdir().unwrap();
@@ -302,11 +388,7 @@ mod tests {
         write_discovery(&path, &newer).unwrap();
 
         {
-            let endpoint = LocalOosEndpoint {
-                shutdown: Arc::new(AtomicBool::new(false)),
-                discovery_path: path.clone(),
-                token: "older-token".to_owned(),
-            };
+            let endpoint = endpoint_for_test(path.clone(), "older-token");
             drop(endpoint);
         }
 

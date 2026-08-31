@@ -66,14 +66,19 @@ The TOPO desktop now exposes a deliberately narrow local-only OOS endpoint while
 
 Discovery is written to `~/.topo/oos-local.json`. The file contains a loopback endpoint and a per-process bearer token. On Unix the discovery file is written with mode `0600`.
 
+The endpoint is discoverable while TOPO is running, but **context sharing is disabled by default for every TOPO session**. The person using TOPO must explicitly choose **Allow local tools** in the desktop UI before another local app can request context.
+
 The endpoint:
 
 - binds only to `127.0.0.1` on an ephemeral port;
 - requires the bearer token for every request;
 - exposes capability discovery at `GET /v0/capabilities`;
-- exposes purpose-bound context at `POST /v0/context`;
+- advertises no context query capability while local sharing is disabled;
+- returns a refusal for `POST /v0/context` until the person enables local sharing;
+- exposes purpose-bound context at `POST /v0/context` only for that enabled session;
 - caps request bodies at 64 KiB;
 - never exposes sensitive or restricted memory through this transport;
+- resets local sharing to off when TOPO restarts;
 - does not expose write/review/action capabilities.
 
 This is **not** a general HTTP API and must not be bound to a non-loopback interface. It is a local-alpha transport intended to let another installed local application such as RACK request context without reading TOPO's SQLite database or requiring a Node CLI path.

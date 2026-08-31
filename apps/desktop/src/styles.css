@@ -38,6 +38,36 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #171714; outline-
 .quiet { border: 0; padding: 0; text-decoration: underline; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 .muted { color: #5f5d55; line-height: 1.5; font-size: .88rem; }
+.local-sharing-control {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #8a857a;
+  background: #eee9dc;
+}
+.local-sharing-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.local-sharing-heading > div {
+  display: grid;
+  gap: 3px;
+}
+.local-sharing-heading strong {
+  font-size: .82rem;
+}
+.local-sharing-heading span {
+  color: #5f5d55;
+  font-size: .72rem;
+}
+.local-sharing-control p {
+  margin: 0;
+  color: #5f5d55;
+  font-size: .78rem;
+  line-height: 1.45;
+}
 .context-result { display: grid; gap: 9px; padding-top: 10px; border-top: 1px solid #aaa59a; font-size: .8rem; }
 .context-result pre { max-height: 260px; overflow: auto; margin: 0; padding: 10px; background: #eae5da; white-space: pre-wrap; word-break: break-word; }
 .memory-panel { min-width: 0; }
