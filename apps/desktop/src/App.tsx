@@ -60,6 +60,25 @@ type LocalContextSharingStatus = {
   resetsOnRestart: boolean;
 };
 
+type CaptureInboxItem = {
+  id: string;
+  product: string;
+  client: string;
+  mode: string;
+  captureMethod: string;
+  fidelity: string;
+  title?: string;
+  capturedAt: string;
+  turnCount: number;
+};
+
+type CaptureInboxStatus = {
+  directory: string;
+  pending: number;
+  invalid: number;
+  items: CaptureInboxItem[];
+};
+
 const emptyForm = {
   subject: "",
   key: "",
@@ -116,18 +135,21 @@ export function App() {
   const [localSharing, setLocalSharing] =
     useState<LocalContextSharingStatus | null>(null);
   const [sharingBusy, setSharingBusy] = useState(false);
+  const [captureInbox, setCaptureInbox] = useState<CaptureInboxStatus | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [nextStatus, nextClaims] = await Promise.all([
+      const [nextStatus, nextClaims, nextCaptureInbox] = await Promise.all([
         invoke<DesktopStatus>("desktop_status"),
         invoke<MemoryClaim[]>("list_claims", {
           status: filter === "all" ? null : filter,
           query: query.trim() || null,
         }),
+        invoke<CaptureInboxStatus>("capture_inbox_status"),
       ]);
       setStatus(nextStatus);
       setClaims(nextClaims);
+      setCaptureInbox(nextCaptureInbox);
       setError(null);
     } catch (cause) {
       setError(String(cause));
@@ -267,6 +289,7 @@ export function App() {
         <div className="store-status" aria-label="Local store status">
           <span>{status?.total ?? "—"} memories</span>
           <span>{candidateCount} awaiting review</span>
+          <span>{captureInbox?.pending ?? "—"} captured interactions waiting</span>
           <code title={status?.storePath}>{status?.storePath ?? "~/.topo/topo.sqlite"}</code>
         </div>
       </header>
@@ -288,6 +311,47 @@ export function App() {
           </div>
 
           <form onSubmit={submitClaim} className="claim-form">
+            <div className="capture-inbox-control">
+              <div className="capture-inbox-heading">
+                <div>
+                  <strong>Ambient capture</strong>
+                  <span>
+                    {captureInbox === null
+                      ? "Checking local inbox…"
+                      : captureInbox.pending > 0
+                        ? `${captureInbox.pending} interaction${captureInbox.pending === 1 ? "" : "s"} waiting`
+                        : "Ready — nothing waiting"}
+                  </span>
+                </div>
+                <button className="quiet" type="button" onClick={() => void refresh()}>
+                  Refresh
+                </button>
+              </div>
+              <p>
+                ChatGPT, Claude and Gemini browser capture can queue locally even when TOPO is closed.
+                Captured interactions remain source material until TOPO extracts candidates and you review them.
+              </p>
+              {captureInbox && captureInbox.items.length > 0 && (
+                <div className="capture-inbox-list">
+                  {captureInbox.items.slice(0, 4).map((item) => (
+                    <div key={item.id} className="capture-inbox-item">
+                      <span>{item.product} · {item.client} · {item.mode}</span>
+                      <strong>{item.title ?? "Untitled interaction"}</strong>
+                      <small>{item.turnCount} turns · {item.fidelity}</small>
+                    </div>
+                  ))}
+                  {captureInbox.items.length > 4 && (
+                    <small>+ {captureInbox.items.length - 4} more waiting</small>
+                  )}
+                </div>
+              )}
+              {captureInbox && captureInbox.invalid > 0 && (
+                <p className="capture-warning">
+                  {captureInbox.invalid} capture file{captureInbox.invalid === 1 ? "" : "s"} could not be read.
+                </p>
+              )}
+            </div>
+
             <div className="local-sharing-control">
               <div className="local-sharing-heading">
                 <div>
