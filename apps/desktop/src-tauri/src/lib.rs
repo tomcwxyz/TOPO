@@ -1,8 +1,11 @@
+mod oos_local;
+
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, Row};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, fs, path::PathBuf};
+use tauri::Manager;
 use topo_contracts::{
     Actor, ActorType, ClaimProvenance, ClaimStatus, EpistemicType, EventEntityType, EventType,
     MemoryClaim, MemoryEvent, Sensitivity, SourceType,
@@ -612,23 +615,24 @@ fn review_candidate(id: String, decision: String) -> Result<MemoryClaim, String>
     review_candidate_in(&connection, &id, &decision)
 }
 
-#[tauri::command(rename_all = "camelCase")]
-fn preview_context(
-    subject: String,
-    purpose: String,
+fn context_packet_from_store(
+    connection: &Connection,
+    subject: &str,
+    purpose: &str,
+    requested_by: &str,
     include_sensitive: bool,
     max_items: usize,
+    channel: &str,
 ) -> Result<ContextPreview, String> {
-    if subject.trim().is_empty() || purpose.trim().is_empty() {
-        return Err("Subject and purpose are required.".to_owned());
+    if subject.trim().is_empty() || purpose.trim().is_empty() || requested_by.trim().is_empty() {
+        return Err("Subject, purpose and requester are required.".to_owned());
     }
     if !(1..=100).contains(&max_items) {
         return Err("maxItems must be between 1 and 100.".to_owned());
     }
 
-    let connection = open_store()?;
     let now = Utc::now();
-    let mut selected = all_claims(&connection)?
+    let mut selected = all_claims(connection)?
         .into_iter()
         .filter(|claim| claim.status == ClaimStatus::Confirmed)
         .filter(|claim| claim.subject == subject)
@@ -656,7 +660,7 @@ fn preview_context(
         "id": packet_id.clone(),
         "subject": subject,
         "purpose": purpose,
-        "requested_by": "topo-desktop-preview",
+        "requested_by": requested_by,
         "objects": selected.iter().map(|claim| json!({
             "type": "topo.memory_claim",
             "id": claim.id,
@@ -669,7 +673,7 @@ fn preview_context(
         "permissions": ["local-use-only"],
         "provenance": {
             "source_type": "application",
-            "source_id": format!("topo:desktop-context:{}", packet_id),
+            "source_id": format!("topo:context:{}", packet_id),
             "created_by": { "type": "system", "id": "topo" },
             "method": "generated",
             "assertion_type": "interpretation",
@@ -679,7 +683,7 @@ fn preview_context(
             "extensions": {}
         },
         "extensions": {
-            "topo.preview": true,
+            "topo.channel": channel,
             "topo.include_sensitive": include_sensitive
         }
     });
@@ -690,9 +694,53 @@ fn preview_context(
     })
 }
 
+pub(crate) fn resolve_local_context(
+    subject: &str,
+    purpose: &str,
+    requested_by: &str,
+    max_items: usize,
+) -> Result<Value, String> {
+    let connection = open_store()?;
+    Ok(context_packet_from_store(
+        &connection,
+        subject,
+        purpose,
+        requested_by,
+        false,
+        max_items,
+        "local-endpoint",
+    )?
+    .packet)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn preview_context(
+    subject: String,
+    purpose: String,
+    include_sensitive: bool,
+    max_items: usize,
+) -> Result<ContextPreview, String> {
+    let connection = open_store()?;
+    context_packet_from_store(
+        &connection,
+        &subject,
+        &purpose,
+        "topo-desktop-preview",
+        include_sensitive,
+        max_items,
+        "desktop-preview",
+    )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .setup(|app| {
+            let endpoint = oos_local::LocalOosEndpoint::start()
+                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+            app.manage(endpoint);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             domain_contract_version,
             desktop_status,
@@ -754,4 +802,41 @@ mod tests {
         assert_eq!(claim.status, ClaimStatus::Confirmed);
         assert_eq!(claim.provenance.source_type, SourceType::Manual);
     }
+
+    #[test]
+    fn local_context_never_discloses_restricted_memory_by_default() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+
+        let ordinary = create_claim_in(&connection, draft(), false).unwrap();
+        let mut restricted_draft = draft();
+        restricted_draft.key = "internal.secret".to_owned();
+        restricted_draft.value = Value::String("must stay local".to_owned());
+        restricted_draft.sensitivity = Sensitivity::Restricted;
+        let restricted = create_claim_in(&connection, restricted_draft, false).unwrap();
+
+        let preview = context_packet_from_store(
+            &connection,
+            "project:rack",
+            "prepare implementation",
+            "rack",
+            false,
+            20,
+            "test",
+        )
+        .unwrap();
+
+        let ids = preview
+            .packet
+            .get("objects")
+            .and_then(Value::as_array)
+            .unwrap()
+            .iter()
+            .filter_map(|item| item.get("id").and_then(Value::as_str))
+            .collect::<Vec<_>>();
+
+        assert!(ids.contains(&ordinary.id.as_str()));
+        assert!(!ids.contains(&restricted.id.as_str()));
+    }
+
 }
