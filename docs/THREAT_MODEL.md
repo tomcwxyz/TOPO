@@ -75,6 +75,9 @@ Multi-device or multi-user features add authentication, authorisation, tenancy a
 12. **MCP review delegation mistaken for ordinary access** — a connected agent is accidentally allowed to make durable review decisions.
    - Mitigation: proposal-first default; review tools are absent unless explicitly delegated; delegated actions use a distinct auditable user actor ID; sensitivity ceiling applies independently.
 
+13. **Local discovery mistaken for consent** — a local application sees TOPO's discovery record and treats that as permission to retrieve memory.
+   - Mitigation: discovery and authority are separate; local context sharing is off on every TOPO launch; capability discovery advertises context only after explicit per-session consent; the endpoint remains read-only and sensitivity-capped.
+
 ## Security invariants for v0.1
 
 - No required network service for core operation.
