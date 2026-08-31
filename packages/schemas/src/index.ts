@@ -60,6 +60,109 @@ export const sourceTypeSchema = z.enum([
 export type SourceType = z.infer<typeof sourceTypeSchema>;
 export const SOURCE_TYPES = sourceTypeSchema.options;
 
+export const captureSurfaceSchema = z.enum([
+  "chatgpt",
+  "claude",
+  "gemini",
+  "copilot",
+  "agent",
+  "import",
+  "generic",
+]);
+export type CaptureSurface = z.infer<typeof captureSurfaceSchema>;
+export const CAPTURE_SURFACES = captureSurfaceSchema.options;
+
+export const captureKindSchema = z.enum([
+  "conversation",
+  "agent-session",
+  "imported-conversation",
+  "manual",
+]);
+export type CaptureKind = z.infer<typeof captureKindSchema>;
+
+export const captureRoleSchema = z.enum([
+  "user",
+  "assistant",
+  "system",
+  "tool",
+]);
+export type CaptureRole = z.infer<typeof captureRoleSchema>;
+
+export const sourceRetentionSchema = z.enum([
+  "review-window",
+  "full-source",
+]);
+export type SourceRetention = z.infer<typeof sourceRetentionSchema>;
+
+export const memoryHorizonSchema = z.enum([
+  "durable",
+  "project",
+  "temporary",
+]);
+export type MemoryHorizon = z.infer<typeof memoryHorizonSchema>;
+
+export const capturedTurnSchema = z
+  .object({
+    id: nonEmptyString,
+    role: captureRoleSchema,
+    content: nonEmptyString,
+    occurredAt: dateTime.optional(),
+  })
+  .strict();
+export type CapturedTurn = z.infer<typeof capturedTurnSchema>;
+
+export const capturedInteractionSchema = z
+  .object({
+    id: nonEmptyString,
+    kind: captureKindSchema,
+    surface: captureSurfaceSchema,
+    provider: nonEmptyString,
+    subject: nonEmptyString,
+    title: nonEmptyString.optional(),
+    externalId: nonEmptyString.optional(),
+    sourceUrl: nonEmptyString.optional(),
+    capturedAt: dateTime,
+    turns: z.array(capturedTurnSchema).min(1).superRefine((turns, context) => {
+      const ids = new Set<string>();
+      for (const turn of turns) {
+        if (ids.has(turn.id)) {
+          context.addIssue({
+            code: "custom",
+            message: `duplicate turn id: ${turn.id}`,
+          });
+        }
+        ids.add(turn.id);
+      }
+      if (!turns.some((turn) => turn.role === "user")) {
+        context.addIssue({
+          code: "custom",
+          message: "captured interaction must include a user turn",
+        });
+      }
+    }),
+    retention: sourceRetentionSchema.default("review-window"),
+    metadata: z.record(z.string(), jsonValueSchema).optional(),
+  })
+  .strict();
+export type CapturedInteraction = z.infer<typeof capturedInteractionSchema>;
+
+export const extractedMemoryProposalSchema = z
+  .object({
+    key: nonEmptyString,
+    value: jsonValueSchema,
+    category: nonEmptyString.optional(),
+    tags: z.array(nonEmptyString).optional(),
+    epistemicType: epistemicTypeSchema,
+    confidence: z.number().finite().min(0).max(1),
+    sensitivity: sensitivitySchema.optional(),
+    horizon: memoryHorizonSchema.optional(),
+    evidenceTurnIds: z.array(nonEmptyString).min(1),
+    evidence: nonEmptyString,
+    validUntil: dateTime.optional(),
+  })
+  .strict();
+export type ExtractedMemoryProposal = z.infer<typeof extractedMemoryProposalSchema>;
+
 export const actorTypeSchema = z.enum(["user", "agent", "system", "import"]);
 export type ActorType = z.infer<typeof actorTypeSchema>;
 export const ACTOR_TYPES = actorTypeSchema.options;
