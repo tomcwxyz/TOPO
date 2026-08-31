@@ -7,6 +7,7 @@ on:
       - "crates/**"
       - "test-fixtures/domain/**"
       - "package.json"
+      - "scripts/register-topo-native-host.ps1"
       - ".github/workflows/desktop-smoke.yml"
   push:
     branches: [main]
@@ -15,6 +16,7 @@ on:
       - "crates/**"
       - "test-fixtures/domain/**"
       - "package.json"
+      - "scripts/register-topo-native-host.ps1"
       - ".github/workflows/desktop-smoke.yml"
   workflow_dispatch:
 
@@ -56,6 +58,19 @@ jobs:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
       - run: npm install
+      - name: Validate native host registration script
+        shell: pwsh
+        run: |
+          $errors = $null
+          [System.Management.Automation.Language.Parser]::ParseFile(
+            (Resolve-Path 'scripts/register-topo-native-host.ps1'),
+            [ref]$null,
+            [ref]$errors
+          ) | Out-Null
+          if ($errors.Count -gt 0) {
+            $errors | ForEach-Object { Write-Error $_.Message }
+            exit 1
+          }
       - run: npm run build --workspace @topo/desktop
       - run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
       - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
