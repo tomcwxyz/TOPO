@@ -23,7 +23,7 @@ export type {
   SourceRetention,
 } from "@topo/schemas";
 
-export type ProposalComparison =
+export type CapturedInteractionInput = Omit<CapturedInteraction, "retention"> & {\n  retention?: SourceRetention;\n};\n\nexport type ProposalComparison =
   | "new"
   | "supporting-evidence"
   | "potential-change";
