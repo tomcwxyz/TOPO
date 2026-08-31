@@ -57,6 +57,7 @@ type ContextPreview = {
 type LocalContextSharingStatus = {
   enabled: boolean;
   contributionsEnabled: boolean;
+  captureEnabled: boolean;
   maxSensitivity: "personal";
   resetsOnRestart: boolean;
 };
@@ -293,6 +294,28 @@ export function App() {
           ? "Local tools can use approved TOPO context for this session. Rack will connect automatically."
           : "Local tool access stopped.",
       );
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setSharingBusy(false);
+    }
+  };
+
+  const setLocalCaptureEnabled = async (enabled: boolean) => {
+    setSharingBusy(true);
+    setError(null);
+    try {
+      const next = await invoke<LocalContextSharingStatus>(
+        "set_local_capture",
+        { enabled },
+      );
+      setLocalSharing(next);
+      setMessage(
+        enabled
+          ? "Compatible local agents may send raw interaction captures into the TOPO review pipeline."
+          : "Local agent interaction capture stopped.",
+      );
+      await refresh();
     } catch (cause) {
       setError(String(cause));
     } finally {
@@ -537,6 +560,31 @@ export function App() {
 
               <div className="local-permission-row">
                 <div>
+                  <strong>Capture interactions</strong>
+                  <span>
+                    {localSharing?.captureEnabled
+                      ? "Compatible local agents may send raw turns to the capture inbox"
+                      : "Local agent capture off"}
+                  </span>
+                </div>
+                <button
+                  className={localSharing?.captureEnabled ? "quiet" : "secondary"}
+                  type="button"
+                  disabled={sharingBusy || localSharing === null}
+                  onClick={() =>
+                    void setLocalCaptureEnabled(!localSharing?.captureEnabled)
+                  }
+                >
+                  {sharingBusy
+                    ? "Updating…"
+                    : localSharing?.captureEnabled
+                      ? "Stop capture"
+                      : "Allow capture"}
+                </button>
+              </div>
+
+              <div className="local-permission-row">
+                <div>
                   <strong>Accept contributions</strong>
                   <span>
                     {localSharing?.contributionsEnabled
@@ -565,8 +613,9 @@ export function App() {
               <p>
                 RACK, Claude Desktop and other compatible local tools only receive
                 the authority you enable here. Sharing context never implies write
-                authority. Contributions can create candidates only; confirmation
-                and rejection stay in TOPO. Both permissions reset when TOPO restarts.
+                authority. Agent capture stores source interactions for TOPO to
+                extract later; contributions can create candidates only. Confirmation
+                and rejection stay in TOPO. All permissions reset when TOPO restarts.
               </p>
             </div>
 
