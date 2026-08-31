@@ -6,7 +6,7 @@ The near-term milestone is:
 
 > Use AI tools normally for a day, open TOPO, review a short high-quality inbox of things worth remembering, then see confirmed context surface correctly in another tool.
 
-See [Capture architecture](docs/CAPTURE.md).
+See [Capture architecture](docs/CAPTURE.md) and [capture surfaces](docs/CAPTURE_SURFACES.md).
 
 ## Completed foundation
 
