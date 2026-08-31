@@ -28,7 +28,9 @@ TOPO is in early implementation. The canonical claim lifecycle and local Node SQ
 
 The desktop application is intended to become the primary local manager. CLI, MCP and browser-extension clients will use the same portable domain contract rather than owning separate definitions of memory.
 
-See [PLAN.md](PLAN.md), [ROADMAP.md](ROADMAP.md) and [docs/adr](docs/adr).
+TOPO is also beginning to act as a local memory/context node for the draft [Organisational OS](https://github.com/tomcwxyz/Organisational-OS). The first adapter exposes purpose-bound Context Packets while deliberately keeping external operational state distinct from canonical memory Claims.
+
+See [PLAN.md](PLAN.md), [ROADMAP.md](ROADMAP.md), [Organisational OS adapter](docs/OOS_ADAPTER.md) and [docs/adr](docs/adr).
 
 ## Repository shape
 
@@ -38,6 +40,7 @@ See [PLAN.md](PLAN.md), [ROADMAP.md](ROADMAP.md) and [docs/adr](docs/adr).
 - `packages/store-node` — Node SQLite adapter for CLI/MCP use.
 - `crates/topo-contracts` — Rust representation of the native interchange boundary.
 - `packages/formats` — portable TOPO bundle import/export.
+- `adapters/oos` — purpose-bound Organisational OS Context Packet adapter.
 - `apps/cli` — local command-line workflows for claims, review, search and portability.
 - `apps/desktop` — Tauri + React desktop application.
 - `test-fixtures/domain` — contract fixtures shared by TypeScript and Rust.
