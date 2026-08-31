@@ -566,6 +566,14 @@ fn lexical_score(claim: &MemoryClaim, needle: &str) -> i64 {
 }
 
 fn create_local_proposals(input: ProposalRequest) -> Result<Value, String> {
+    let connection = super::open_store()?;
+    create_local_proposals_in(&connection, input)
+}
+
+fn create_local_proposals_in(
+    connection: &Connection,
+    input: ProposalRequest,
+) -> Result<Value, String> {
     if input.requested_by.trim().is_empty() {
         return Err("requestedBy is required.".to_owned());
     }
@@ -579,13 +587,12 @@ fn create_local_proposals(input: ProposalRequest) -> Result<Value, String> {
         validate_proposal(claim)?;
     }
 
-    let connection = super::open_store()?;
     let tx = connection.unchecked_transaction().map_err(super::error_text)?;
     let now = Utc::now().to_rfc3339();
     let source_id = format!("source-{}", Uuid::new_v4());
     let sensitivity = maximum_sensitivity(&input.claims);
     let source = MemorySource {
-        id: source_id.clone(),
+        id: source_id,
         source_type: SourceType::Mcp,
         title: input
             .source_title
@@ -595,7 +602,7 @@ fn create_local_proposals(input: ProposalRequest) -> Result<Value, String> {
         external_id: input.source_reference.clone(),
         captured_at: now.clone(),
         created_at: now.clone(),
-        sensitivity: sensitivity.clone(),
+        sensitivity,
         metadata: Some(BTreeMap::from([
             (
                 "topo.local.requestedBy".to_owned(),
@@ -628,22 +635,104 @@ fn create_local_proposals(input: ProposalRequest) -> Result<Value, String> {
         },
     )?;
 
+    let mut active_claims = super::all_claims(&tx)?
+        .into_iter()
+        .filter(|claim| {
+            claim.status == ClaimStatus::Confirmed || claim.status == ClaimStatus::Candidate
+        })
+        .collect::<Vec<_>>();
+
     let mut claims = Vec::with_capacity(input.claims.len());
+    let mut supporting_evidence_added = Vec::<String>::new();
+    let mut duplicates_skipped = 0usize;
+    let mut potential_changes = 0usize;
+
     for proposal in input.claims {
+        let subject = proposal.subject.unwrap_or_else(|| "self".to_owned());
+        let key = proposal.key.trim().to_owned();
+
+        let same_key = active_claims
+            .iter()
+            .filter(|claim| claim.subject == subject && claim.key == key)
+            .collect::<Vec<_>>();
+
+        if let Some(exact) = same_key
+            .iter()
+            .find(|claim| claim.value == proposal.value)
+            .copied()
+        {
+            if let Some(evidence) = proposal
+                .evidence
+                .as_ref()
+                .map(|value| value.trim())
+                .filter(|value| !value.is_empty())
+            {
+                super::append_event(
+                    &tx,
+                    &MemoryEvent {
+                        id: format!("event-{}", Uuid::new_v4()),
+                        event_type: EventType::ClaimEvidenceAdded,
+                        entity_type: EventEntityType::Claim,
+                        entity_id: exact.id.clone(),
+                        occurred_at: now.clone(),
+                        actor: Actor {
+                            actor_type: ActorType::Agent,
+                            id: Some(input.requested_by.clone()),
+                        },
+                        data: Some(BTreeMap::from([
+                            ("sourceId".to_owned(), Value::String(source.id.clone())),
+                            ("sourceType".to_owned(), Value::String("mcp".to_owned())),
+                            (
+                                "provider".to_owned(),
+                                Value::String(input.source_provider.clone().unwrap_or_default()),
+                            ),
+                            ("capturedAt".to_owned(), Value::String(now.clone())),
+                            ("evidence".to_owned(), Value::String(evidence.to_owned())),
+                            (
+                                "origin".to_owned(),
+                                Value::String("local-tool".to_owned()),
+                            ),
+                        ])),
+                    },
+                )?;
+                supporting_evidence_added.push(exact.id.clone());
+            } else {
+                duplicates_skipped += 1;
+            }
+            continue;
+        }
+
+        let supersedes = same_key
+            .iter()
+            .filter(|claim| claim.status == ClaimStatus::Confirmed)
+            .map(|claim| claim.id.clone())
+            .collect::<Vec<_>>();
+        let is_change = !supersedes.is_empty();
+        if is_change {
+            potential_changes += 1;
+        }
+
+        let mut tags = proposal
+            .tags
+            .into_iter()
+            .map(|tag| tag.trim().to_owned())
+            .filter(|tag| !tag.is_empty())
+            .collect::<Vec<_>>();
+        if is_change {
+            tags.push("topo:potential-change".to_owned());
+        }
+        tags.sort();
+        tags.dedup();
+
         let claim = MemoryClaim {
             id: format!("claim-{}", Uuid::new_v4()),
-            subject: proposal.subject.unwrap_or_else(|| "self".to_owned()),
-            key: proposal.key.trim().to_owned(),
+            subject,
+            key,
             value: proposal.value,
             category: proposal
                 .category
                 .and_then(|value| (!value.trim().is_empty()).then(|| value.trim().to_owned())),
-            tags: proposal
-                .tags
-                .into_iter()
-                .map(|tag| tag.trim().to_owned())
-                .filter(|tag| !tag.is_empty())
-                .collect(),
+            tags,
             epistemic_type: proposal.epistemic_type,
             confidence: proposal.confidence.unwrap_or(0.8),
             provenance: ClaimProvenance {
@@ -657,7 +746,7 @@ fn create_local_proposals(input: ProposalRequest) -> Result<Value, String> {
             sensitivity: proposal.sensitivity.unwrap_or(Sensitivity::Ordinary),
             valid_from: proposal.valid_from,
             valid_until: proposal.valid_until,
-            supersedes: Vec::new(),
+            supersedes,
             created_at: now.clone(),
             updated_at: now.clone(),
         };
@@ -678,9 +767,11 @@ fn create_local_proposals(input: ProposalRequest) -> Result<Value, String> {
                 data: Some(BTreeMap::from([
                     ("origin".to_owned(), Value::String("local-tool".to_owned())),
                     ("reviewAuthority".to_owned(), Value::Bool(false)),
+                    ("potentialChange".to_owned(), Value::Bool(is_change)),
                 ])),
             },
         )?;
+        active_claims.push(claim.clone());
         claims.push(claim);
     }
 
@@ -688,6 +779,9 @@ fn create_local_proposals(input: ProposalRequest) -> Result<Value, String> {
     Ok(json!({
         "source": source,
         "claims": claims,
+        "supportingEvidenceAdded": supporting_evidence_added,
+        "duplicatesSkipped": duplicates_skipped,
+        "potentialChanges": potential_changes,
         "reviewRequired": true
     }))
 }
