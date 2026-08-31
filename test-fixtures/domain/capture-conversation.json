@@ -1,0 +1,27 @@
+{
+  "id": "capture-conversation-1",
+  "kind": "conversation",
+  "surface": "chatgpt",
+  "provider": "openai",
+  "subject": "self",
+  "title": "TOPO capture planning",
+  "externalId": "chat-thread-123",
+  "sourceUrl": "https://chatgpt.com/c/example",
+  "capturedAt": "2026-08-31T20:00:00.000Z",
+  "turns": [
+    {
+      "id": "turn-user-1",
+      "role": "user",
+      "content": "Please use British English."
+    },
+    {
+      "id": "turn-assistant-1",
+      "role": "assistant",
+      "content": "Understood."
+    }
+  ],
+  "retention": "review-window",
+  "metadata": {
+    "browser": "chromium"
+  }
+}
