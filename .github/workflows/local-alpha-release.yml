@@ -1,0 +1,117 @@
+name: Local alpha desktop release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Desktop version to release (must match source)"
+        required: true
+        type: string
+      confirm:
+        description: "Type ALPHA to confirm an unsigned draft pre-release"
+        required: true
+        type: string
+
+concurrency:
+  group: topo-local-alpha-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  preflight:
+    name: Alpha release preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Require main and explicit confirmation
+        shell: bash
+        env:
+          EXPECTED_VERSION: ${{ inputs.version }}
+          RELEASE_CONFIRMATION: ${{ inputs.confirm }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Alpha releases must be dispatched from main."
+            exit 1
+          fi
+          if [[ "$RELEASE_CONFIRMATION" != "ALPHA" ]]; then
+            echo "::error::Type ALPHA in the confirmation input."
+            exit 1
+          fi
+          node scripts/check-desktop-version.mjs "$EXPECTED_VERSION"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Re-run repository validation
+        run: npm run validate
+
+  publish:
+    name: ${{ matrix.label }}
+    needs: preflight
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-latest
+            label: Windows x64
+            args: "--bundles nsis"
+          - platform: ubuntu-22.04
+            label: Linux x64
+            args: "--bundles deb,appimage"
+
+    runs-on: ${{ matrix.platform }}
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Tauri Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build unsigned alpha and draft release
+        uses: tauri-apps/tauri-action@action-v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CI: true
+        with:
+          projectPath: apps/desktop
+          tagName: topo-v__VERSION__
+          releaseName: "TOPO __VERSION__ · local alpha"
+          releaseBody: |
+            Early local alpha of TOPO.
+
+            This build is for hands-on testing of the local memory manager and TOPO ↔ RACK context workflow. It is not a production release.
+
+            Windows and Linux packages in this alpha are **not code-signed**. Expect operating-system warnings. Keep backups of any important TOPO store before testing.
+
+            Core local data remains in ~/.topo/topo.sqlite and no account or managed service is required.
+          releaseDraft: true
+          prerelease: true
+          releaseAssetNamePattern: "[name]_[version]_[platform]_[arch][setup][ext]"
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+          args: ${{ matrix.args }}
