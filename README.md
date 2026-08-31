@@ -35,7 +35,8 @@ See [PLAN.md](PLAN.md), [ROADMAP.md](ROADMAP.md), [capture architecture](docs/CA
 ## Repository shape
 
 - `packages/schemas` — canonical runtime/interchange schemas.
-- `packages/core` — claim lifecycle and domain policy.\n- `packages/capture` — captured interaction contracts, evidence policy and candidate preparation.
+- `packages/core` — claim lifecycle and domain policy.
+- `packages/capture` — captured interaction contracts, evidence policy and candidate preparation.
 - `packages/store` — runtime-neutral persistence interfaces.
 - `packages/store-node` — Node SQLite adapter for CLI/MCP use.
 - `crates/topo-contracts` — Rust representation of the native interchange boundary.
