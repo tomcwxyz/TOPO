@@ -115,6 +115,26 @@ button:disabled { cursor: not-allowed; opacity: .45; }
   border: 1px solid #8a857a;
   background: #eee9dc;
 }
+.local-permission-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid #c2bcaf;
+}
+.local-permission-row > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.local-permission-row strong { font-size: .78rem; }
+.local-permission-row span {
+  color: #656159;
+  font-size: .68rem;
+  line-height: 1.35;
+}
+
 .local-sharing-heading {
   display: flex;
   align-items: center;
