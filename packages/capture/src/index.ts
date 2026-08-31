@@ -41,6 +41,135 @@ export type ProposalComparison =
   | "supporting-evidence"
   | "potential-change";
 
+export type CaptureAvailability =
+  | "ambient"
+  | "explicit-only"
+  | "catch-up-only";
+
+export interface CaptureStrategy {
+  availability: CaptureAvailability;
+  primaryMethod: CaptureMethod;
+  fidelity: CaptureFidelity;
+  secondaryMethods: CaptureMethod[];
+  notes: string[];
+}
+
+export interface CaptureSurfaceDescriptor {
+  product: CaptureProduct;
+  client: CaptureClient;
+  mode: CaptureMode;
+}
+
+export function recommendedCaptureStrategy(
+  surface: CaptureSurfaceDescriptor,
+): CaptureStrategy {
+  if (
+    (surface.product === "hermes" || surface.product === "openclaw") &&
+    surface.client === "agent-runtime"
+  ) {
+    return {
+      availability: "ambient",
+      primaryMethod: "agent-hook",
+      fidelity: "conversation-turns",
+      secondaryMethods: ["local-mcp"],
+      notes: [
+        "Use the runtime lifecycle hook for ambient capture and MCP for retrieval or explicit remember actions.",
+      ],
+    };
+  }
+
+  if (
+    surface.client === "web" &&
+    (surface.product === "chatgpt" || surface.product === "claude")
+  ) {
+    return {
+      availability: "ambient",
+      primaryMethod: "browser-extension",
+      fidelity:
+        surface.mode === "work" || surface.mode === "cowork"
+          ? "conversation-turns"
+          : "conversation-turns",
+      secondaryMethods: ["remote-mcp", "history-import"],
+      notes: [
+        "Capture stable user and assistant turns; tool traces are not user-memory evidence.",
+      ],
+    };
+  }
+
+  if (
+    surface.client === "desktop" &&
+    surface.product === "chatgpt" &&
+    (surface.mode === "chat" || surface.mode === "work")
+  ) {
+    return {
+      availability: "ambient",
+      primaryMethod: "desktop-observer",
+      fidelity: "conversation-turns",
+      secondaryMethods: ["remote-mcp", "history-import"],
+      notes: [
+        "ChatGPT does not expose a documented post-turn third-party lifecycle hook.",
+        "Plugins/apps support retrieval and explicit memory but are not treated as guaranteed ambient capture.",
+      ],
+    };
+  }
+
+  if (
+    surface.client === "desktop" &&
+    surface.product === "claude" &&
+    (surface.mode === "chat" || surface.mode === "cowork")
+  ) {
+    return {
+      availability: "ambient",
+      primaryMethod: "desktop-observer",
+      fidelity: "conversation-turns",
+      secondaryMethods: ["local-mcp", "remote-mcp", "history-import"],
+      notes: [
+        "Claude Desktop local MCP bundles are a first-class retrieval and explicit-memory route.",
+        "Desktop observation remains the ambient path because MCP does not provide a guaranteed transcript lifecycle event.",
+      ],
+    };
+  }
+
+  if (
+    surface.product === "claude" &&
+    surface.client === "chrome-sidepanel" &&
+    surface.mode === "cowork"
+  ) {
+    return {
+      availability: "explicit-only",
+      primaryMethod: "remote-mcp",
+      fidelity: "task-summary",
+      secondaryMethods: ["history-import"],
+      notes: [
+        "A normal webpage extension cannot inspect another extension's private side panel.",
+      ],
+    };
+  }
+
+  if (
+    surface.client === "mobile" &&
+    (surface.product === "chatgpt" || surface.product === "claude")
+  ) {
+    return {
+      availability: "explicit-only",
+      primaryMethod: "remote-mcp",
+      fidelity: "task-summary",
+      secondaryMethods: ["history-import"],
+      notes: [
+        "No initial ambient mobile capture client; rely on explicit connector use or later account catch-up.",
+      ],
+    };
+  }
+
+  return {
+    availability: "catch-up-only",
+    primaryMethod: "history-import",
+    fidelity: "partial-visible",
+    secondaryMethods: ["manual"],
+    notes: ["No first-class ambient integration is defined for this surface yet."],
+  };
+}
+
 export interface CapturePreparationContext {
   now: string;
   actor: Actor;
