@@ -60,6 +60,42 @@ type LocalContextSharingStatus = {
   resetsOnRestart: boolean;
 };
 
+type CaptureInboxItem = {
+  id: string;
+  product: string;
+  client: string;
+  mode: string;
+  captureMethod: string;
+  fidelity: string;
+  title?: string;
+  capturedAt: string;
+  turnCount: number;
+};
+
+type CaptureInboxStatus = {
+  directory: string;
+  pending: number;
+  invalid: number;
+  items: CaptureInboxItem[];
+};
+
+type OllamaStatus = {
+  available: boolean;
+  models: string[];
+  error?: string;
+};
+
+type CaptureProcessResult = {
+  interactionId: string;
+  extractor: string;
+  duplicateSnapshot: boolean;
+  proposalsExtracted: number;
+  candidatesCreated: number;
+  supportingEvidenceAdded: number;
+  potentialChanges: number;
+  sourceId?: string;
+};
+
 const emptyForm = {
   subject: "",
   key: "",
@@ -116,18 +152,26 @@ export function App() {
   const [localSharing, setLocalSharing] =
     useState<LocalContextSharingStatus | null>(null);
   const [sharingBusy, setSharingBusy] = useState(false);
+  const [captureInbox, setCaptureInbox] = useState<CaptureInboxStatus | null>(null);
+  const [ollama, setOllama] = useState<OllamaStatus | null>(null);
+  const [extractorModel, setExtractorModel] = useState(
+    () => window.localStorage.getItem("topo.ollamaModel") ?? "",
+  );
+  const [captureBusy, setCaptureBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      const [nextStatus, nextClaims] = await Promise.all([
+      const [nextStatus, nextClaims, nextCaptureInbox] = await Promise.all([
         invoke<DesktopStatus>("desktop_status"),
         invoke<MemoryClaim[]>("list_claims", {
           status: filter === "all" ? null : filter,
           query: query.trim() || null,
         }),
+        invoke<CaptureInboxStatus>("capture_inbox_status"),
       ]);
       setStatus(nextStatus);
       setClaims(nextClaims);
+      setCaptureInbox(nextCaptureInbox);
       setError(null);
     } catch (cause) {
       setError(String(cause));
@@ -142,6 +186,23 @@ export function App() {
     void invoke<LocalContextSharingStatus>("local_context_sharing_status")
       .then(setLocalSharing)
       .catch((cause) => setError(String(cause)));
+  }, []);
+
+  useEffect(() => {
+    void invoke<OllamaStatus>("ollama_extractor_status")
+      .then((next) => {
+        setOllama(next);
+        if (next.available && next.models.length > 0) {
+          setExtractorModel((current) => {
+            const selected = current && next.models.includes(current)
+              ? current
+              : next.models[0];
+            if (selected) window.localStorage.setItem("topo.ollamaModel", selected);
+            return selected ?? "";
+          });
+        }
+      })
+      .catch((cause) => setOllama({ available: false, models: [], error: String(cause) }));
   }, []);
 
   const candidateCount = status?.candidates ?? 0;
@@ -238,6 +299,52 @@ export function App() {
     }
   };
 
+  const selectExtractorModel = (model: string) => {
+    setExtractorModel(model);
+    if (model) window.localStorage.setItem("topo.ollamaModel", model);
+    else window.localStorage.removeItem("topo.ollamaModel");
+  };
+
+  const processCapturedInteractions = async () => {
+    if (!captureInbox || captureInbox.items.length === 0) return;
+    if (!extractorModel) {
+      setError("Choose a local Ollama model before extracting captured interactions.");
+      return;
+    }
+
+    setCaptureBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const results: CaptureProcessResult[] = [];
+      for (const item of captureInbox.items) {
+        results.push(
+          await invoke<CaptureProcessResult>("process_capture_with_ollama", {
+            interactionId: item.id,
+            model: extractorModel,
+          }),
+        );
+      }
+
+      const candidates = results.reduce((sum, result) => sum + result.candidatesCreated, 0);
+      const evidence = results.reduce(
+        (sum, result) => sum + result.supportingEvidenceAdded,
+        0,
+      );
+      const changes = results.reduce((sum, result) => sum + result.potentialChanges, 0);
+      setMessage(
+        `Capture processed locally: ${candidates} candidate${candidates === 1 ? "" : "s"}, ` +
+          `${evidence} supporting evidence update${evidence === 1 ? "" : "s"}` +
+          (changes > 0 ? `, ${changes} potential change${changes === 1 ? "" : "s"} flagged.` : "."),
+      );
+      await refresh();
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setCaptureBusy(false);
+    }
+  };
+
   const previewContext = async () => {
     setBusy(true);
     setError(null);
@@ -267,6 +374,7 @@ export function App() {
         <div className="store-status" aria-label="Local store status">
           <span>{status?.total ?? "—"} memories</span>
           <span>{candidateCount} awaiting review</span>
+          <span>{captureInbox?.pending ?? "—"} captured interactions waiting</span>
           <code title={status?.storePath}>{status?.storePath ?? "~/.topo/topo.sqlite"}</code>
         </div>
       </header>
@@ -288,6 +396,90 @@ export function App() {
           </div>
 
           <form onSubmit={submitClaim} className="claim-form">
+            <div className="capture-inbox-control">
+              <div className="capture-inbox-heading">
+                <div>
+                  <strong>Ambient capture</strong>
+                  <span>
+                    {captureInbox === null
+                      ? "Checking local inbox…"
+                      : captureInbox.pending > 0
+                        ? `${captureInbox.pending} interaction${captureInbox.pending === 1 ? "" : "s"} waiting`
+                        : "Ready — nothing waiting"}
+                  </span>
+                </div>
+                <button className="quiet" type="button" onClick={() => void refresh()}>
+                  Refresh
+                </button>
+              </div>
+              <p>
+                ChatGPT, Claude and Gemini browser capture can queue locally even when TOPO is closed.
+                Captured interactions remain source material until TOPO extracts candidates and you review them.
+              </p>
+              <div className="capture-extractor">
+                <div>
+                  <strong>Local extractor</strong>
+                  <span>
+                    {ollama === null
+                      ? "Checking Ollama…"
+                      : ollama.available
+                        ? `${ollama.models.length} model${ollama.models.length === 1 ? "" : "s"} available`
+                        : "Ollama not available"}
+                  </span>
+                </div>
+                {ollama?.available && ollama.models.length > 0 ? (
+                  <select
+                    aria-label="Ollama extraction model"
+                    value={extractorModel}
+                    onChange={(event) => selectExtractorModel(event.target.value)}
+                  >
+                    {ollama.models.map((model) => (
+                      <option key={model} value={model}>{model}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <small>
+                    {ollama?.error ?? "Install/start Ollama to extract captures locally."}
+                  </small>
+                )}
+                <button
+                  className="secondary"
+                  type="button"
+                  disabled={
+                    captureBusy ||
+                    !captureInbox ||
+                    captureInbox.pending === 0 ||
+                    !ollama?.available ||
+                    !extractorModel
+                  }
+                  onClick={() => void processCapturedInteractions()}
+                >
+                  {captureBusy
+                    ? "Extracting locally…"
+                    : `Extract ${captureInbox?.pending ?? 0} waiting`}
+                </button>
+              </div>
+              {captureInbox && captureInbox.items.length > 0 && (
+                <div className="capture-inbox-list">
+                  {captureInbox.items.slice(0, 4).map((item) => (
+                    <div key={item.id} className="capture-inbox-item">
+                      <span>{item.product} · {item.client} · {item.mode}</span>
+                      <strong>{item.title ?? "Untitled interaction"}</strong>
+                      <small>{item.turnCount} turns · {item.fidelity}</small>
+                    </div>
+                  ))}
+                  {captureInbox.items.length > 4 && (
+                    <small>+ {captureInbox.items.length - 4} more waiting</small>
+                  )}
+                </div>
+              )}
+              {captureInbox && captureInbox.invalid > 0 && (
+                <p className="capture-warning">
+                  {captureInbox.invalid} capture file{captureInbox.invalid === 1 ? "" : "s"} could not be read.
+                </p>
+              )}
+            </div>
+
             <div className="local-sharing-control">
               <div className="local-sharing-heading">
                 <div>
@@ -525,6 +717,9 @@ export function App() {
                     <div>
                       <span className={"status-pill " + claim.status}>{claim.status}</span>
                       <span className={"sensitivity " + claim.sensitivity}>{claim.sensitivity}</span>
+                      {claim.supersedes.length > 0 && (
+                        <span className="change-pill">potential change</span>
+                      )}
                     </div>
                     <time dateTime={claim.updatedAt}>
                       {new Date(claim.updatedAt).toLocaleDateString()}
@@ -533,14 +728,35 @@ export function App() {
                   <p className="subject">{claim.subject}</p>
                   <h3>{claim.key}</h3>
                   <pre className="claim-value">{displayValue(claim.value)}</pre>
+                  {claim.provenance.evidence && (
+                    <div className="claim-evidence">
+                      <span>Evidence</span>
+                      <p>“{claim.provenance.evidence}”</p>
+                      <small>
+                        {claim.provenance.provider
+                          ? `${claim.provenance.provider} · `
+                          : ""}
+                        {new Date(claim.provenance.capturedAt).toLocaleString()}
+                      </small>
+                    </div>
+                  )}
+                  {claim.supersedes.length > 0 && (
+                    <div className="change-note">
+                      Confirming this will supersede {claim.supersedes.length} existing confirmed
+                      memor{claim.supersedes.length === 1 ? "y" : "ies"}.
+                    </div>
+                  )}
                   <div className="claim-meta">
                     <span>{claim.epistemicType}</span>
                     <span>{Math.round(claim.confidence * 100)}% confidence</span>
                     <span>source: {claim.provenance.sourceType}</span>
+                    {claim.provenance.provider && <span>{claim.provenance.provider}</span>}
                   </div>
-                  {claim.tags.length > 0 && (
+                  {claim.tags.filter((tag) => !tag.startsWith("topo:")).length > 0 && (
                     <div className="tags">
-                      {claim.tags.map((tag) => <span key={tag}>{tag}</span>)}
+                      {claim.tags
+                        .filter((tag) => !tag.startsWith("topo:"))
+                        .map((tag) => <span key={tag}>{tag}</span>)}
                     </div>
                   )}
                   {claim.status === "candidate" && (

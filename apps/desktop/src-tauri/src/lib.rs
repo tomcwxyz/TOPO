@@ -1,3 +1,6 @@
+mod capture_extractor;
+mod capture_inbox;
+mod capture_processor;
 mod oos_local;
 
 use chrono::{DateTime, Utc};
@@ -12,7 +15,7 @@ use topo_contracts::{
 };
 use uuid::Uuid;
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -170,7 +173,20 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS claims_source_idx ON claims(source_id);
         CREATE INDEX IF NOT EXISTS events_entity_idx ON events(entity_type, entity_id);
         CREATE INDEX IF NOT EXISTS events_type_idx ON events(type);
-        CREATE INDEX IF NOT EXISTS events_occurred_idx ON events(occurred_at);",
+        CREATE INDEX IF NOT EXISTS events_occurred_idx ON events(occurred_at);
+
+        CREATE TABLE IF NOT EXISTS capture_snapshots (
+            interaction_id TEXT NOT NULL,
+            digest TEXT NOT NULL,
+            source_id TEXT,
+            extractor TEXT NOT NULL,
+            proposal_count INTEGER NOT NULL CHECK (proposal_count >= 0),
+            processed_at TEXT NOT NULL,
+            PRIMARY KEY (interaction_id, digest)
+        ) STRICT;
+
+        CREATE INDEX IF NOT EXISTS capture_snapshots_processed_idx
+          ON capture_snapshots(processed_at);",
     )
     .map_err(error_text)?;
 
@@ -488,7 +504,7 @@ fn review_candidate_in(
         event_type,
         entity_type: EventEntityType::Claim,
         entity_id: claim.id.clone(),
-        occurred_at: now,
+        occurred_at: now.clone(),
         actor: Actor {
             actor_type: ActorType::User,
             id: None,
@@ -502,6 +518,37 @@ fn review_candidate_in(
     let tx = connection.unchecked_transaction().map_err(error_text)?;
     write_claim(&tx, &claim)?;
     append_event(&tx, &event)?;
+
+    if decision == "confirm" {
+        for superseded_id in &claim.supersedes {
+            let mut previous = read_claim(&tx, superseded_id)?;
+            if previous.status != ClaimStatus::Confirmed {
+                continue;
+            }
+            previous.status = ClaimStatus::Superseded;
+            previous.updated_at = now.clone();
+            write_claim(&tx, &previous)?;
+            append_event(
+                &tx,
+                &MemoryEvent {
+                    id: format!("event-{}", Uuid::new_v4()),
+                    event_type: EventType::ClaimSuperseded,
+                    entity_type: EventEntityType::Claim,
+                    entity_id: previous.id.clone(),
+                    occurred_at: now.clone(),
+                    actor: Actor {
+                        actor_type: ActorType::User,
+                        id: None,
+                    },
+                    data: Some(BTreeMap::from([(
+                        "supersededBy".to_owned(),
+                        Value::String(claim.id.clone()),
+                    )])),
+                },
+            )?;
+        }
+    }
+
     tx.commit().map_err(error_text)?;
     Ok(claim)
 }
@@ -749,6 +796,9 @@ pub fn run() {
             edit_candidate_claim,
             review_candidate,
             preview_context,
+            capture_inbox::capture_inbox_status,
+            capture_extractor::ollama_extractor_status,
+            capture_processor::process_capture_with_ollama,
             oos_local::local_context_sharing_status,
             oos_local::set_local_context_sharing
         ])

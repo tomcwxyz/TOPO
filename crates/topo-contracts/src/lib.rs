@@ -44,6 +44,98 @@ pub enum SourceType {
     Connector,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CaptureProduct {
+    Chatgpt,
+    Claude,
+    Gemini,
+    Copilot,
+    Hermes,
+    Openclaw,
+    Generic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CaptureClient {
+    Web,
+    Desktop,
+    Mobile,
+    ChromeSidepanel,
+    Terminal,
+    Ide,
+    AgentRuntime,
+    Import,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CaptureMode {
+    Chat,
+    Work,
+    Codex,
+    Cowork,
+    Code,
+    Research,
+    Agent,
+    Generic,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CaptureMethod {
+    BrowserExtension,
+    DesktopObserver,
+    LocalMcp,
+    RemoteMcp,
+    AgentHook,
+    HistoryImport,
+    Manual,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CaptureFidelity {
+    FullTranscript,
+    ConversationTurns,
+    TaskSummary,
+    PartialVisible,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum CaptureKind {
+    Conversation,
+    AgentSession,
+    ImportedConversation,
+    Manual,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CaptureRole {
+    User,
+    Assistant,
+    System,
+    Tool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum SourceRetention {
+    ReviewWindow,
+    FullSource,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MemoryHorizon {
+    Durable,
+    Project,
+    Temporary,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ActorType {
@@ -69,6 +161,8 @@ pub enum EventType {
     SourceCaptured,
     #[serde(rename = "claim.proposed")]
     ClaimProposed,
+    #[serde(rename = "claim.evidence_added")]
+    ClaimEvidenceAdded,
     #[serde(rename = "claim.confirmed")]
     ClaimConfirmed,
     #[serde(rename = "claim.edited")]
@@ -158,6 +252,62 @@ pub struct MemorySource {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub struct CapturedTurn {
+    pub id: String,
+    pub role: CaptureRole,
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub occurred_at: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CapturedInteraction {
+    pub id: String,
+    pub kind: CaptureKind,
+    pub product: CaptureProduct,
+    pub client: CaptureClient,
+    pub mode: CaptureMode,
+    pub capture_method: CaptureMethod,
+    pub fidelity: CaptureFidelity,
+    pub provider: String,
+    pub subject: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub external_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_url: Option<String>,
+    pub captured_at: String,
+    pub turns: Vec<CapturedTurn>,
+    pub retention: SourceRetention,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<BTreeMap<String, Value>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractedMemoryProposal {
+    pub key: String,
+    pub value: Value,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tags: Option<Vec<String>>,
+    pub epistemic_type: EpistemicType,
+    pub confidence: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensitivity: Option<Sensitivity>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub horizon: Option<MemoryHorizon>,
+    pub evidence_turn_ids: Vec<String>,
+    pub evidence: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub valid_until: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MemoryEvent {
     pub id: String,
     #[serde(rename = "type")]
@@ -181,6 +331,20 @@ mod tests {
             .join(name);
         let content = fs::read_to_string(path).expect("fixture should be readable");
         serde_json::from_str(&content).expect("fixture should be valid JSON")
+    }
+
+    #[test]
+    fn capture_fixture_round_trips() {
+        let original = fixture("capture-conversation.json");
+        let parsed: CapturedInteraction =
+            serde_json::from_value(original.clone()).expect("capture fixture should parse");
+        assert_eq!(parsed.product, CaptureProduct::Chatgpt);
+        assert_eq!(parsed.client, CaptureClient::Desktop);
+        assert_eq!(parsed.mode, CaptureMode::Work);
+        assert_eq!(parsed.capture_method, CaptureMethod::DesktopObserver);
+        assert_eq!(parsed.fidelity, CaptureFidelity::ConversationTurns);
+        assert_eq!(parsed.retention, SourceRetention::ReviewWindow);
+        assert_eq!(serde_json::to_value(parsed).unwrap(), original);
     }
 
     #[test]

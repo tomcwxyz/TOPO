@@ -60,6 +60,160 @@ export const sourceTypeSchema = z.enum([
 export type SourceType = z.infer<typeof sourceTypeSchema>;
 export const SOURCE_TYPES = sourceTypeSchema.options;
 
+export const captureProductSchema = z.enum([
+  "chatgpt",
+  "claude",
+  "gemini",
+  "copilot",
+  "hermes",
+  "openclaw",
+  "generic",
+]);
+export type CaptureProduct = z.infer<typeof captureProductSchema>;
+export const CAPTURE_PRODUCTS = captureProductSchema.options;
+
+export const captureClientSchema = z.enum([
+  "web",
+  "desktop",
+  "mobile",
+  "chrome-sidepanel",
+  "terminal",
+  "ide",
+  "agent-runtime",
+  "import",
+]);
+export type CaptureClient = z.infer<typeof captureClientSchema>;
+export const CAPTURE_CLIENTS = captureClientSchema.options;
+
+export const captureModeSchema = z.enum([
+  "chat",
+  "work",
+  "codex",
+  "cowork",
+  "code",
+  "research",
+  "agent",
+  "generic",
+]);
+export type CaptureMode = z.infer<typeof captureModeSchema>;
+export const CAPTURE_MODES = captureModeSchema.options;
+
+export const captureMethodSchema = z.enum([
+  "browser-extension",
+  "desktop-observer",
+  "local-mcp",
+  "remote-mcp",
+  "agent-hook",
+  "history-import",
+  "manual",
+]);
+export type CaptureMethod = z.infer<typeof captureMethodSchema>;
+export const CAPTURE_METHODS = captureMethodSchema.options;
+
+export const captureFidelitySchema = z.enum([
+  "full-transcript",
+  "conversation-turns",
+  "task-summary",
+  "partial-visible",
+]);
+export type CaptureFidelity = z.infer<typeof captureFidelitySchema>;
+export const CAPTURE_FIDELITIES = captureFidelitySchema.options;
+
+export const captureKindSchema = z.enum([
+  "conversation",
+  "agent-session",
+  "imported-conversation",
+  "manual",
+]);
+export type CaptureKind = z.infer<typeof captureKindSchema>;
+
+export const captureRoleSchema = z.enum([
+  "user",
+  "assistant",
+  "system",
+  "tool",
+]);
+export type CaptureRole = z.infer<typeof captureRoleSchema>;
+
+export const sourceRetentionSchema = z.enum([
+  "review-window",
+  "full-source",
+]);
+export type SourceRetention = z.infer<typeof sourceRetentionSchema>;
+
+export const memoryHorizonSchema = z.enum([
+  "durable",
+  "project",
+  "temporary",
+]);
+export type MemoryHorizon = z.infer<typeof memoryHorizonSchema>;
+
+export const capturedTurnSchema = z
+  .object({
+    id: nonEmptyString,
+    role: captureRoleSchema,
+    content: nonEmptyString,
+    occurredAt: dateTime.optional(),
+  })
+  .strict();
+export type CapturedTurn = z.infer<typeof capturedTurnSchema>;
+
+export const capturedInteractionSchema = z
+  .object({
+    id: nonEmptyString,
+    kind: captureKindSchema,
+    product: captureProductSchema,
+    client: captureClientSchema,
+    mode: captureModeSchema,
+    captureMethod: captureMethodSchema,
+    fidelity: captureFidelitySchema,
+    provider: nonEmptyString,
+    subject: nonEmptyString,
+    title: nonEmptyString.optional(),
+    externalId: nonEmptyString.optional(),
+    sourceUrl: nonEmptyString.optional(),
+    capturedAt: dateTime,
+    turns: z.array(capturedTurnSchema).min(1).superRefine((turns, context) => {
+      const ids = new Set<string>();
+      for (const turn of turns) {
+        if (ids.has(turn.id)) {
+          context.addIssue({
+            code: "custom",
+            message: `duplicate turn id: ${turn.id}`,
+          });
+        }
+        ids.add(turn.id);
+      }
+      if (!turns.some((turn) => turn.role === "user")) {
+        context.addIssue({
+          code: "custom",
+          message: "captured interaction must include a user turn",
+        });
+      }
+    }),
+    retention: sourceRetentionSchema.default("review-window"),
+    metadata: z.record(z.string(), jsonValueSchema).optional(),
+  })
+  .strict();
+export type CapturedInteraction = z.infer<typeof capturedInteractionSchema>;
+
+export const extractedMemoryProposalSchema = z
+  .object({
+    key: nonEmptyString,
+    value: jsonValueSchema,
+    category: nonEmptyString.optional(),
+    tags: z.array(nonEmptyString).optional(),
+    epistemicType: epistemicTypeSchema,
+    confidence: z.number().finite().min(0).max(1),
+    sensitivity: sensitivitySchema.optional(),
+    horizon: memoryHorizonSchema.optional(),
+    evidenceTurnIds: z.array(nonEmptyString).min(1),
+    evidence: nonEmptyString,
+    validUntil: dateTime.optional(),
+  })
+  .strict();
+export type ExtractedMemoryProposal = z.infer<typeof extractedMemoryProposalSchema>;
+
 export const actorTypeSchema = z.enum(["user", "agent", "system", "import"]);
 export type ActorType = z.infer<typeof actorTypeSchema>;
 export const ACTOR_TYPES = actorTypeSchema.options;
@@ -139,6 +293,7 @@ export type MemorySource = z.infer<typeof memorySourceSchema>;
 export const eventTypeSchema = z.enum([
   "source.captured",
   "claim.proposed",
+  "claim.evidence_added",
   "claim.confirmed",
   "claim.edited",
   "claim.rejected",
@@ -245,4 +400,16 @@ export function validateSource(value: unknown): asserts value is MemorySource {
 
 export function validateEvent(value: unknown): asserts value is MemoryEvent {
   assertSchema(memoryEventSchema, value);
+}
+
+export function validateCapturedInteraction(
+  value: unknown,
+): asserts value is CapturedInteraction {
+  assertSchema(capturedInteractionSchema, value);
+}
+
+export function validateExtractedMemoryProposal(
+  value: unknown,
+): asserts value is ExtractedMemoryProposal {
+  assertSchema(extractedMemoryProposalSchema, value);
 }
