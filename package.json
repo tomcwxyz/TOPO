@@ -21,7 +21,7 @@
     "test:extension-build": "npm run build --workspace @topo/extension",
     "pack:claude": "npm run pack --workspace @topo/claude-mcpb",
     "test:claude-bundle": "npm run pack --workspace @topo/claude-mcpb",
-    "pack:openclaw": "npm pack ./integrations/openclaw --pack-destination ./integrations/openclaw/dist",
+    "pack:openclaw": "node -e \"require('node:fs').mkdirSync('integrations/openclaw/dist',{recursive:true})\" && npm pack ./integrations/openclaw --pack-destination ./integrations/openclaw/dist",
     "test:agent-integrations": "node --check integrations/openclaw/index.js && npm run pack:openclaw"
   },
   "devDependencies": {
