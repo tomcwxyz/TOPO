@@ -351,13 +351,7 @@ export class TopoMcpService {
       if (page.length < PAGE_SIZE) break;
     }
 
-    return output
-      .sort(
-        (left, right) =>
-          left.occurredAt.localeCompare(right.occurredAt) ||
-          left.id.localeCompare(right.id),
-      )
-      .slice(-max);
+    return output.slice(0, max).reverse();
   }
 
   editCandidate(id: string, patch: EditCandidatePatch): MemoryClaim {
