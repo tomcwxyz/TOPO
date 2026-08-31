@@ -8,7 +8,7 @@ const DISCOVERY = join(homedir(), ".topo", "oos-local.json");
 const QUEUE = join(homedir(), ".openclaw", "topo-capture-queue.json");
 const REQUESTED_BY = "openclaw";
 const MAX_QUEUE = 50;
-const MAX_INTERACTION_CHARS = 100_000;
+const MAX_INTERACTION_CHARS = 80_000;
 const HTTP_TIMEOUT_MS = 2_000;
 
 let queueLock = Promise.resolve();
@@ -66,7 +66,7 @@ function boundTurns(turns) {
   const first = [];
   let firstChars = 0;
   for (const turn of turns) {
-    if (firstChars + turn.content.length > 25_000) break;
+    if (firstChars + turn.content.length > 20_000) break;
     first.push(turn);
     firstChars += turn.content.length;
   }
@@ -75,7 +75,7 @@ function boundTurns(turns) {
   let lastChars = 0;
   for (let index = turns.length - 1; index >= 0; index -= 1) {
     const turn = turns[index];
-    if (!turn || lastChars + turn.content.length > 70_000) break;
+    if (!turn || lastChars + turn.content.length > 55_000) break;
     last.push(turn);
     lastChars += turn.content.length;
   }
