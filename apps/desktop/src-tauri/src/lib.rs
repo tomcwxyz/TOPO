@@ -1,4 +1,6 @@
+mod capture_extractor;
 mod capture_inbox;
+mod capture_processor;
 mod oos_local;
 
 use chrono::{DateTime, Utc};
@@ -764,6 +766,8 @@ pub fn run() {
             review_candidate,
             preview_context,
             capture_inbox::capture_inbox_status,
+            capture_extractor::ollama_extractor_status,
+            capture_processor::process_capture_with_ollama,
             oos_local::local_context_sharing_status,
             oos_local::set_local_context_sharing
         ])
