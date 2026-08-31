@@ -137,13 +137,22 @@ Build:
 - token/context budgets
 - explainable selection
 - context manifest and digest
-- `memory://context/... ` resources
+- `memory://context/...` resources
+- Organisational OS Context Packet adapter
 
 Optional later:
 
 - embedding-assisted retrieval
 
-**Exit:** different tasks receive compact, explainable and appropriately scoped context.
+**Exit:** different tasks receive compact, explainable and appropriately scoped context, including through an OOS-compatible context request.
+
+### Organisational OS boundary
+
+TOPO participates first as a **context provider**, not as a mirror of every connected application's operational state.
+
+Canonical TOPO Claims remain governed memory. An external task, project or CRM record should not silently become a confirmed Claim merely because an OOS node can see it.
+
+Before broad OOS event ingestion, implement an explicit external-object/event ledger or equivalent linked reference layer alongside canonical Claims. Connector policy can then decide what may be proposed into memory.
 
 ## Phase 6 — Migration and import
 
@@ -170,6 +179,7 @@ Imports preserve provenance, deduplicate, identify contradictions and enter revi
 Build:
 
 - TOPO-backed RACK ContextSource
+- OOS Context Packet compatibility
 - context snapshots
 - build provenance/digest
 - sensitivity controls
@@ -186,12 +196,13 @@ Only after the local system is trustworthy:
 
 - encrypted multi-device sync
 - remote TOPO service
+- OOS node/relay participation for selected shared context
 - backup/recovery
 - server-assisted connectors
 - team/shared context boundaries
 - mobile client
 
-Managed features must not make the local-first implementation second-class.
+Managed features must not make the local-first implementation second-class. Private local memory must remain capable of staying entirely off the managed service.
 
 ---
 
