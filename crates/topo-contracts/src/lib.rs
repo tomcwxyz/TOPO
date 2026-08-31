@@ -161,6 +161,8 @@ pub enum EventType {
     SourceCaptured,
     #[serde(rename = "claim.proposed")]
     ClaimProposed,
+    #[serde(rename = "claim.evidence_added")]
+    ClaimEvidenceAdded,
     #[serde(rename = "claim.confirmed")]
     ClaimConfirmed,
     #[serde(rename = "claim.edited")]
