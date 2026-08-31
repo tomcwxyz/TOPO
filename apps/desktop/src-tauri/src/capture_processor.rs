@@ -772,6 +772,58 @@ mod tests {
     }
 
     #[test]
+    fn change_candidate_supersedes_previous_claim_only_after_confirmation() {
+        let connection = connection();
+        persist_proposals(
+            &connection,
+            &interaction(),
+            vec![proposal()],
+            "digest-original",
+            "test:extractor",
+        )
+        .unwrap();
+        let original_id = all_claims(&connection).unwrap()[0].id.clone();
+        crate::review_candidate_in(&connection, &original_id, "confirm").unwrap();
+
+        let mut changed = proposal();
+        changed.value = Value::String("en-US".to_owned());
+        changed.evidence = "Use American English for this project.".to_owned();
+
+        persist_proposals(
+            &connection,
+            &interaction(),
+            vec![changed],
+            "digest-changed",
+            "test:extractor",
+        )
+        .unwrap();
+
+        let claims = all_claims(&connection).unwrap();
+        let candidate = claims
+            .iter()
+            .find(|claim| claim.status == ClaimStatus::Candidate)
+            .unwrap();
+        assert_eq!(candidate.supersedes, vec![original_id.clone()]);
+
+        let still_confirmed = claims
+            .iter()
+            .find(|claim| claim.id == original_id)
+            .unwrap();
+        assert_eq!(still_confirmed.status, ClaimStatus::Confirmed);
+
+        crate::review_candidate_in(&connection, &candidate.id, "confirm").unwrap();
+
+        let claims = all_claims(&connection).unwrap();
+        let previous = claims.iter().find(|claim| claim.id == original_id).unwrap();
+        assert_eq!(previous.status, ClaimStatus::Superseded);
+        let replacement = claims
+            .iter()
+            .find(|claim| claim.status == ClaimStatus::Confirmed)
+            .unwrap();
+        assert_eq!(replacement.value, Value::String("en-US".to_owned()));
+    }
+
+    #[test]
     fn exact_snapshot_is_idempotent() {
         let connection = connection();
         persist_proposals(
