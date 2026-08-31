@@ -153,7 +153,8 @@ fn persist_proposals(
             .filter(|claim| {
                 claim.subject == interaction.subject
                     && claim.key == proposal.key
-                    && matches!(claim.status, ClaimStatus::Confirmed | ClaimStatus::Candidate)
+                    && (claim.status == ClaimStatus::Confirmed
+                        || claim.status == ClaimStatus::Candidate)
             })
             .collect::<Vec<_>>();
 
