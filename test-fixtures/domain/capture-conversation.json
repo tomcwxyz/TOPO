@@ -1,7 +1,9 @@
 {
   "id": "capture-conversation-1",
   "kind": "conversation",
-  "surface": "chatgpt",
+  "product": "chatgpt",
+  "client": "desktop",
+  "mode": "work",
   "provider": "openai",
   "subject": "self",
   "title": "TOPO capture planning",
@@ -22,6 +24,6 @@
   ],
   "retention": "review-window",
   "metadata": {
-    "browser": "chromium"
+    "captureMethod": "desktop-observer"
   }
 }
