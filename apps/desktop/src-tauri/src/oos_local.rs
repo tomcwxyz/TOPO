@@ -21,7 +21,7 @@ use topo_contracts::{
 };
 use uuid::Uuid;
 
-const PROTOCOL: &str = "oos-local/0.2";
+const PROTOCOL: &str = "oos-local/0.1";
 const MAX_BODY_BYTES: usize = 128 * 1024;
 const MAX_PROPOSALS: usize = 50;
 const MAX_SEARCH_RESULTS: usize = 100;
