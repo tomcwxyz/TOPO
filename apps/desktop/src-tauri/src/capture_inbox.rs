@@ -25,7 +25,7 @@ pub struct CaptureInboxStatus {
     items: Vec<CaptureInboxItem>,
 }
 
-fn inbox_path() -> Result<PathBuf, String> {
+pub(crate) fn inbox_path() -> Result<PathBuf, String> {
     let home =
         dirs::home_dir().ok_or_else(|| "Unable to determine the home directory.".to_owned())?;
     Ok(home.join(".topo").join("capture-inbox"))
@@ -115,6 +115,65 @@ pub fn read_capture_inbox_at(directory: PathBuf) -> Result<CaptureInboxStatus, S
         invalid,
         items,
     })
+}
+
+pub(crate) struct LoadedCapture {
+    pub path: PathBuf,
+    pub interaction: CapturedInteraction,
+}
+
+pub(crate) fn load_capture(interaction_id: &str) -> Result<LoadedCapture, String> {
+    let directory = inbox_path()?;
+    if !directory.exists() {
+        return Err("Capture inbox is empty.".to_owned());
+    }
+
+    for entry in fs::read_dir(&directory)
+        .map_err(|error| format!("Could not read capture inbox: {error}"))?
+    {
+        let entry = entry.map_err(|error| format!("Could not read capture entry: {error}"))?;
+        let path = entry.path();
+        let metadata = fs::symlink_metadata(&path)
+            .map_err(|error| format!("Could not inspect capture entry: {error}"))?;
+        if metadata.file_type().is_symlink()
+            || !metadata.is_file()
+            || path.extension().and_then(|value| value.to_str()) != Some("json")
+        {
+            continue;
+        }
+
+        let interaction = serde_json::from_slice::<CapturedInteraction>(
+            &fs::read(&path).map_err(|error| format!("Could not read capture: {error}"))?,
+        )
+        .map_err(|error| format!("Could not parse capture: {error}"))?;
+
+        if interaction.id == interaction_id {
+            return Ok(LoadedCapture { path, interaction });
+        }
+    }
+
+    Err(format!("Captured interaction not found: {interaction_id}"))
+}
+
+pub(crate) fn archive_capture(path: &std::path::Path) -> Result<(), String> {
+    let home =
+        dirs::home_dir().ok_or_else(|| "Unable to determine the home directory.".to_owned())?;
+    let directory = home.join(".topo").join("capture-processed");
+    fs::create_dir_all(&directory)
+        .map_err(|error| format!("Could not prepare processed capture archive: {error}"))?;
+
+    let filename = path
+        .file_name()
+        .ok_or_else(|| "Capture file has no filename.".to_owned())?;
+    let destination = directory.join(filename);
+
+    if destination.exists() {
+        fs::remove_file(&destination)
+            .map_err(|error| format!("Could not replace archived capture: {error}"))?;
+    }
+
+    fs::rename(path, destination)
+        .map_err(|error| format!("Could not archive processed capture: {error}"))
 }
 
 #[tauri::command]
