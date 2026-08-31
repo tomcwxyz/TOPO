@@ -35,13 +35,14 @@ export const chatgptAdapter: SiteAdapter = {
       if (author !== "user" && author !== "assistant") continue;
       const content = cleanText(node.textContent);
       if (!content) continue;
+      const providerTurnId =
+        node.getAttribute("data-message-id") ??
+        node.closest("[data-message-id]")?.getAttribute("data-message-id") ??
+        undefined;
       turns.push({
         role: author,
         content,
-        providerTurnId:
-          node.getAttribute("data-message-id") ??
-          node.closest("[data-message-id]")?.getAttribute("data-message-id") ??
-          undefined,
+        ...(providerTurnId === undefined ? {} : { providerTurnId }),
       });
     }
 
