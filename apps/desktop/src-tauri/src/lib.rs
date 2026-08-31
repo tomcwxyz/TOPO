@@ -504,7 +504,7 @@ fn review_candidate_in(
         event_type,
         entity_type: EventEntityType::Claim,
         entity_id: claim.id.clone(),
-        occurred_at: now,
+        occurred_at: now.clone(),
         actor: Actor {
             actor_type: ActorType::User,
             id: None,
@@ -518,6 +518,37 @@ fn review_candidate_in(
     let tx = connection.unchecked_transaction().map_err(error_text)?;
     write_claim(&tx, &claim)?;
     append_event(&tx, &event)?;
+
+    if decision == "confirm" {
+        for superseded_id in &claim.supersedes {
+            let mut previous = read_claim(&tx, superseded_id)?;
+            if previous.status != ClaimStatus::Confirmed {
+                continue;
+            }
+            previous.status = ClaimStatus::Superseded;
+            previous.updated_at = now.clone();
+            write_claim(&tx, &previous)?;
+            append_event(
+                &tx,
+                &MemoryEvent {
+                    id: format!("event-{}", Uuid::new_v4()),
+                    event_type: EventType::ClaimSuperseded,
+                    entity_type: EventEntityType::Claim,
+                    entity_id: previous.id.clone(),
+                    occurred_at: now.clone(),
+                    actor: Actor {
+                        actor_type: ActorType::User,
+                        id: None,
+                    },
+                    data: Some(BTreeMap::from([(
+                        "supersededBy".to_owned(),
+                        Value::String(claim.id.clone()),
+                    )])),
+                },
+            )?;
+        }
+    }
+
     tx.commit().map_err(error_text)?;
     Ok(claim)
 }
