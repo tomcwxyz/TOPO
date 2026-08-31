@@ -19,7 +19,7 @@ if (-not $SkipBuild) {
   Push-Location $RepoRoot
   try {
     Write-Host 'Building TOPO native capture host...'
-    cargo build --release --manifest-path crates/topo-native-host/Cargo.toml
+    cargo build --release --target-dir target --manifest-path crates/topo-native-host/Cargo.toml
   }
   finally {
     Pop-Location
