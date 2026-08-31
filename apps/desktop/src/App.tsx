@@ -717,6 +717,9 @@ export function App() {
                     <div>
                       <span className={"status-pill " + claim.status}>{claim.status}</span>
                       <span className={"sensitivity " + claim.sensitivity}>{claim.sensitivity}</span>
+                      {claim.supersedes.length > 0 && (
+                        <span className="change-pill">potential change</span>
+                      )}
                     </div>
                     <time dateTime={claim.updatedAt}>
                       {new Date(claim.updatedAt).toLocaleDateString()}
@@ -725,14 +728,35 @@ export function App() {
                   <p className="subject">{claim.subject}</p>
                   <h3>{claim.key}</h3>
                   <pre className="claim-value">{displayValue(claim.value)}</pre>
+                  {claim.provenance.evidence && (
+                    <div className="claim-evidence">
+                      <span>Evidence</span>
+                      <p>“{claim.provenance.evidence}”</p>
+                      <small>
+                        {claim.provenance.provider
+                          ? `${claim.provenance.provider} · `
+                          : ""}
+                        {new Date(claim.provenance.capturedAt).toLocaleString()}
+                      </small>
+                    </div>
+                  )}
+                  {claim.supersedes.length > 0 && (
+                    <div className="change-note">
+                      Confirming this will supersede {claim.supersedes.length} existing confirmed
+                      memor{claim.supersedes.length === 1 ? "y" : "ies"}.
+                    </div>
+                  )}
                   <div className="claim-meta">
                     <span>{claim.epistemicType}</span>
                     <span>{Math.round(claim.confidence * 100)}% confidence</span>
                     <span>source: {claim.provenance.sourceType}</span>
+                    {claim.provenance.provider && <span>{claim.provenance.provider}</span>}
                   </div>
-                  {claim.tags.length > 0 && (
+                  {claim.tags.filter((tag) => !tag.startsWith("topo:")).length > 0 && (
                     <div className="tags">
-                      {claim.tags.map((tag) => <span key={tag}>{tag}</span>)}
+                      {claim.tags
+                        .filter((tag) => !tag.startsWith("topo:"))
+                        .map((tag) => <span key={tag}>{tag}</span>)}
                     </div>
                   )}
                   {claim.status === "candidate" && (
