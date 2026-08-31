@@ -13,7 +13,7 @@ use topo_contracts::{
 };
 use uuid::Uuid;
 
-const SCHEMA_VERSION: i64 = 1;
+const SCHEMA_VERSION: i64 = 2;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -171,7 +171,20 @@ fn migrate(connection: &Connection) -> Result<(), String> {
         CREATE INDEX IF NOT EXISTS claims_source_idx ON claims(source_id);
         CREATE INDEX IF NOT EXISTS events_entity_idx ON events(entity_type, entity_id);
         CREATE INDEX IF NOT EXISTS events_type_idx ON events(type);
-        CREATE INDEX IF NOT EXISTS events_occurred_idx ON events(occurred_at);",
+        CREATE INDEX IF NOT EXISTS events_occurred_idx ON events(occurred_at);
+
+        CREATE TABLE IF NOT EXISTS capture_snapshots (
+            interaction_id TEXT NOT NULL,
+            digest TEXT NOT NULL,
+            source_id TEXT,
+            extractor TEXT NOT NULL,
+            proposal_count INTEGER NOT NULL CHECK (proposal_count >= 0),
+            processed_at TEXT NOT NULL,
+            PRIMARY KEY (interaction_id, digest)
+        ) STRICT;
+
+        CREATE INDEX IF NOT EXISTS capture_snapshots_processed_idx
+          ON capture_snapshots(processed_at);",
     )
     .map_err(error_text)?;
 
