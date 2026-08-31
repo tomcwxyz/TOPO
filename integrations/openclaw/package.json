@@ -4,7 +4,9 @@
   "description": "Governed TOPO context and ambient interaction capture for OpenClaw",
   "type": "module",
   "openclaw": {
-    "extensions": ["./index.js"],
+    "extensions": [
+      "./index.js"
+    ],
     "compat": {
       "pluginApi": ">=2026.8.1",
       "minGatewayVersion": ">=2026.8.1"
@@ -13,5 +15,8 @@
       "openclawVersion": "2026.8.1",
       "pluginSdkVersion": "2026.8.1"
     }
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.8.1"
   }
 }
