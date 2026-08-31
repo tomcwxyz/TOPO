@@ -45,7 +45,8 @@ struct ProposalEnvelope {
     proposals: Vec<ExtractedMemoryProposal>,
 }
 
-pub async fn ollama_status() -> OllamaStatus {
+#[tauri::command]
+pub async fn ollama_extractor_status() -> OllamaStatus {
     let client = match Client::builder()
         .timeout(Duration::from_secs(3))
         .build()
