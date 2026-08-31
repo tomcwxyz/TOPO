@@ -209,11 +209,15 @@ def _save_queue(items: list[dict[str, Any]]) -> None:
 
 
 def _queue(interaction: dict[str, Any]) -> None:
-    items = [
-        item for item in _load_queue()
-        if isinstance(item, dict)
-        and item.get("interaction", {}).get("id") != interaction["id"]
-    ]
+    items = []
+    for item in _load_queue():
+        if not isinstance(item, dict):
+            continue
+        queued = item.get("interaction")
+        if not isinstance(queued, dict):
+            continue
+        if queued.get("id") != interaction["id"]:
+            items.append(item)
     items.append({"interaction": interaction})
     _save_queue(items)
 
