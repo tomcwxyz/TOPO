@@ -11,3 +11,4 @@ TOPO uses ADRs for durable architectural choices. Implementation details can cha
 | [0005](0005-derived-documents-are-projections.md) | Generated memory documents are derived projections, not evidence | Accepted |
 | [0006](0006-sqlite-local-store.md) | SQLite is the first-class local store, behind a replaceable adapter | Accepted |
 | [0007](0007-tauri-desktop-runtime-boundary.md) | Desktop uses Tauri/Rust for native capabilities while domain semantics remain portable | Accepted |
+| [0008](0008-mcp-review-authority-is-explicit.md) | MCP clients are proposal-first; review authority requires explicit delegation | Accepted |
