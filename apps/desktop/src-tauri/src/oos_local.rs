@@ -16,7 +16,8 @@ use std::{
 };
 use tiny_http::{Header, Method, Response, Server, StatusCode};
 use topo_contracts::{
-    Actor, ActorType, CaptureClient, CaptureMethod, CaptureProduct, CapturedInteraction,
+    Actor, ActorType, CaptureClient, CaptureKind, CaptureMethod, CaptureMode, CaptureProduct,
+    CapturedInteraction,
     ClaimProvenance, ClaimStatus, EpistemicType, EventEntityType, EventType, MemoryClaim,
     MemoryEvent, MemorySource, Sensitivity, SourceType,
 };
@@ -534,22 +535,7 @@ fn handle_request(
 }
 
 fn accept_local_capture(input: CaptureRequest) -> Result<Value, String> {
-    if input.requested_by.trim().is_empty() {
-        return Err("requestedBy is required.".to_owned());
-    }
-
-    if input.interaction.capture_method != CaptureMethod::AgentHook {
-        return Err("Local agent capture requires captureMethod=agent-hook.".to_owned());
-    }
-    if input.interaction.client != CaptureClient::AgentRuntime {
-        return Err("Local agent capture requires client=agent-runtime.".to_owned());
-    }
-    if !matches!(
-        input.interaction.product,
-        CaptureProduct::Hermes | CaptureProduct::Openclaw | CaptureProduct::Generic
-    ) {
-        return Err("Local agent capture only accepts Hermes, OpenClaw or generic agents.".to_owned());
-    }
+    validate_local_capture(&input)?;
 
     let interaction_id = input.interaction.id.clone();
     let product = super::enum_text(&input.interaction.product)?;
@@ -564,6 +550,38 @@ fn accept_local_capture(input: CaptureRequest) -> Result<Value, String> {
         "requestedBy": input.requested_by,
         "reviewRequired": true
     }))
+}
+
+fn validate_local_capture(input: &CaptureRequest) -> Result<(), String> {
+    if input.requested_by.trim().is_empty() {
+        return Err("requestedBy is required.".to_owned());
+    }
+    if input.interaction.kind != CaptureKind::AgentSession
+        || input.interaction.mode != CaptureMode::Agent
+        || input.interaction.capture_method != CaptureMethod::AgentHook
+        || input.interaction.client != CaptureClient::AgentRuntime
+    {
+        return Err(
+            "Local agent capture requires an agent-session/agent/agent-hook/agent-runtime source."
+                .to_owned(),
+        );
+    }
+    if !matches!(
+        input.interaction.product,
+        CaptureProduct::Hermes | CaptureProduct::Openclaw | CaptureProduct::Generic
+    ) {
+        return Err("Local agent capture only accepts Hermes, OpenClaw or generic agents.".to_owned());
+    }
+    if input.interaction.turns.is_empty()
+        || !input
+            .interaction
+            .turns
+            .iter()
+            .any(|turn| matches!(turn.role, topo_contracts::CaptureRole::User))
+    {
+        return Err("Local agent capture requires at least one user-authored turn.".to_owned());
+    }
+    Ok(())
 }
 
 fn local_search(input: SearchRequest) -> Result<Value, String> {
@@ -1015,12 +1033,27 @@ mod tests {
         }))
         .unwrap();
 
-        assert_eq!(valid.capture_method, CaptureMethod::AgentHook);
-        assert_eq!(valid.client, CaptureClient::AgentRuntime);
+        let valid_request = CaptureRequest {
+            requested_by: "hermes-agent".to_owned(),
+            interaction: valid.clone(),
+        };
+        assert!(validate_local_capture(&valid_request).is_ok());
 
         let mut invalid = valid.clone();
         invalid.capture_method = CaptureMethod::LocalMcp;
-        assert_ne!(invalid.capture_method, CaptureMethod::AgentHook);
+        let invalid_request = CaptureRequest {
+            requested_by: "hermes-agent".to_owned(),
+            interaction: invalid,
+        };
+        assert!(validate_local_capture(&invalid_request).is_err());
+
+        let mut wrong_product = valid;
+        wrong_product.product = CaptureProduct::Claude;
+        let wrong_product_request = CaptureRequest {
+            requested_by: "claude-desktop".to_owned(),
+            interaction: wrong_product,
+        };
+        assert!(validate_local_capture(&wrong_product_request).is_err());
     }
 
     #[test]
