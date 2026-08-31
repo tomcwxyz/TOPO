@@ -66,7 +66,7 @@ The TOPO desktop now exposes a deliberately narrow local-only OOS endpoint while
 
 Discovery is written to `~/.topo/oos-local.json`. The file contains a loopback endpoint and a per-process bearer token. On Unix the discovery file is written with mode `0600`.
 
-The endpoint is discoverable while TOPO is running, but **context sharing is disabled by default for every TOPO session**. The person using TOPO must explicitly enable local app access in the desktop UI before another local app can request context.
+The endpoint is discoverable while TOPO is running, but **context sharing is disabled by default for every TOPO session**. The person using TOPO must explicitly choose **Allow local tools** in the desktop UI before another local app can request context.
 
 The endpoint:
 
