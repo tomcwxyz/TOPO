@@ -2,7 +2,7 @@
 
 TOPO becomes useful when it can learn from normal work without requiring people to maintain a memory database by hand.
 
-The capture product contract is:
+See also [ChatGPT, Claude and desktop capture surfaces](CAPTURE_SURFACES.md).\n\nThe capture product contract is:
 
 > **Ambient capture, governed memory.**
 
