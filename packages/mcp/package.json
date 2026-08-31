@@ -1,0 +1,28 @@
+{
+  "name": "@topo/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "@topo/core": "0.1.0",
+    "@topo/schemas": "0.1.0",
+    "@topo/store": "0.1.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
+    "@topo/store-node": "0.1.0",
+    "@types/node": "^24.3.0"
+  }
+}

@@ -351,7 +351,7 @@ export class SqliteMemoryStore implements MemoryStore {
     const rows = this.db
       .prepare(
         `SELECT * FROM events ${where}
-         ORDER BY occurred_at DESC, id ASC
+         ORDER BY occurred_at DESC, rowid DESC
          LIMIT @limit OFFSET @offset`,
       )
       .all(params) as EventRow[];

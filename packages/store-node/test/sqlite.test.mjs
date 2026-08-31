@@ -129,3 +129,25 @@ test("supports paginated source/event reads and direct event lookup", () => {
 
   store.close();
 });
+
+test("event reads preserve insertion order when timestamps are identical", () => {
+  const store = new SqliteMemoryStore(":memory:");
+  store.putSource(source());
+
+  const first = proposed("event-z");
+  store.applyTransition(first);
+  const confirmed = confirmClaim(first.claim, {
+    now: time1,
+    eventId: "event-a",
+    actor: { type: "user", id: "reviewer" },
+  });
+  store.applyTransition(confirmed);
+
+  const events = store.listEvents({ entityId: "claim-1" });
+  assert.deepEqual(
+    events.map((event) => event.id),
+    ["event-a", "event-z"],
+  );
+
+  store.close();
+});

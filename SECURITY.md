@@ -12,6 +12,8 @@ TOPO is early-stage software handling potentially sensitive personal context. Tr
 - Sensitivity metadata must be enforced when resolving context, not merely displayed in the UI.
 - Audit/history data is potentially sensitive and must be included in any at-rest protection model.
 - Analytics/telemetry are off by default.
+- MCP clients are proposal-first by default; confirmation/rejection tools require explicit review-authority delegation.
+- The initial MCP transport is stdio only; TOPO does not expose an unauthenticated network listener.
 - TOPO will not claim zero-knowledge or end-to-end encryption unless the implementation actually provides those guarantees.
 
 ## Threat-model work required before remote use

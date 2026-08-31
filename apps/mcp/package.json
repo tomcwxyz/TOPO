@@ -1,0 +1,23 @@
+{
+  "name": "@topo/mcp-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "topo-mcp": "./dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "@topo/mcp": "0.1.0",
+    "@topo/schemas": "0.1.0",
+    "@topo/store-node": "0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.0",
+    "@modelcontextprotocol/client": "2.0.0"
+  }
+}
