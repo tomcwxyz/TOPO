@@ -1,8 +1,10 @@
 import { proposeClaim } from "@topo/core";
 import type {
   Actor,
+  CapturedInteraction,
+  CapturedTurn,
   ClaimTransition,
-  EpistemicType,
+  ExtractedMemoryProposal,
   JsonValue,
   MemoryClaim,
   MemoryEvent,
@@ -10,62 +12,16 @@ import type {
   Sensitivity,
 } from "@topo/schemas";
 
-export type CaptureSurface =
-  | "chatgpt"
-  | "claude"
-  | "gemini"
-  | "copilot"
-  | "agent"
-  | "import"
-  | "generic";
-
-export type CaptureKind =
-  | "conversation"
-  | "agent-session"
-  | "imported-conversation"
-  | "manual";
-
-export type CaptureRole = "user" | "assistant" | "system" | "tool";
-
-export type SourceRetention = "review-window" | "full-source";
-
-export type MemoryHorizon = "durable" | "project" | "temporary";
-
-export interface CapturedTurn {
-  id: string;
-  role: CaptureRole;
-  content: string;
-  occurredAt?: string;
-}
-
-export interface CapturedInteraction {
-  id: string;
-  kind: CaptureKind;
-  surface: CaptureSurface;
-  provider: string;
-  subject: string;
-  title?: string;
-  externalId?: string;
-  sourceUrl?: string;
-  capturedAt: string;
-  turns: CapturedTurn[];
-  retention?: SourceRetention;
-  metadata?: Record<string, JsonValue>;
-}
-
-export interface ExtractedMemoryProposal {
-  key: string;
-  value: JsonValue;
-  category?: string;
-  tags?: string[];
-  epistemicType: EpistemicType;
-  confidence: number;
-  sensitivity?: Sensitivity;
-  horizon?: MemoryHorizon;
-  evidenceTurnIds: string[];
-  evidence: string;
-  validUntil?: string;
-}
+export type {
+  CaptureKind,
+  CaptureRole,
+  CaptureSurface,
+  CapturedInteraction,
+  CapturedTurn,
+  ExtractedMemoryProposal,
+  MemoryHorizon,
+  SourceRetention,
+} from "@topo/schemas";
 
 export type ProposalComparison =
   | "new"
