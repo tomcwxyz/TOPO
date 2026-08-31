@@ -737,7 +737,7 @@ pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
             let endpoint = oos_local::LocalOosEndpoint::start()
-                .map_err(|error| -> Box<dyn std::error::Error> { error.into() })?;
+                .map_err(std::io::Error::other)?;
             app.manage(endpoint);
             Ok(())
         })
