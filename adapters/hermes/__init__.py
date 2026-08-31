@@ -24,7 +24,7 @@ _DISCOVERY = Path.home() / ".topo" / "oos-local.json"
 _QUEUE = Path.home() / ".hermes" / "topo-capture-queue.json"
 _REQUESTED_BY = "hermes-agent"
 _MAX_QUEUE = 50
-_MAX_INTERACTION_CHARS = 100_000
+_MAX_INTERACTION_CHARS = 80_000
 _HTTP_TIMEOUT = 2.0
 
 
@@ -127,14 +127,14 @@ def _bounded_turns(turns: list[dict[str, str]]) -> list[dict[str, str]]:
     last: list[dict[str, str]] = []
     first_chars = 0
     for turn in turns:
-        if first_chars + len(turn["content"]) > 25_000:
+        if first_chars + len(turn["content"]) > 20_000:
             break
         first.append(turn)
         first_chars += len(turn["content"])
 
     last_chars = 0
     for turn in reversed(turns):
-        if last_chars + len(turn["content"]) > 70_000:
+        if last_chars + len(turn["content"]) > 55_000:
             break
         last.append(turn)
         last_chars += len(turn["content"])
