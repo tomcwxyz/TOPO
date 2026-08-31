@@ -24,13 +24,13 @@ TOPO treats memory as governed context rather than an opaque store of inferred f
 
 ## Status
 
-TOPO is in early implementation. The canonical claim lifecycle and local Node SQLite adapter are working, and the desktop architecture now follows the same Tauri/React pattern as RACK.
+TOPO is now in **local alpha**. The canonical claim lifecycle, local SQLite store, CLI, proposal-first MCP server and a usable Tauri desktop memory manager are working. Desktop, CLI, MCP and interoperability adapters share the same local store rather than maintaining parallel memory.
 
 The desktop application is intended to become the primary local manager. CLI, MCP and browser-extension clients will use the same portable domain contract rather than owning separate definitions of memory.
 
 TOPO is also beginning to act as a local memory/context node for the draft [Organisational OS](https://github.com/tomcwxyz/Organisational-OS). The first adapter exposes purpose-bound Context Packets while deliberately keeping external operational state distinct from canonical memory Claims.
 
-See [PLAN.md](PLAN.md), [ROADMAP.md](ROADMAP.md), [Organisational OS adapter](docs/OOS_ADAPTER.md) and [docs/adr](docs/adr).
+See [PLAN.md](PLAN.md), [ROADMAP.md](ROADMAP.md), [Organisational OS adapter](docs/OOS_ADAPTER.md), [local alpha releases](docs/RELEASE.md) and [docs/adr](docs/adr).
 
 ## Repository shape
 
