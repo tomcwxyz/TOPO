@@ -39,6 +39,7 @@ jobs:
       - run: npm install
       - run: npm run build --workspace @topo/desktop
       - run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 
   windows:
     name: Desktop smoke (Windows)
@@ -53,6 +54,7 @@ jobs:
       - run: npm install
       - run: npm run build --workspace @topo/desktop
       - run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
 
   macos:
     name: Desktop smoke (macOS)
@@ -68,3 +70,4 @@ jobs:
       - run: npm install
       - run: npm run build --workspace @topo/desktop
       - run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
