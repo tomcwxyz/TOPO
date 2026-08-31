@@ -41,6 +41,8 @@ See [PLAN.md](PLAN.md), [ROADMAP.md](ROADMAP.md), [Organisational OS adapter](do
 - `crates/topo-contracts` — Rust representation of the native interchange boundary.
 - `packages/formats` — portable TOPO bundle import/export.
 - `adapters/oos` — purpose-bound Organisational OS Context Packet adapter.
+- `packages/mcp` — proposal-first MCP service and tool policy.
+- `apps/mcp` — local stdio MCP server over the same SQLite store.
 - `apps/cli` — local command-line workflows for claims, review, search and portability.
 - `apps/desktop` — Tauri + React desktop application.
 - `test-fixtures/domain` — contract fixtures shared by TypeScript and Rust.
@@ -61,6 +63,14 @@ npm run topo -- --store ./other.sqlite import ./topo-export
 ```
 
 The default store is `~/.topo/topo.sqlite`. Pass `--store <path>` or set `TOPO_DB` to use another store.
+
+Run the proposal-first MCP server against that same store:
+
+```bash
+npm run topo:mcp
+```
+
+Normal MCP clients can propose and retrieve memory within their sensitivity ceiling but cannot silently confirm it. See [docs/MCP.md](docs/MCP.md).
 
 Native bundles are documented in [docs/BUNDLE_FORMAT.md](docs/BUNDLE_FORMAT.md). Import is conservative: existing record IDs are treated as conflicts rather than overwritten.
 
