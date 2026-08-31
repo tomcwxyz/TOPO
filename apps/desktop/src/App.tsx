@@ -228,8 +228,8 @@ export function App() {
       setLocalSharing(next);
       setMessage(
         enabled
-          ? "Local context sharing enabled for this TOPO session."
-          : "Local context sharing stopped.",
+          ? "Local tools can use approved TOPO context for this session. Rack will connect automatically."
+          : "Local tool access stopped.",
       );
     } catch (cause) {
       setError(String(cause));
@@ -291,11 +291,11 @@ export function App() {
             <div className="local-sharing-control">
               <div className="local-sharing-heading">
                 <div>
-                  <strong>Local app access</strong>
+                  <strong>Local tools</strong>
                   <span>
                     {localSharing?.enabled
-                      ? "On for this session"
-                      : "Off"}
+                      ? "Allowed for this session"
+                      : "Not allowed"}
                   </span>
                 </div>
                 <button
@@ -309,15 +309,16 @@ export function App() {
                   {sharingBusy
                     ? "Updating…"
                     : localSharing?.enabled
-                      ? "Stop sharing"
-                      : "Allow local context"}
+                      ? "Stop local access"
+                      : "Allow local tools"}
                 </button>
               </div>
               <p>
-                When enabled, local apps such as RACK can request purpose-bound
-                ordinary and personal context. Sensitive and restricted memory
-                is never shared through this local endpoint. Access turns off
-                again when TOPO restarts.
+                When enabled, RACK and other compatible local tools can request
+                purpose-bound ordinary and personal context. They connect
+                automatically while TOPO is open. Sensitive and restricted
+                memory is never shared through this connection, and access
+                turns off again when TOPO restarts.
               </p>
             </div>
 
