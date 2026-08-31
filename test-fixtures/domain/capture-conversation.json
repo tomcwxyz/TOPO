@@ -4,6 +4,8 @@
   "product": "chatgpt",
   "client": "desktop",
   "mode": "work",
+  "captureMethod": "desktop-observer",
+  "fidelity": "conversation-turns",
   "provider": "openai",
   "subject": "self",
   "title": "TOPO capture planning",
