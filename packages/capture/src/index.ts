@@ -19,7 +19,9 @@ import type {
 
 export type {
   CaptureClient,
+  CaptureFidelity,
   CaptureKind,
+  CaptureMethod,
   CaptureMode,
   CaptureProduct,
   CaptureRole,
@@ -157,6 +159,8 @@ function sourceMetadata(
     "topo.capture.product": interaction.product,
     "topo.capture.client": interaction.client,
     "topo.capture.mode": interaction.mode,
+    "topo.capture.method": interaction.captureMethod,
+    "topo.capture.fidelity": interaction.fidelity,
     "topo.capture.retention": interaction.retention ?? "review-window",
     "topo.capture.turnCount": interaction.turns.length,
     "topo.capture.evidenceTurns": referencedTurns(interaction, proposals).map((turn) => ({
@@ -272,6 +276,8 @@ export function prepareCaptureBatch(
       captureProduct: interaction.product,
       captureClient: interaction.client,
       captureMode: interaction.mode,
+      captureMethod: interaction.captureMethod,
+      captureFidelity: interaction.fidelity,
       captureKind: interaction.kind,
       proposalCount: proposals.length,
       retention: interaction.retention ?? "review-window",
