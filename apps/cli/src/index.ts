@@ -39,6 +39,7 @@ import {
   type Sensitivity,
 } from "@topo/schemas";
 import { SqliteMemoryStore } from "@topo/store-node";
+import { registerOosCommands } from "./oos.js";
 
 const program = new Command();
 
@@ -590,6 +591,8 @@ program
       `Imported ${bundle.manifest.counts.claims} claims from ${sourceDirectory}`,
     );
   });
+
+registerOosCommands(program, { openStore });
 
 function countAll<T>(read: (offset: number) => T[]): number {
   let count = 0;
