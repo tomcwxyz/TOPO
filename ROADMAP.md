@@ -130,8 +130,8 @@ Build:
 - a high-level MCP interaction-capture path;
 - explicit “remember this” path;
 - purpose-bound TOPO retrieval for agent sessions;
-- Hermes companion integration;
-- OpenClaw companion integration;
+- Hermes general plugin using post_llm_call for ambient capture;
+- OpenClaw companion plugin using agent_end for ambient capture;
 - memory-pressure handoff experiments;
 - small hot-context projection where explicitly useful.
 
