@@ -175,9 +175,12 @@ fn persist_proposals(
             continue;
         }
 
-        let change = same_key
+        let supersedes = same_key
             .iter()
-            .any(|claim| claim.status == ClaimStatus::Confirmed);
+            .filter(|claim| claim.status == ClaimStatus::Confirmed)
+            .map(|claim| claim.id.clone())
+            .collect::<Vec<_>>();
+        let change = !supersedes.is_empty();
         if change {
             potential_changes += 1;
         }
@@ -186,8 +189,7 @@ fn persist_proposals(
             interaction,
             &source,
             proposal,
-            extractor,
-            change,
+            supersedes,
             &now,
         )?;
         write_claim(&tx, &claim)?;
@@ -544,15 +546,14 @@ fn candidate_from_proposal(
     interaction: &CapturedInteraction,
     source: &MemorySource,
     proposal: ExtractedMemoryProposal,
-    extractor: &str,
-    potential_change: bool,
+    supersedes: Vec<String>,
     now: &str,
 ) -> Result<MemoryClaim, String> {
     let mut tags = proposal.tags.unwrap_or_default();
     if let Some(horizon) = proposal.horizon {
         tags.push(format!("topo:horizon:{}", enum_text(&horizon)?));
     }
-    if potential_change {
+    if !supersedes.is_empty() {
         tags.push("topo:potential-change".to_owned());
     }
     tags.sort();
@@ -580,7 +581,7 @@ fn candidate_from_proposal(
         sensitivity: proposal.sensitivity.unwrap_or(Sensitivity::Ordinary),
         valid_from: None,
         valid_until: proposal.valid_until,
-        supersedes: Vec::new(),
+        supersedes,
         created_at: now.to_owned(),
         updated_at: now.to_owned(),
     })
