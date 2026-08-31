@@ -54,6 +54,12 @@ type ContextPreview = {
   selectedClaimIds: string[];
 };
 
+type LocalContextSharingStatus = {
+  enabled: boolean;
+  maxSensitivity: "personal";
+  resetsOnRestart: boolean;
+};
+
 const emptyForm = {
   subject: "",
   key: "",
@@ -107,6 +113,9 @@ export function App() {
   const [contextPurpose, setContextPurpose] = useState("");
   const [includeSensitive, setIncludeSensitive] = useState(false);
   const [contextPreview, setContextPreview] = useState<ContextPreview | null>(null);
+  const [localSharing, setLocalSharing] =
+    useState<LocalContextSharingStatus | null>(null);
+  const [sharingBusy, setSharingBusy] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -128,6 +137,12 @@ export function App() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    void invoke<LocalContextSharingStatus>("local_context_sharing_status")
+      .then(setLocalSharing)
+      .catch((cause) => setError(String(cause)));
+  }, []);
 
   const candidateCount = status?.candidates ?? 0;
   const visibleSubjects = useMemo(
@@ -202,6 +217,27 @@ export function App() {
     }
   };
 
+  const setLocalSharingEnabled = async (enabled: boolean) => {
+    setSharingBusy(true);
+    setError(null);
+    try {
+      const next = await invoke<LocalContextSharingStatus>(
+        "set_local_context_sharing",
+        { enabled },
+      );
+      setLocalSharing(next);
+      setMessage(
+        enabled
+          ? "Local context sharing enabled for this TOPO session."
+          : "Local context sharing stopped.",
+      );
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setSharingBusy(false);
+    }
+  };
+
   const previewContext = async () => {
     setBusy(true);
     setError(null);
@@ -252,6 +288,39 @@ export function App() {
           </div>
 
           <form onSubmit={submitClaim} className="claim-form">
+            <div className="local-sharing-control">
+              <div className="local-sharing-heading">
+                <div>
+                  <strong>Local app access</strong>
+                  <span>
+                    {localSharing?.enabled
+                      ? "On for this session"
+                      : "Off"}
+                  </span>
+                </div>
+                <button
+                  className={localSharing?.enabled ? "quiet" : "secondary"}
+                  type="button"
+                  disabled={sharingBusy || localSharing === null}
+                  onClick={() =>
+                    void setLocalSharingEnabled(!localSharing?.enabled)
+                  }
+                >
+                  {sharingBusy
+                    ? "Updating…"
+                    : localSharing?.enabled
+                      ? "Stop sharing"
+                      : "Allow local context"}
+                </button>
+              </div>
+              <p>
+                When enabled, local apps such as RACK can request purpose-bound
+                ordinary and personal context. Sensitive and restricted memory
+                is never shared through this local endpoint. Access turns off
+                again when TOPO restarts.
+              </p>
+            </div>
+
             <label>
               Subject
               <input
