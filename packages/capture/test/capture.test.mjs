@@ -14,6 +14,8 @@ const baseInteraction = {
   product: "chatgpt",
   client: "web",
   mode: "chat",
+  captureMethod: "browser-extension",
+  fidelity: "conversation-turns",
   provider: "openai",
   subject: "self",
   title: "TOPO planning",
@@ -45,6 +47,8 @@ test("normaliseCapturedInteraction trims content and drops empty turns", () => {
   assert.equal(interaction.product, "chatgpt");
   assert.equal(interaction.client, "web");
   assert.equal(interaction.mode, "chat");
+  assert.equal(interaction.captureMethod, "browser-extension");
+  assert.equal(interaction.fidelity, "conversation-turns");
 });
 
 test("capture proposals become governed candidates with user evidence", () => {
@@ -81,6 +85,8 @@ test("capture proposals become governed candidates with user evidence", () => {
   assert.equal(batch.source.metadata["topo.capture.product"], "chatgpt");
   assert.equal(batch.source.metadata["topo.capture.client"], "web");
   assert.equal(batch.source.metadata["topo.capture.mode"], "chat");
+  assert.equal(batch.source.metadata["topo.capture.method"], "browser-extension");
+  assert.equal(batch.source.metadata["topo.capture.fidelity"], "conversation-turns");
 });
 
 test("assistant-only evidence cannot create a memory proposal", () => {
