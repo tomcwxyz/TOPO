@@ -489,8 +489,10 @@ export function createSupportingEvidenceEvent(
   evidence: string,
   context: Pick<CapturePreparationContext, "now" | "actor" | "createId">,
 ): MemoryEvent {
-  if (claim.status !== "confirmed") {
-    throw new Error("Supporting evidence can only be attached to a confirmed claim");
+  if (claim.status !== "confirmed" && claim.status !== "candidate") {
+    throw new Error(
+      "Supporting evidence can only be attached to an active candidate or confirmed claim",
+    );
   }
   const text = requireNonEmpty(evidence, "evidence");
   requireDateTime(context.now, "context.now");
