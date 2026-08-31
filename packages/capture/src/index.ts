@@ -183,6 +183,7 @@ function validateProposal(
   interaction: CapturedInteraction,
   proposal: ExtractedMemoryProposal,
 ): void {
+  validateExtractedMemoryProposal(proposal);
   requireNonEmpty(proposal.key, "proposal.key");
   requireNonEmpty(proposal.evidence, "proposal.evidence");
 
