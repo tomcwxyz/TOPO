@@ -6,9 +6,9 @@
     "moduleResolution": "bundler",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["chrome"],
-    "rootDir": ".",
+    "rootDir": "src",
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "vite.config.ts"]
+  "include": ["src/**/*.ts"]
 }
