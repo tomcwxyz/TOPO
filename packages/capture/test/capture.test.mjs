@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import {
   buildCaptureExtractionPrompt,
   compareProposalToConfirmedClaims,
+  createSupportingEvidenceEvent,
   normaliseCapturedInteraction,
   prepareCaptureBatch,
   recommendedCaptureStrategy,
@@ -237,4 +238,49 @@ test("agent runtimes use lifecycle hooks before memory-provider replacement", ()
     assert.equal(strategy.primaryMethod, "agent-hook");
     assert.equal(strategy.secondaryMethods.includes("local-mcp"), true);
   }
+});
+
+test("supporting evidence is recorded without creating a duplicate claim", () => {
+  let sequence = 0;
+  const existing = {
+    id: "claim-existing",
+    subject: "self",
+    key: "writing.locale",
+    value: "en-GB",
+    tags: [],
+    epistemicType: "preference",
+    confidence: 1,
+    provenance: {
+      sourceType: "manual",
+      capturedAt: "2026-08-01T00:00:00.000Z",
+    },
+    status: "confirmed",
+    sensitivity: "ordinary",
+    supersedes: [],
+    createdAt: "2026-08-01T00:00:00.000Z",
+    updatedAt: "2026-08-01T00:00:00.000Z",
+  };
+  const source = {
+    id: "source-chat-1",
+    type: "conversation",
+    provider: "openai",
+    capturedAt: "2026-08-31T20:00:00.000Z",
+    createdAt: "2026-08-31T20:01:00.000Z",
+    sensitivity: "ordinary",
+  };
+
+  const event = createSupportingEvidenceEvent(
+    existing,
+    source,
+    "Please use British English.",
+    {
+      now: "2026-08-31T20:01:00.000Z",
+      actor: { type: "agent", id: "capture-extractor" },
+      createId: (prefix) => `${prefix}-${++sequence}`,
+    },
+  );
+
+  assert.equal(event.type, "claim.evidence_added");
+  assert.equal(event.entityId, existing.id);
+  assert.equal(event.data.sourceId, source.id);
 });
