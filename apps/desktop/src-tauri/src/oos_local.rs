@@ -905,6 +905,117 @@ mod tests {
         assert!(validate_proposal(&claim).is_err());
     }
 
+    fn proposal_request(value: &str, evidence: Option<&str>) -> ProposalRequest {
+        ProposalRequest {
+            requested_by: "claude-desktop".to_owned(),
+            source_title: Some("Claude test".to_owned()),
+            source_provider: Some("anthropic".to_owned()),
+            source_reference: None,
+            claims: vec![ProposalClaim {
+                subject: Some("self".to_owned()),
+                key: "writing.locale".to_owned(),
+                value: Value::String(value.to_owned()),
+                category: Some("writing".to_owned()),
+                tags: vec!["writing".to_owned()],
+                epistemic_type: EpistemicType::Preference,
+                confidence: Some(0.95),
+                evidence: evidence.map(str::to_owned),
+                sensitivity: Some(Sensitivity::Ordinary),
+                valid_from: None,
+                valid_until: None,
+            }],
+        }
+    }
+
+    #[test]
+    fn exact_local_proposal_adds_evidence_instead_of_duplicate_candidate() {
+        let connection = Connection::open_in_memory().unwrap();
+        crate::migrate(&connection).unwrap();
+
+        create_local_proposals_in(
+            &connection,
+            proposal_request("en-GB", Some("Please use British English.")),
+        )
+        .unwrap();
+
+        let candidate = crate::all_claims(&connection).unwrap().remove(0);
+        crate::review_candidate_in(&connection, &candidate.id, "confirm").unwrap();
+
+        let repeated = create_local_proposals_in(
+            &connection,
+            proposal_request("en-GB", Some("Still use British English.")),
+        )
+        .unwrap();
+
+        assert_eq!(
+            repeated
+                .get("claims")
+                .and_then(Value::as_array)
+                .unwrap()
+                .len(),
+            0
+        );
+        assert_eq!(
+            repeated
+                .get("supportingEvidenceAdded")
+                .and_then(Value::as_array)
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(crate::all_claims(&connection).unwrap().len(), 1);
+
+        let evidence_events: i64 = connection
+            .query_row(
+                "SELECT COUNT(*) FROM events WHERE type = 'claim.evidence_added'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(evidence_events, 1);
+    }
+
+    #[test]
+    fn changed_local_proposal_is_a_reviewable_replacement() {
+        let connection = Connection::open_in_memory().unwrap();
+        crate::migrate(&connection).unwrap();
+
+        create_local_proposals_in(
+            &connection,
+            proposal_request("en-GB", Some("Use British English.")),
+        )
+        .unwrap();
+
+        let original = crate::all_claims(&connection).unwrap().remove(0);
+        crate::review_candidate_in(&connection, &original.id, "confirm").unwrap();
+
+        let changed = create_local_proposals_in(
+            &connection,
+            proposal_request("en-US", Some("Use American English for this project.")),
+        )
+        .unwrap();
+
+        assert_eq!(
+            changed
+                .get("potentialChanges")
+                .and_then(Value::as_u64),
+            Some(1)
+        );
+
+        let claims = crate::all_claims(&connection).unwrap();
+        let replacement = claims
+            .iter()
+            .find(|claim| claim.status == ClaimStatus::Candidate)
+            .unwrap();
+        assert_eq!(replacement.supersedes, vec![original.id.clone()]);
+        assert!(replacement.tags.contains(&"topo:potential-change".to_owned()));
+
+        crate::review_candidate_in(&connection, &replacement.id, "confirm").unwrap();
+        let claims = crate::all_claims(&connection).unwrap();
+        let previous = claims.iter().find(|claim| claim.id == original.id).unwrap();
+        assert_eq!(previous.status, ClaimStatus::Superseded);
+    }
+
     #[test]
     fn discovery_file_is_private_on_unix() {
         let directory = tempfile::tempdir().unwrap();
