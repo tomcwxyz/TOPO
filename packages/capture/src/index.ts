@@ -483,6 +483,35 @@ export function persistCaptureBatch(
   });
 }
 
+export function createSupportingEvidenceEvent(
+  claim: MemoryClaim,
+  source: MemorySource,
+  evidence: string,
+  context: Pick<CapturePreparationContext, "now" | "actor" | "createId">,
+): MemoryEvent {
+  if (claim.status !== "confirmed") {
+    throw new Error("Supporting evidence can only be attached to a confirmed claim");
+  }
+  const text = requireNonEmpty(evidence, "evidence");
+  requireDateTime(context.now, "context.now");
+
+  return {
+    id: context.createId("event"),
+    type: "claim.evidence_added",
+    entityType: "claim",
+    entityId: claim.id,
+    occurredAt: context.now,
+    actor: { ...context.actor },
+    data: {
+      sourceId: source.id,
+      sourceType: source.type,
+      ...(source.provider === undefined ? {} : { provider: source.provider }),
+      capturedAt: source.capturedAt,
+      evidence: text,
+    },
+  };
+}
+
 export function compareProposalToConfirmedClaims(
   proposal: ExtractedMemoryProposal,
   claims: MemoryClaim[],
