@@ -1,0 +1,13 @@
+{
+  "id": "topo",
+  "name": "TOPO",
+  "description": "Adds governed TOPO context and ambient agent interaction capture without replacing OpenClaw memory.",
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
