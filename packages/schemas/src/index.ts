@@ -60,17 +60,43 @@ export const sourceTypeSchema = z.enum([
 export type SourceType = z.infer<typeof sourceTypeSchema>;
 export const SOURCE_TYPES = sourceTypeSchema.options;
 
-export const captureSurfaceSchema = z.enum([
+export const captureProductSchema = z.enum([
   "chatgpt",
   "claude",
   "gemini",
   "copilot",
-  "agent",
-  "import",
+  "hermes",
+  "openclaw",
   "generic",
 ]);
-export type CaptureSurface = z.infer<typeof captureSurfaceSchema>;
-export const CAPTURE_SURFACES = captureSurfaceSchema.options;
+export type CaptureProduct = z.infer<typeof captureProductSchema>;
+export const CAPTURE_PRODUCTS = captureProductSchema.options;
+
+export const captureClientSchema = z.enum([
+  "web",
+  "desktop",
+  "mobile",
+  "chrome-sidepanel",
+  "terminal",
+  "ide",
+  "agent-runtime",
+  "import",
+]);
+export type CaptureClient = z.infer<typeof captureClientSchema>;
+export const CAPTURE_CLIENTS = captureClientSchema.options;
+
+export const captureModeSchema = z.enum([
+  "chat",
+  "work",
+  "codex",
+  "cowork",
+  "code",
+  "research",
+  "agent",
+  "generic",
+]);
+export type CaptureMode = z.infer<typeof captureModeSchema>;
+export const CAPTURE_MODES = captureModeSchema.options;
 
 export const captureKindSchema = z.enum([
   "conversation",
@@ -115,7 +141,9 @@ export const capturedInteractionSchema = z
   .object({
     id: nonEmptyString,
     kind: captureKindSchema,
-    surface: captureSurfaceSchema,
+    product: captureProductSchema,
+    client: captureClientSchema,
+    mode: captureModeSchema,
     provider: nonEmptyString,
     subject: nonEmptyString,
     title: nonEmptyString.optional(),
@@ -348,4 +376,16 @@ export function validateSource(value: unknown): asserts value is MemorySource {
 
 export function validateEvent(value: unknown): asserts value is MemoryEvent {
   assertSchema(memoryEventSchema, value);
+}
+
+export function validateCapturedInteraction(
+  value: unknown,
+): asserts value is CapturedInteraction {
+  assertSchema(capturedInteractionSchema, value);
+}
+
+export function validateExtractedMemoryProposal(
+  value: unknown,
+): asserts value is ExtractedMemoryProposal {
+  assertSchema(extractedMemoryProposalSchema, value);
 }
