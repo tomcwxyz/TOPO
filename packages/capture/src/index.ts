@@ -5,6 +5,11 @@ import {
 } from "@topo/schemas";
 import type {
   Actor,
+  CaptureClient,
+  CaptureFidelity,
+  CaptureMethod,
+  CaptureMode,
+  CaptureProduct,
   CapturedInteraction,
   CapturedTurn,
   ClaimTransition,
