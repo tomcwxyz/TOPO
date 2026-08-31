@@ -41,6 +41,7 @@ struct PersistResult {
     source_id: Option<String>,
 }
 
+#[tauri::command(rename_all = "camelCase")]
 pub async fn process_capture_with_ollama(
     interaction_id: String,
     model: String,
