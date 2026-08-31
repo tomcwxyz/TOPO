@@ -38,6 +38,51 @@ input:focus, textarea:focus, select:focus { outline: 2px solid #171714; outline-
 .quiet { border: 0; padding: 0; text-decoration: underline; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 .muted { color: #5f5d55; line-height: 1.5; font-size: .88rem; }
+.capture-inbox-control {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #8a857a;
+  background: #f5f0e3;
+}
+.capture-inbox-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.capture-inbox-heading > div {
+  display: grid;
+  gap: 3px;
+}
+.capture-inbox-heading strong { font-size: .82rem; }
+.capture-inbox-heading span { color: #5f5d55; font-size: .72rem; }
+.capture-inbox-control > p {
+  margin: 0;
+  color: #5f5d55;
+  font-size: .78rem;
+  line-height: 1.45;
+}
+.capture-inbox-list {
+  display: grid;
+  gap: 7px;
+  padding-top: 4px;
+}
+.capture-inbox-item {
+  display: grid;
+  gap: 2px;
+  padding: 8px 9px;
+  border: 1px solid #c2bcaf;
+  background: rgba(255,255,255,.28);
+}
+.capture-inbox-item span,
+.capture-inbox-item small {
+  color: #656159;
+  font-size: .68rem;
+}
+.capture-inbox-item strong { font-size: .78rem; }
+.capture-warning { color: #7b3f34 !important; }
+
 .local-sharing-control {
   display: grid;
   gap: 10px;
