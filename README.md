@@ -24,11 +24,11 @@ TOPO treats memory as governed context rather than an opaque store of inferred f
 
 ## Status
 
-TOPO is now in **local alpha**. The canonical claim lifecycle, local SQLite store, CLI, proposal-first MCP server and a usable Tauri desktop memory manager are working. The immediate product focus is ambient capture: learning candidate memory from normal AI interactions without weakening the review model. Desktop, CLI, MCP and interoperability adapters share the same local store rather than maintaining parallel memory.
+TOPO is now in **local alpha**. The canonical claim lifecycle, local SQLite store, CLI, proposal-first MCP server and Tauri desktop memory manager are working. A first end-to-end ambient browser capture path is testable on Windows with Chrome/Edge for ChatGPT, Claude and Gemini: interactions can reach TOPO, be extracted locally with Ollama and appear as source-aware candidate memory for review. Governed Hermes and OpenClaw integrations can also retrieve purpose-bound context and contribute interaction captures without replacing their native working memory. Desktop, CLI, MCP and interoperability adapters share the same local store rather than maintaining parallel memory.
 
 The desktop application is intended to become the primary local manager. CLI, MCP and browser-extension clients will use the same portable domain contract rather than owning separate definitions of memory.
 
-TOPO is also beginning to act as a local memory/context node for the draft [Organisational OS](https://github.com/tomcwxyz/Organisational-OS). The first adapter exposes purpose-bound Context Packets while deliberately keeping external operational state distinct from canonical memory Claims.
+TOPO also acts as a local context node for RACK and the draft [Organisational OS](https://github.com/tomcwxyz/Organisational-OS). The authenticated local bridge exposes purpose-bound Context Packets with explicit per-session sharing consent, and now ranks already-authorised confirmed context against the stated purpose/task before falling back to recency. External operational state remains distinct from canonical memory Claims.
 
 See [PLAN.md](PLAN.md), [ROADMAP.md](ROADMAP.md), [capture architecture](docs/CAPTURE.md), [capture alpha test](docs/CAPTURE_ALPHA_TEST.md), [agent integrations](docs/AGENT_INTEGRATIONS.md), [Organisational OS adapter](docs/OOS_ADAPTER.md), [local alpha releases](docs/RELEASE.md) and [docs/adr](docs/adr).
 
