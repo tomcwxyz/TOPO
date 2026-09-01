@@ -662,11 +662,76 @@ fn review_candidate(id: String, decision: String) -> Result<MemoryClaim, String>
     review_candidate_in(&connection, &id, &decision)
 }
 
+const PURPOSE_STOP_WORDS: &[&str] = &[
+    "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+    "how", "in", "is", "it", "of", "on", "or", "please", "should",
+    "that", "the", "this", "to", "what", "with",
+];
+
+fn lexical_terms(value: &str) -> std::collections::BTreeSet<String> {
+    value
+        .to_lowercase()
+        .split(|character: char| !character.is_alphanumeric())
+        .map(str::trim)
+        .filter(|term| term.len() > 1 && !PURPOSE_STOP_WORDS.contains(term))
+        .map(str::to_owned)
+        .collect()
+}
+
+fn context_terms(
+    purpose: &str,
+    query: Option<&str>,
+) -> std::collections::BTreeSet<String> {
+    let mut terms = lexical_terms(purpose);
+    if let Some(query) = query {
+        terms.extend(lexical_terms(query));
+    }
+    terms
+}
+
+fn claim_relevance(
+    claim: &MemoryClaim,
+    terms: &std::collections::BTreeSet<String>,
+) -> (u32, Vec<&'static str>) {
+    if terms.is_empty() {
+        return (0, Vec::new());
+    }
+
+    let key = lexical_terms(&claim.key);
+    let category = lexical_terms(claim.category.as_deref().unwrap_or_default());
+    let tags = lexical_terms(&claim.tags.join(" "));
+    let value = lexical_terms(&serde_json::to_string(&claim.value).unwrap_or_default());
+
+    let mut score = 0;
+    let mut fields = std::collections::BTreeSet::new();
+    for term in terms {
+        if key.contains(term) {
+            score += 8;
+            fields.insert("key");
+        }
+        if category.contains(term) {
+            score += 5;
+            fields.insert("category");
+        }
+        if tags.contains(term) {
+            score += 4;
+            fields.insert("tags");
+        }
+        if value.contains(term) {
+            score += 2;
+            fields.insert("value");
+        }
+    }
+
+    (score, fields.into_iter().collect())
+}
+
 fn context_packet_from_store(
     connection: &Connection,
     subject: &str,
     purpose: &str,
     requested_by: &str,
+    query: Option<&str>,
     include_sensitive: bool,
     max_items: usize,
     channel: &str,
@@ -679,7 +744,8 @@ fn context_packet_from_store(
     }
 
     let now = Utc::now();
-    let mut selected = all_claims(connection)?
+    let terms = context_terms(purpose, query);
+    let mut eligible = all_claims(connection)?
         .into_iter()
         .filter(|claim| claim.status == ClaimStatus::Confirmed)
         .filter(|claim| claim.subject == subject)
@@ -688,11 +754,43 @@ fn context_packet_from_store(
             matches!(claim.sensitivity, Sensitivity::Ordinary | Sensitivity::Personal)
                 || include_sensitive
         })
-        .take(max_items)
+        .map(|claim| {
+            let relevance = claim_relevance(&claim, &terms);
+            (claim, relevance)
+        })
         .collect::<Vec<_>>();
 
-    selected.sort_by(|left, right| right.updated_at.cmp(&left.updated_at));
+    eligible.sort_by(|(left, left_relevance), (right, right_relevance)| {
+        right_relevance
+            .0
+            .cmp(&left_relevance.0)
+            .then_with(|| right.updated_at.cmp(&left.updated_at))
+            .then_with(|| {
+                right
+                    .confidence
+                    .partial_cmp(&left.confidence)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
+    });
+    let selected_with_relevance = eligible.into_iter().take(max_items).collect::<Vec<_>>();
+    let selected = selected_with_relevance
+        .iter()
+        .map(|(claim, _)| claim)
+        .collect::<Vec<_>>();
     let selected_ids = selected.iter().map(|claim| claim.id.clone()).collect::<Vec<_>>();
+    let relevance = selected_with_relevance
+        .iter()
+        .filter(|(_, result)| result.0 > 0)
+        .map(|(claim, result)| {
+            (
+                claim.id.clone(),
+                json!({
+                    "score": result.0,
+                    "fields": result.1
+                }),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
     let evidence_refs = selected
         .iter()
         .filter_map(|claim| claim.provenance.source_id.clone())
@@ -731,7 +829,14 @@ fn context_packet_from_store(
         },
         "extensions": {
             "topo.channel": channel,
-            "topo.include_sensitive": include_sensitive
+            "topo.include_sensitive": include_sensitive,
+            "topo.selection": if terms.is_empty() {
+                "confirmed+subject+temporal+sensitivity+recency"
+            } else {
+                "confirmed+subject+temporal+sensitivity+purpose-lexical-rank-v1"
+            },
+            "topo.query_supplied": query.map(str::trim).is_some_and(|value| !value.is_empty()),
+            "topo.relevance": relevance
         }
     });
 
@@ -745,6 +850,7 @@ pub(crate) fn resolve_local_context(
     subject: &str,
     purpose: &str,
     requested_by: &str,
+    query: Option<&str>,
     max_items: usize,
 ) -> Result<Value, String> {
     let connection = open_store()?;
@@ -753,6 +859,7 @@ pub(crate) fn resolve_local_context(
         subject,
         purpose,
         requested_by,
+        query,
         false,
         max_items,
         "local-endpoint",
@@ -773,6 +880,7 @@ fn preview_context(
         &subject,
         &purpose,
         "topo-desktop-preview",
+        None,
         include_sensitive,
         max_items,
         "desktop-preview",
