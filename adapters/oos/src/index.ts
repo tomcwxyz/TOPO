@@ -9,6 +9,7 @@ export interface OosContextRequest {
   subject: string;
   purpose: string;
   requestedBy: string;
+  query?: string;
   categories?: string[];
   keys?: string[];
 }
@@ -151,7 +152,86 @@ function selectedByRequest(
   return true;
 }
 
-function compareClaims(a: MemoryClaim, b: MemoryClaim): number {
+const PURPOSE_STOP_WORDS = new Set([
+  "a", "an", "and", "are", "as", "at", "be", "by", "for", "from",
+  "how", "in", "is", "it", "of", "on", "or", "please", "should",
+  "that", "the", "this", "to", "what", "with",
+]);
+
+type ClaimRelevance = {
+  score: number;
+  fields: string[];
+};
+
+function lexicalTerms(value: string): string[] {
+  return value
+    .normalize("NFKC")
+    .toLocaleLowerCase("en")
+    .split(/[^\p{L}\p{N}]+/u)
+    .map((term) => term.trim())
+    .filter(
+      (term) =>
+        term.length > 1 &&
+        !PURPOSE_STOP_WORDS.has(term),
+    );
+}
+
+function requestTerms(request: OosContextRequest): string[] {
+  return Array.from(
+    new Set([
+      ...lexicalTerms(request.purpose),
+      ...lexicalTerms(request.query ?? ""),
+    ]),
+  );
+}
+
+function termSet(value: string): Set<string> {
+  return new Set(lexicalTerms(value));
+}
+
+function claimRelevance(
+  claim: MemoryClaim,
+  terms: string[],
+): ClaimRelevance {
+  if (terms.length === 0) return { score: 0, fields: [] };
+
+  const key = termSet(claim.key);
+  const category = termSet(claim.category ?? "");
+  const tags = termSet(claim.tags.join(" "));
+  const value = termSet(JSON.stringify(claim.value));
+
+  let score = 0;
+  const fields = new Set<string>();
+  for (const term of terms) {
+    if (key.has(term)) {
+      score += 8;
+      fields.add("key");
+    }
+    if (category.has(term)) {
+      score += 5;
+      fields.add("category");
+    }
+    if (tags.has(term)) {
+      score += 4;
+      fields.add("tags");
+    }
+    if (value.has(term)) {
+      score += 2;
+      fields.add("value");
+    }
+  }
+
+  return { score, fields: [...fields] };
+}
+
+function compareClaims(
+  relevance: Map<string, ClaimRelevance>,
+  a: MemoryClaim,
+  b: MemoryClaim,
+): number {
+  const score = (relevance.get(b.id)?.score ?? 0) - (relevance.get(a.id)?.score ?? 0);
+  if (score !== 0) return score;
+
   const updated = Date.parse(b.updatedAt) - Date.parse(a.updatedAt);
   if (updated !== 0) return updated;
   return b.confidence - a.confidence;
@@ -210,11 +290,17 @@ export function resolveOosContext(
     Math.min(options.maxItems ?? DEFAULT_MAX_ITEMS, 200),
   );
 
-  const claims = readConfirmedClaims(store, request.subject)
+  const eligibleClaims = readConfirmedClaims(store, request.subject)
     .filter((claim) => allowedSensitivity.includes(claim.sensitivity))
     .filter((claim) => isTemporallyValid(claim, nowMs))
-    .filter((claim) => selectedByRequest(claim, request))
-    .sort(compareClaims)
+    .filter((claim) => selectedByRequest(claim, request));
+
+  const terms = requestTerms(request);
+  const relevance = new Map(
+    eligibleClaims.map((claim) => [claim.id, claimRelevance(claim, terms)]),
+  );
+  const claims = eligibleClaims
+    .sort((a, b) => compareClaims(relevance, a, b))
     .slice(0, maxItems);
 
   const objects: OosContextObject[] = claims.map((claim) => ({
@@ -258,8 +344,17 @@ export function resolveOosContext(
       extensions: {},
     },
     extensions: {
-      "topo.selection": "confirmed+subject+temporal+sensitivity",
+      "topo.selection":
+        terms.length > 0
+          ? "confirmed+subject+temporal+sensitivity+purpose-lexical-rank-v1"
+          : "confirmed+subject+temporal+sensitivity+recency",
       "topo.scanned_limit": MAX_SCAN,
+      "topo.query_supplied": Boolean(request.query?.trim()),
+      "topo.relevance": Object.fromEntries(
+        claims
+          .map((claim) => [claim.id, relevance.get(claim.id) ?? { score: 0, fields: [] }])
+          .filter(([, result]) => (result as ClaimRelevance).score > 0),
+      ),
     },
   };
 }
