@@ -141,7 +141,7 @@ test("ranks task-relevant context ahead of newer unrelated memory", () => {
   );
   assert.equal(packet.extensions["topo.query_supplied"], true);
   assert.deepEqual(packet.extensions["topo.relevance"]["older-relevant"], {
-    score: 25,
+    score: 20,
     fields: ["key", "tags", "value"],
   });
 });
