@@ -27,18 +27,6 @@ A TOPO observation such as â€œthe user has requested British English repeatedlyâ
 
 TOPO may later propose a RACK change. It must never silently establish one.
 
-### Personal context is not organisational evidence
-
-TOPO remains controlled by the person whose context it holds, even when it participates in a wider organisational system.
-
-- A TOPO claim is context about or for a person; it is not evidence for judging that person.
-- RACK verification/evaluation may assess AI practice, generated work and whether agreed practice was followed. It must not turn TOPO context into individual performance, compliance or capability scoring.
-- "Personal" sensitivity remains personal. A local transport ceiling that can technically carry personal context is not blanket organisational permission to use it.
-- Context crossing into RACK or another node must stay purpose-bound, explicitly permitted and minimised to what is useful for that piece of work.
-- Organisational relationships should not be encoded in TOPO as an assumed up/down hierarchy. Consumers can describe work happening inside, between, beneath, across or around organisational boundaries through the purpose of a Context Packet without changing the ownership of the underlying memory.
-
-The default organisational pattern is therefore **use context without absorbing ownership**: TOPO supplies a bounded private snapshot; RACK records provenance/digest where needed; the receiving system does not silently copy personal claims into organisational records.
-
 ## 3. Product principles
 
 ### User authority
