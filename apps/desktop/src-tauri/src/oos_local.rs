@@ -58,6 +58,7 @@ struct ContextRequest {
 #[derive(Debug, Default, Deserialize)]
 struct WantedContext {
     max_items: Option<usize>,
+    query: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -437,6 +438,7 @@ fn handle_request(
                 &parsed.subject,
                 &parsed.purpose,
                 &parsed.requested_by,
+                parsed.wanted.query.as_deref(),
                 max_items,
             ) {
                 Ok(packet) => {
