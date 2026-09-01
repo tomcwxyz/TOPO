@@ -52,6 +52,12 @@ The adapter:
 
 It advertises no OOS event ingestion or action capabilities yet.
 
+### Purpose-aware selection
+
+Context requests may include a task query in `wanted.query`. TOPO combines that with the packet's required `purpose` to rank otherwise-authorised confirmed Claims by deterministic lexical relevance across key, category, tags and value. Recency and confidence are tie-breakers; if nothing matches, ordering falls back to recency.
+
+The packet records the selection method and non-content relevance metadata in `extensions`. This ranking does not widen access, change sensitivity ceilings or grant a new purpose: consent and the purpose-bound disclosure rules above still apply before ranking.
+
 ## Important architectural finding
 
 **TOPO should not silently turn OOS operational objects into memory claims.**

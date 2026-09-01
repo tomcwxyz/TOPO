@@ -170,6 +170,8 @@ All imports use the same extraction, evidence, deduplication and review pipeline
 
 ## Phase 4 — Purpose-aware context resolution
 
+**Current implementation slice (1 September 2026):** Context resolution now ranks authorised confirmed memory against the stated purpose and an optional task query before using recency/confidence as tie-breakers. The selection remains deterministic and local; when there is no lexical match it falls back to the previous recency behaviour. Token budgets, stronger filtering and user-facing relevance explanations remain later work.
+
 Context resolution must preserve the boundary described in ADR 0010: a new purpose requires a new disclosure, and consumers must not silently reuse a task packet for evaluation, shared memory or reporting.
 
 After capture is producing real memory, improve the read path.
