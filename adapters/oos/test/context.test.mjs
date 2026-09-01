@@ -101,6 +101,83 @@ test("resolves confirmed, purpose-bound local context into an OOS packet", () =>
   assert.deepEqual(packet.provenance.derived_from, ["claim-2", "claim-1"]);
 });
 
+test("ranks task-relevant context ahead of newer unrelated memory", () => {
+  const store = storeWith([
+    claim({
+      id: "newer-unrelated",
+      key: "writing.locale",
+      value: "en-GB",
+      updatedAt: "2026-09-01T08:55:00Z",
+    }),
+    claim({
+      id: "older-relevant",
+      key: "implementation.testing",
+      category: "coding",
+      tags: ["tests", "integration"],
+      value: "Prefer integration tests around changed boundaries.",
+      updatedAt: "2026-08-31T08:00:00Z",
+    }),
+  ]);
+
+  const packet = resolveOosContext(
+    store,
+    {
+      subject: "project:rack",
+      purpose: "prepare implementation",
+      query: "add integration tests for the context boundary",
+      requestedBy: "rack",
+    },
+    {
+      packetId: "ctx-relevant",
+      now: "2026-09-01T09:00:00Z",
+      maxItems: 1,
+    },
+  );
+
+  assert.deepEqual(packet.objects.map((item) => item.id), ["older-relevant"]);
+  assert.equal(
+    packet.extensions["topo.selection"],
+    "confirmed+subject+temporal+sensitivity+purpose-lexical-rank-v1",
+  );
+  assert.equal(packet.extensions["topo.query_supplied"], true);
+  assert.deepEqual(packet.extensions["topo.relevance"]["older-relevant"], {
+    score: 25,
+    fields: ["key", "tags", "value"],
+  });
+});
+
+test("falls back to recency when purpose and query do not match memory", () => {
+  const store = storeWith([
+    claim({
+      id: "older",
+      key: "writing.locale",
+      updatedAt: "2026-08-30T08:00:00Z",
+    }),
+    claim({
+      id: "newer",
+      key: "project.phase",
+      updatedAt: "2026-09-01T08:00:00Z",
+    }),
+  ]);
+
+  const packet = resolveOosContext(
+    store,
+    {
+      subject: "project:rack",
+      purpose: "arrange catering",
+      requestedBy: "rack",
+    },
+    {
+      packetId: "ctx-fallback",
+      now: "2026-09-01T09:00:00Z",
+      maxItems: 1,
+    },
+  );
+
+  assert.deepEqual(packet.objects.map((item) => item.id), ["newer"]);
+  assert.deepEqual(packet.extensions["topo.relevance"], {});
+});
+
 test("filters expired and restricted claims by default", () => {
   const store = storeWith([
     claim({
