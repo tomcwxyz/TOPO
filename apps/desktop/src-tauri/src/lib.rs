@@ -986,13 +986,13 @@ mod tests {
         connection
             .execute(
                 "UPDATE claims SET updated_at = ?1 WHERE id = ?2",
-                params!["2026-09-01T12:00:00Z", unrelated.id],
+                params!["2026-09-01T12:00:00Z", &unrelated.id],
             )
             .unwrap();
         connection
             .execute(
                 "UPDATE claims SET updated_at = ?1 WHERE id = ?2",
-                params!["2026-08-31T12:00:00Z", relevant.id],
+                params!["2026-08-31T12:00:00Z", &relevant.id],
             )
             .unwrap();
 
@@ -1015,7 +1015,7 @@ mod tests {
             "confirmed+subject+temporal+sensitivity+purpose-lexical-rank-v1"
         );
         assert_eq!(
-            preview.packet["extensions"]["topo.relevance"][&relevant.id]["score"],
+            preview.packet["extensions"]["topo.relevance"][relevant.id.as_str()]["score"],
             20
         );
     }
@@ -1034,13 +1034,13 @@ mod tests {
         connection
             .execute(
                 "UPDATE claims SET updated_at = ?1 WHERE id = ?2",
-                params!["2026-08-30T12:00:00Z", older.id],
+                params!["2026-08-30T12:00:00Z", &older.id],
             )
             .unwrap();
         connection
             .execute(
                 "UPDATE claims SET updated_at = ?1 WHERE id = ?2",
-                params!["2026-09-01T12:00:00Z", newer.id],
+                params!["2026-09-01T12:00:00Z", &newer.id],
             )
             .unwrap();
 
