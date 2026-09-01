@@ -2,6 +2,8 @@
 
 The immediate product priority is now **capture**: TOPO has a credible governed local memory core and a working context path into RACK, but it does not yet learn enough from normal work to be useful day to day.
 
+Across every phase, personal context remains personal by default. TOPO uses the non-hierarchical **inside / between / beneath / around** model for reasoning about relationships and information movement. A Context Packet is a purpose-bound disclosure, not permission for secondary use, organisational analytics or individual monitoring.
+
 The near-term milestone is:
 
 > Use AI tools normally for a day, open TOPO, review a short high-quality inbox of things worth remembering, then see confirmed context surface correctly in another tool.
@@ -168,6 +170,8 @@ All imports use the same extraction, evidence, deduplication and review pipeline
 
 ## Phase 4 — Purpose-aware context resolution
 
+Context resolution must preserve the boundary described in ADR 0010: a new purpose requires a new disclosure, and consumers must not silently reuse a task packet for evaluation, shared memory or reporting.
+
 After capture is producing real memory, improve the read path.
 
 Build:
@@ -216,7 +220,7 @@ Only after the local capture/review/retrieval loop is trustworthy:
 - encrypted multi-device sync;
 - backup/recovery;
 - managed connectors;
-- team/shared boundaries;
+- team/shared boundaries that model shared context as a separate relationship/source rather than administrator access to personal memory;
 - mobile client.
 
 Local use must remain first-class.
