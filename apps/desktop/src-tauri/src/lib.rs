@@ -656,10 +656,59 @@ fn edit_candidate_claim(id: String, input: ClaimDraftInput) -> Result<MemoryClai
     edit_candidate_in(&connection, &id, input)
 }
 
+fn review_candidates_in(
+    connection: &Connection,
+    ids: &[String],
+    decision: &str,
+) -> Result<Vec<MemoryClaim>, String> {
+    if ids.is_empty() {
+        return Err("Choose at least one candidate to review.".to_owned());
+    }
+    if ids.len() > 200 {
+        return Err("Bulk review is limited to 200 candidates at a time.".to_owned());
+    }
+    if !matches!(decision, "confirm" | "reject") {
+        return Err("Decision must be confirm or reject.".to_owned());
+    }
+
+    let unique = ids.iter().collect::<std::collections::BTreeSet<_>>();
+    if unique.len() != ids.len() {
+        return Err("Bulk review candidate ids must be unique.".to_owned());
+    }
+
+    // Validate the complete selection before making any durable review decision.
+    // TOPO remains a user-governed store: a stale/non-candidate item should stop
+    // the batch rather than silently changing only part of the requested set.
+    for id in ids {
+        let claim = read_claim(connection, id)?;
+        if claim.status != ClaimStatus::Candidate {
+            return Err(format!("{} is no longer awaiting review.", claim.key));
+        }
+        if decision == "confirm" && !claim.supersedes.is_empty() {
+            return Err(format!(
+                "{} may replace existing memory and requires individual confirmation.",
+                claim.key
+            ));
+        }
+    }
+
+    let mut reviewed = Vec::with_capacity(ids.len());
+    for id in ids {
+        reviewed.push(review_candidate_in(connection, id, decision)?);
+    }
+    Ok(reviewed)
+}
+
 #[tauri::command(rename_all = "camelCase")]
 fn review_candidate(id: String, decision: String) -> Result<MemoryClaim, String> {
     let connection = open_store()?;
     review_candidate_in(&connection, &id, &decision)
+}
+
+#[tauri::command(rename_all = "camelCase")]
+fn review_candidates(ids: Vec<String>, decision: String) -> Result<Vec<MemoryClaim>, String> {
+    let connection = open_store()?;
+    review_candidates_in(&connection, &ids, &decision)
 }
 
 fn context_packet_from_store(
@@ -795,6 +844,7 @@ pub fn run() {
             create_claim,
             edit_candidate_claim,
             review_candidate,
+            review_candidates,
             preview_context,
             capture_inbox::capture_inbox_status,
             capture_extractor::ollama_extractor_status,
@@ -845,6 +895,57 @@ mod tests {
             )
             .unwrap();
         assert_eq!(event_count, 2);
+    }
+
+    #[test]
+    fn bulk_review_validates_the_selection_before_deciding() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+
+        let first = create_claim_in(&connection, draft(), true).unwrap();
+        let mut second_draft = draft();
+        second_draft.key = "writing.tone".to_owned();
+        let second = create_claim_in(&connection, second_draft, true).unwrap();
+
+        let reviewed = review_candidates_in(
+            &connection,
+            &[first.id.clone(), second.id.clone()],
+            "confirm",
+        )
+        .unwrap();
+        assert_eq!(reviewed.len(), 2);
+        assert!(reviewed.iter().all(|claim| claim.status == ClaimStatus::Confirmed));
+
+        let mut third_draft = draft();
+        third_draft.key = "writing.spelling".to_owned();
+        let third = create_claim_in(&connection, third_draft, true).unwrap();
+        let error = review_candidates_in(
+            &connection,
+            &[third.id.clone(), first.id.clone()],
+            "reject",
+        )
+        .unwrap_err();
+        assert!(error.contains("no longer awaiting review"));
+        assert_eq!(read_claim(&connection, &third.id).unwrap().status, ClaimStatus::Candidate);
+
+        let mut replacement_draft = draft();
+        replacement_draft.key = "writing.locale".to_owned();
+        replacement_draft.value = Value::String("en-US".to_owned());
+        let mut replacement = create_claim_in(&connection, replacement_draft, true).unwrap();
+        replacement.supersedes = vec![first.id.clone()];
+        write_claim(&connection, &replacement).unwrap();
+
+        let error = review_candidates_in(
+            &connection,
+            &[replacement.id.clone()],
+            "confirm",
+        )
+        .unwrap_err();
+        assert!(error.contains("requires individual confirmation"));
+        assert_eq!(
+            read_claim(&connection, &replacement.id).unwrap().status,
+            ClaimStatus::Candidate
+        );
     }
 
     #[test]

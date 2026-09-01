@@ -139,7 +139,7 @@ const toDraft = (form: typeof emptyForm): ClaimDraft => ({
 export function App() {
   const [status, setStatus] = useState<DesktopStatus | null>(null);
   const [claims, setClaims] = useState<MemoryClaim[]>([]);
-  const [filter, setFilter] = useState<"all" | ClaimStatus>("all");
+  const [filter, setFilter] = useState<"all" | ClaimStatus>("candidate");
   const [query, setQuery] = useState("");
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -160,6 +160,7 @@ export function App() {
     () => window.localStorage.getItem("topo.ollamaModel") ?? "",
   );
   const [captureBusy, setCaptureBusy] = useState(false);
+  const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
     try {
@@ -174,6 +175,10 @@ export function App() {
       setStatus(nextStatus);
       setClaims(nextClaims);
       setCaptureInbox(nextCaptureInbox);
+      const reviewableIds = new Set(
+        nextClaims.filter((claim) => claim.status === "candidate").map((claim) => claim.id),
+      );
+      setSelectedCandidateIds((current) => current.filter((id) => reviewableIds.has(id)));
       setError(null);
     } catch (cause) {
       setError(String(cause));
@@ -212,6 +217,26 @@ export function App() {
     () => [...new Set(claims.map((claim) => claim.subject))].sort(),
     [claims],
   );
+  const visibleCandidateIds = useMemo(
+    () => claims.filter((claim) => claim.status === "candidate").map((claim) => claim.id),
+    [claims],
+  );
+  const sourceCandidateCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const claim of claims) {
+      if (claim.status !== "candidate" || !claim.provenance.sourceId) continue;
+      counts.set(claim.provenance.sourceId, (counts.get(claim.provenance.sourceId) ?? 0) + 1);
+    }
+    return counts;
+  }, [claims]);
+  const displayedClaims = useMemo(() => {
+    if (filter !== "candidate") return claims;
+    return [...claims].sort((left, right) => {
+      const leftSource = left.provenance.sourceId ?? left.id;
+      const rightSource = right.provenance.sourceId ?? right.id;
+      return leftSource.localeCompare(rightSource) || right.updatedAt.localeCompare(left.updatedAt);
+    });
+  }, [claims, filter]);
 
   const resetForm = () => {
     setForm(emptyForm);
@@ -270,8 +295,66 @@ export function App() {
     setError(null);
     try {
       await invoke("review_candidate", { id, decision });
+      setSelectedCandidateIds((current) => current.filter((candidateId) => candidateId !== id));
       setMessage(decision === "confirm" ? "Candidate confirmed." : "Candidate rejected.");
       if (editingId === id) resetForm();
+      await refresh();
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const toggleCandidateSelection = (id: string) => {
+    setSelectedCandidateIds((current) =>
+      current.includes(id)
+        ? current.filter((candidateId) => candidateId !== id)
+        : [...current, id],
+    );
+  };
+
+  const selectStraightforwardCandidates = () => {
+    setSelectedCandidateIds(
+      claims
+        .filter((claim) => claim.status === "candidate" && claim.supersedes.length === 0)
+        .map((claim) => claim.id),
+    );
+  };
+
+  const reviewSelected = async (decision: "confirm" | "reject") => {
+    if (selectedCandidateIds.length === 0) return;
+    const selectedClaims = claims.filter((claim) => selectedCandidateIds.includes(claim.id));
+    if (
+      decision === "confirm" &&
+      selectedClaims.some((claim) => claim.supersedes.length > 0)
+    ) {
+      setError(
+        "Potential changes need individual confirmation so existing memory is not superseded in bulk.",
+      );
+      return;
+    }
+
+    const label = decision === "confirm" ? "confirm" : "reject";
+    if (
+      selectedCandidateIds.length > 1 &&
+      !window.confirm(
+        `${label[0].toUpperCase() + label.slice(1)} ${selectedCandidateIds.length} selected candidates?`,
+      )
+    ) {
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await invoke("review_candidates", { ids: selectedCandidateIds, decision });
+      const count = selectedCandidateIds.length;
+      setSelectedCandidateIds([]);
+      setMessage(
+        `${count} candidate${count === 1 ? "" : "s"} ${decision === "confirm" ? "confirmed" : "rejected"}.`,
+      );
       await refresh();
     } catch (cause) {
       setError(String(cause));
@@ -784,8 +867,8 @@ export function App() {
         <section className="memory-panel">
           <div className="memory-toolbar">
             <div>
-              <p className="kicker">Memory</p>
-              <h2>Current context</h2>
+              <p className="kicker">{filter === "candidate" ? "Review inbox" : "Memory"}</p>
+              <h2>{filter === "candidate" ? "What is worth keeping?" : "Current context"}</h2>
             </div>
             <div className="filters">
               <input
@@ -809,6 +892,52 @@ export function App() {
             </div>
           </div>
 
+          {visibleCandidateIds.length > 0 && (
+            <div className="batch-review-bar" aria-label="Bulk candidate review">
+              <div>
+                <strong>{selectedCandidateIds.length} selected</strong>
+                <span>
+                  Bulk confirmation is for straightforward candidates. Potential changes stay
+                  individual so TOPO never supersedes existing memory by accident.
+                </span>
+              </div>
+              <div className="batch-review-actions">
+                <button
+                  className="quiet"
+                  type="button"
+                  disabled={busy}
+                  onClick={selectStraightforwardCandidates}
+                >
+                  Select straightforward
+                </button>
+                <button
+                  className="quiet"
+                  type="button"
+                  disabled={busy || selectedCandidateIds.length === 0}
+                  onClick={() => setSelectedCandidateIds([])}
+                >
+                  Clear
+                </button>
+                <button
+                  className="secondary"
+                  type="button"
+                  disabled={busy || selectedCandidateIds.length === 0}
+                  onClick={() => void reviewSelected("reject")}
+                >
+                  Reject selected
+                </button>
+                <button
+                  className="primary compact"
+                  type="button"
+                  disabled={busy || selectedCandidateIds.length === 0}
+                  onClick={() => void reviewSelected("confirm")}
+                >
+                  Confirm selected
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="claim-list">
             {claims.length === 0 ? (
               <div className="empty-state">
@@ -816,7 +945,7 @@ export function App() {
                 <span>Add a claim or change the filters.</span>
               </div>
             ) : (
-              claims.map((claim) => (
+              displayedClaims.map((claim) => (
                 <article className="claim-card" key={claim.id}>
                   <div className="claim-topline">
                     <div>
@@ -831,6 +960,16 @@ export function App() {
                     </time>
                   </div>
                   <p className="subject">{claim.subject}</p>
+                  {claim.status === "candidate" && claim.provenance.sourceId && (
+                    <div className="source-group-note" title={claim.provenance.sourceId}>
+                      <span>Captured source</span>
+                      <strong>
+                        {sourceCandidateCounts.get(claim.provenance.sourceId) ?? 1} candidate
+                        {(sourceCandidateCounts.get(claim.provenance.sourceId) ?? 1) === 1 ? "" : "s"}
+                        {" "}from this interaction
+                      </strong>
+                    </div>
+                  )}
                   <h3>{claim.key}</h3>
                   <pre className="claim-value">{displayValue(claim.value)}</pre>
                   {claim.provenance.evidence && (
@@ -866,6 +1005,14 @@ export function App() {
                   )}
                   {claim.status === "candidate" && (
                     <div className="candidate-actions">
+                      <label className="candidate-select">
+                        <input
+                          type="checkbox"
+                          checked={selectedCandidateIds.includes(claim.id)}
+                          onChange={() => toggleCandidateSelection(claim.id)}
+                        />
+                        Select
+                      </label>
                       <button className="secondary" disabled={busy} onClick={() => startEditing(claim)}>
                         Edit
                       </button>

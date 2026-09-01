@@ -109,6 +109,8 @@ Then consider Firefox and additional providers.
 
 **Goal:** make governance fast enough for ambient capture.
 
+**Current implementation slice (1 September 2026):** the desktop now opens on candidates, clusters review around captured-source provenance, supports multi-select bulk confirm/reject, and keeps potential changes out of bulk confirmation so supersession remains an individual decision.
+
 Build:
 
 - Inbox as the desktop default;
@@ -126,6 +128,8 @@ Build:
 ### Iteration 5E — Agent capture and memory pressure
 
 **Goal:** make TOPO useful to long-running agents without replacing their runtime memory.
+
+**Current implementation slice:** governed Hermes and OpenClaw integrations now retrieve small purpose-bound confirmed context and contribute successful user/assistant interactions into TOPO's capture inbox under separate session-scoped permissions. Runtime memory remains separate. Memory-pressure handoff experiments and explicit hot-context projection remain to do.
 
 Build:
 
