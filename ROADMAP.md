@@ -1,6 +1,6 @@
 # TOPO Roadmap
 
-The immediate product priority is now **capture**: TOPO has a credible governed local memory core and a working context path into RACK, but it does not yet learn enough from normal work to be useful day to day.
+The immediate product priority is now **capture quality and daily-use validation**. TOPO has a credible governed local memory core, a working context path into RACK, and a first end-to-end ambient browser capture path. The next question is whether it learns the right things from normal work with little enough review effort to be genuinely useful day to day.
 
 Across every phase, personal context remains personal by default. TOPO uses the non-hierarchical **inside / between / beneath / around** model for reasoning about relationships and information movement. A Context Packet is a purpose-bound disclosure, not permission for secondary use, organisational analytics or individual monitoring.
 
@@ -40,9 +40,11 @@ This bridge is useful enough for current testing. Do not broaden it ahead of cap
 
 ### Iteration 5A — Capture contract
 
+**Status:** implemented in local alpha.
+
 **Goal:** make captured interactions a first-class input to canonical TOPO memory.
 
-Build:
+Implemented:
 
 - the TOPO capture package;
 - captured interaction and turn contracts;
@@ -58,9 +60,11 @@ Build:
 
 ### Iteration 5B — Desktop ingestion and extraction
 
+**Status:** the core local path is implemented: captured interactions can enter TOPO, be extracted with local Ollama, compared with current memory and persisted as canonical candidates. Provider disclosure/consent beyond the local path, pruning policy and automatic processing remain hardening work rather than prerequisites for the first alpha.
+
 **Goal:** accept captured interactions without manual data entry.
 
-Build:
+Implemented/core:
 
 - local capture ingestion service;
 - extraction provider abstraction;
@@ -75,9 +79,11 @@ Build:
 
 ### Iteration 5C — Ambient browser capture
 
+**Status:** the first Windows + Chromium end-to-end path is implemented and testable for ChatGPT, Claude and Gemini. The remaining work is daily-use hardening and packaging, not proving the architecture.
+
 **Goal:** make normal hosted-AI use populate TOPO.
 
-First adapters:
+Adapter priority:
 
 1. ChatGPT
 2. Claude
@@ -87,7 +93,7 @@ First adapters:
 
 Migrate the strongest capture mechanics from llm-memory-extractor rather than its storage or inference model.
 
-Build:
+Implemented in the current alpha:
 
 - Chromium extension shell;
 - site/conversation detection;
@@ -101,9 +107,16 @@ Build:
 - visible connection/capture state;
 - capture diagnostics.
 
-Then consider Firefox and additional providers.
+Remaining hardening:
 
-**Exit:** normal ChatGPT/Claude/Gemini use creates source-grouped TOPO candidates without start/stop recording.
+- sustained real-use testing across ChatGPT, Claude and Gemini;
+- selector/failure diagnostics from observed breakage;
+- native-host and extension installation as part of ordinary TOPO setup rather than a development script;
+- per-conversation exclusion and any remaining capture controls;
+- automatic local processing only after candidate quality is trusted;
+- Copilot, Firefox and further providers only when real demand justifies them.
+
+**Exit:** normal ChatGPT/Claude/Gemini use creates source-grouped TOPO candidates without manual capture setup, and a normal day's inbox can be governed in a few minutes.
 
 ### Iteration 5D — Memory inbox
 
@@ -176,15 +189,21 @@ Context resolution must preserve the boundary described in ADR 0010: a new purpo
 
 After capture is producing real memory, improve the read path.
 
-Build:
+Implemented:
 
 - purpose/query-aware lexical scoring;
-- project/category/key/tag relevance;
-- freshness and epistemic weighting;
-- token budgets;
-- explainable selection;
-- context manifests and digests;
-- later optional embedding assistance.
+- key/category/tag/value relevance;
+- recency/confidence tie-breaking with recency fallback;
+- selection method and relevance metadata.
+
+Remaining:
+
+- project-aware refinement from real usage;
+- stronger freshness and epistemic weighting;
+- context/token budgets;
+- user-facing explainable selection;
+- context manifests, stable revisions and digests;
+- later optional embedding assistance if deterministic selection proves insufficient.
 
 **Exit:** RACK and agents receive compact context selected for the work they are actually doing, not merely the newest confirmed claims.
 
