@@ -17,6 +17,8 @@ That would collapse two distinct concepts:
 
 The adapter therefore proves the useful direction first:
 
+A Context Packet is a purpose-bound disclosure. It does not grant the requester a reusable copy of the person's profile, and organisational/project membership does not grant access to canonical personal memory. A different purpose — including evaluation or analytics — requires a new explicit disclosure.
+
 ~~~text
 RACK / another node
         │
@@ -45,23 +47,10 @@ The adapter:
 - returns source IDs as evidence references;
 - caps context size;
 - emits a draft OOS Context Packet;
-- defaults the packet to private/local-use-only.
+- defaults the packet to private/local-use-only;
+- carries no implied permission for organisational analytics, individual monitoring, persistent host memory or conversion into shared practice.
 
 It advertises no OOS event ingestion or action capabilities yet.
-
-### Personal context boundary
-
-The packet's `ordinary + personal` technical ceiling is a **maximum capability of this local transport**, not a statement that personal memory is organisationally shareable.
-
-TOPO context remains person-controlled and private by default:
-
-- sharing must be explicitly enabled for the current TOPO session;
-- every request names a purpose and receives a bounded packet rather than the store;
-- the packet is marked private/local-use-only;
-- the receiving node must not reinterpret TOPO memory as evidence for evaluating the individual;
-- RACK may use the packet to support AI work, but its verification/evaluation layer should assess AI practice or work output, not the person represented by TOPO.
-
-If a future organisational mode needs stronger separation, it should add an explicit sharing scope/role rather than infer permission from sensitivity labels.
 
 ## Important architectural finding
 
