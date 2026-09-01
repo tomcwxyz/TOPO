@@ -163,6 +163,20 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .memory-panel { min-width: 0; }
 .memory-toolbar { display: grid; grid-template-columns: 1fr minmax(360px, auto); gap: 18px; align-items: end; margin-bottom: 14px; }
 .filters { display: grid; grid-template-columns: minmax(220px, 1fr) 150px; gap: 8px; }
+.batch-review-bar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border: 1px solid #777368;
+  background: #ece5d5;
+}
+.batch-review-bar > div:first-child { display: grid; gap: 3px; }
+.batch-review-bar strong { font-size: .8rem; }
+.batch-review-bar span { max-width: 650px; color: #656159; font-size: .7rem; line-height: 1.4; }
+.batch-review-actions { display: flex; gap: 9px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
 .claim-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 .claim-card { display: grid; align-content: start; min-height: 230px; padding: 17px; border: 1px solid #777368; background: rgba(255,255,255,.18); }
 .claim-topline { display: flex; justify-content: space-between; gap: 12px; align-items: center; font-size: .72rem; }
@@ -183,6 +197,18 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .status-pill.rejected, .status-pill.expired { background: #ead5d0; }
 .sensitivity.sensitive, .sensitivity.restricted { border-style: dashed; }
 .subject { margin: 17px 0 0; color: #5f5d55; font-size: .75rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.source-group-note {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 8px 0 0;
+  padding: 7px 8px;
+  border-left: 3px solid #8a857a;
+  background: rgba(255,255,255,.22);
+  font-size: .66rem;
+}
+.source-group-note span { color: #656159; text-transform: uppercase; letter-spacing: .08em; }
+.source-group-note strong { text-align: right; }
 .claim-value { min-height: 55px; max-height: 170px; overflow: auto; margin: 0 0 14px; white-space: pre-wrap; word-break: break-word; font-family: inherit; font-size: .93rem; line-height: 1.45; }
 .claim-evidence {
   display: grid;
@@ -218,7 +244,16 @@ button:disabled { cursor: not-allowed; opacity: .45; }
 .claim-meta { display: flex; flex-wrap: wrap; gap: 7px 12px; margin-top: auto; padding-top: 12px; border-top: 1px solid #b8b2a7; color: #656159; font-size: .7rem; }
 .tags { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
 .tags span { padding: 3px 6px; background: #e6e0d3; font-size: .68rem; }
-.candidate-actions { display: flex; gap: 7px; justify-content: flex-end; margin-top: 14px; }
+.candidate-actions { display: flex; gap: 7px; justify-content: flex-end; align-items: center; flex-wrap: wrap; margin-top: 14px; }
+.candidate-select {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: auto;
+  font-size: .7rem;
+  font-weight: 650;
+}
+.candidate-select input { width: auto; }
 .empty-state { grid-column: 1 / -1; display: grid; gap: 6px; padding: 40px 18px; border: 1px dashed #777368; text-align: center; }
 .empty-state span { color: #666258; }
 footer { display: flex; justify-content: space-between; gap: 20px; padding: 18px 0 4px; border-top: 1px solid #24241f; color: #656159; font-size: .72rem; }
@@ -236,5 +271,7 @@ footer { display: flex; justify-content: space-between; gap: 20px; padding: 18px
   .editor-panel { grid-template-columns: 1fr; }
   .memory-toolbar { grid-template-columns: 1fr; }
   .filters { grid-template-columns: 1fr; }
+  .batch-review-bar { grid-template-columns: 1fr; }
+  .batch-review-actions { justify-content: flex-start; }
   .form-grid { grid-template-columns: 1fr; }
 }
