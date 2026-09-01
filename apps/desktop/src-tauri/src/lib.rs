@@ -684,6 +684,12 @@ fn review_candidates_in(
         if claim.status != ClaimStatus::Candidate {
             return Err(format!("{} is no longer awaiting review.", claim.key));
         }
+        if decision == "confirm" && !claim.supersedes.is_empty() {
+            return Err(format!(
+                "{} may replace existing memory and requires individual confirmation.",
+                claim.key
+            ));
+        }
     }
 
     let mut reviewed = Vec::with_capacity(ids.len());
@@ -921,6 +927,25 @@ mod tests {
         .unwrap_err();
         assert!(error.contains("no longer awaiting review"));
         assert_eq!(read_claim(&connection, &third.id).unwrap().status, ClaimStatus::Candidate);
+
+        let mut replacement_draft = draft();
+        replacement_draft.key = "writing.locale".to_owned();
+        replacement_draft.value = Value::String("en-US".to_owned());
+        let mut replacement = create_claim_in(&connection, replacement_draft, true).unwrap();
+        replacement.supersedes = vec![first.id.clone()];
+        write_claim(&connection, &replacement).unwrap();
+
+        let error = review_candidates_in(
+            &connection,
+            &[replacement.id.clone()],
+            "confirm",
+        )
+        .unwrap_err();
+        assert!(error.contains("requires individual confirmation"));
+        assert_eq!(
+            read_claim(&connection, &replacement.id).unwrap().status,
+            ClaimStatus::Candidate
+        );
     }
 
     #[test]
