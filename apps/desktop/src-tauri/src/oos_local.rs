@@ -16,8 +16,10 @@ use std::{
 };
 use tiny_http::{Header, Method, Response, Server, StatusCode};
 use topo_contracts::{
-    Actor, ActorType, ClaimProvenance, ClaimStatus, EpistemicType, EventEntityType, EventType,
-    MemoryClaim, MemoryEvent, MemorySource, Sensitivity, SourceType,
+    Actor, ActorType, CaptureClient, CaptureKind, CaptureMethod, CaptureMode, CaptureProduct,
+    CapturedInteraction,
+    ClaimProvenance, ClaimStatus, EpistemicType, EventEntityType, EventType, MemoryClaim,
+    MemoryEvent, MemorySource, Sensitivity, SourceType,
 };
 use uuid::Uuid;
 
@@ -68,6 +70,13 @@ struct SearchRequest {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct CaptureRequest {
+    requested_by: String,
+    interaction: CapturedInteraction,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct ProposalRequest {
     requested_by: String,
     source_title: Option<String>,
@@ -98,6 +107,7 @@ struct ProposalClaim {
 pub struct LocalContextSharingStatus {
     enabled: bool,
     contributions_enabled: bool,
+    capture_enabled: bool,
     max_sensitivity: &'static str,
     resets_on_restart: bool,
 }
@@ -106,6 +116,7 @@ pub struct LocalOosEndpoint {
     shutdown: Arc<AtomicBool>,
     sharing_enabled: Arc<AtomicBool>,
     contributions_enabled: Arc<AtomicBool>,
+    capture_enabled: Arc<AtomicBool>,
     discovery_path: PathBuf,
     token: String,
 }
@@ -126,6 +137,7 @@ impl LocalOosEndpoint {
         let shutdown = Arc::new(AtomicBool::new(false));
         let sharing_enabled = Arc::new(AtomicBool::new(false));
         let contributions_enabled = Arc::new(AtomicBool::new(false));
+        let capture_enabled = Arc::new(AtomicBool::new(false));
 
         let discovery = DiscoveryFile {
             protocol: PROTOCOL.to_owned(),
@@ -145,6 +157,7 @@ impl LocalOosEndpoint {
         let server_shutdown = shutdown.clone();
         let server_sharing = sharing_enabled.clone();
         let server_contributions = contributions_enabled.clone();
+        let server_capture = capture_enabled.clone();
         thread::Builder::new()
             .name("topo-oos-local".to_owned())
             .spawn(move || {
@@ -159,6 +172,7 @@ impl LocalOosEndpoint {
                         &server_token,
                         &server_sharing,
                         &server_contributions,
+                        &server_capture,
                     );
                 }
             })
@@ -168,6 +182,7 @@ impl LocalOosEndpoint {
             shutdown,
             sharing_enabled,
             contributions_enabled,
+            capture_enabled,
             discovery_path,
             token,
         })
@@ -189,10 +204,19 @@ impl LocalOosEndpoint {
         self.contributions_enabled.store(enabled, Ordering::Release);
     }
 
+    fn capture_enabled(&self) -> bool {
+        self.capture_enabled.load(Ordering::Acquire)
+    }
+
+    fn set_capture_enabled(&self, enabled: bool) {
+        self.capture_enabled.store(enabled, Ordering::Release);
+    }
+
     fn status(&self) -> LocalContextSharingStatus {
         LocalContextSharingStatus {
             enabled: self.sharing_enabled(),
             contributions_enabled: self.contributions_enabled(),
+            capture_enabled: self.capture_enabled(),
             max_sensitivity: "personal",
             resets_on_restart: true,
         }
@@ -236,6 +260,15 @@ pub fn set_local_contributions(
     enabled: bool,
 ) -> LocalContextSharingStatus {
     endpoint.set_contributions_enabled(enabled);
+    endpoint.status()
+}
+
+#[tauri::command]
+pub fn set_local_capture(
+    endpoint: tauri::State<'_, LocalOosEndpoint>,
+    enabled: bool,
+) -> LocalContextSharingStatus {
+    endpoint.set_capture_enabled(enabled);
     endpoint.status()
 }
 
@@ -320,6 +353,7 @@ fn handle_request(
     token: &str,
     sharing_enabled: &Arc<AtomicBool>,
     contributions_enabled: &Arc<AtomicBool>,
+    capture_enabled: &Arc<AtomicBool>,
 ) {
     if !authorised(&request, token) {
         let _ = request.respond(json_response(json!({ "error": "unauthorised" }), 401));
@@ -328,6 +362,7 @@ fn handle_request(
 
     let sharing = sharing_enabled.load(Ordering::Acquire);
     let contributions = contributions_enabled.load(Ordering::Acquire);
+    let capture = capture_enabled.load(Ordering::Acquire);
 
     match (request.method(), request.url()) {
         (&Method::Get, "/v0/capabilities") => {
@@ -336,16 +371,20 @@ fn handle_request(
             } else {
                 vec![]
             };
-            let actions: Vec<&str> = if contributions {
-                vec!["propose_claims"]
-            } else {
-                vec![]
-            };
-            let accepts: Vec<&str> = if contributions {
-                vec!["candidate-memory-proposals"]
-            } else {
-                vec![]
-            };
+            let mut actions: Vec<&str> = Vec::new();
+            if contributions {
+                actions.push("propose_claims");
+            }
+            if capture {
+                actions.push("capture_interaction");
+            }
+            let mut accepts: Vec<&str> = Vec::new();
+            if contributions {
+                accepts.push("candidate-memory-proposals");
+            }
+            if capture {
+                accepts.push("captured-interactions");
+            }
             let _ = request.respond(json_response(
                 json!({
                     "protocol": "oos/0.1-draft",
@@ -365,6 +404,7 @@ fn handle_request(
                         "sensitivity_ceiling": "personal",
                         "sharing_enabled": sharing,
                         "contributions_enabled": contributions,
+                        "capture_enabled": capture,
                         "review_authority": false,
                         "sharing_resets_on_restart": true
                     }
@@ -434,6 +474,33 @@ fn handle_request(
                 }
             }
         }
+        (&Method::Post, "/v0/capture") => {
+            if !capture {
+                let _ = request.respond(json_response(
+                    json!({
+                        "error": "local interaction capture is disabled in TOPO",
+                        "code": "TOPO_LOCAL_CAPTURE_DISABLED"
+                    }),
+                    403,
+                ));
+                return;
+            }
+            let parsed = match read_json::<CaptureRequest>(&mut request) {
+                Ok(parsed) => parsed,
+                Err(response) => {
+                    let _ = request.respond(response);
+                    return;
+                }
+            };
+            match accept_local_capture(parsed) {
+                Ok(value) => {
+                    let _ = request.respond(json_response(value, 200));
+                }
+                Err(error) => {
+                    let _ = request.respond(json_response(json!({ "error": error }), 400));
+                }
+            }
+        }
         (&Method::Post, "/v0/proposals") => {
             if !contributions {
                 let _ = request.respond(json_response(
@@ -465,6 +532,56 @@ fn handle_request(
             let _ = request.respond(json_response(json!({ "error": "not found" }), 404));
         }
     }
+}
+
+fn accept_local_capture(input: CaptureRequest) -> Result<Value, String> {
+    validate_local_capture(&input)?;
+
+    let interaction_id = input.interaction.id.clone();
+    let product = super::enum_text(&input.interaction.product)?;
+    let turns = input.interaction.turns.len();
+    crate::capture_inbox::queue_capture(&input.interaction)?;
+
+    Ok(json!({
+        "queued": true,
+        "interactionId": interaction_id,
+        "product": product,
+        "turnCount": turns,
+        "requestedBy": input.requested_by,
+        "reviewRequired": true
+    }))
+}
+
+fn validate_local_capture(input: &CaptureRequest) -> Result<(), String> {
+    if input.requested_by.trim().is_empty() {
+        return Err("requestedBy is required.".to_owned());
+    }
+    if input.interaction.kind != CaptureKind::AgentSession
+        || input.interaction.mode != CaptureMode::Agent
+        || input.interaction.capture_method != CaptureMethod::AgentHook
+        || input.interaction.client != CaptureClient::AgentRuntime
+    {
+        return Err(
+            "Local agent capture requires an agent-session/agent/agent-hook/agent-runtime source."
+                .to_owned(),
+        );
+    }
+    if !matches!(
+        input.interaction.product,
+        CaptureProduct::Hermes | CaptureProduct::Openclaw | CaptureProduct::Generic
+    ) {
+        return Err("Local agent capture only accepts Hermes, OpenClaw or generic agents.".to_owned());
+    }
+    if input.interaction.turns.is_empty()
+        || !input
+            .interaction
+            .turns
+            .iter()
+            .any(|turn| matches!(turn.role, topo_contracts::CaptureRole::User))
+    {
+        return Err("Local agent capture requires at least one user-authored turn.".to_owned());
+    }
+    Ok(())
 }
 
 fn local_search(input: SearchRequest) -> Result<Value, String> {
@@ -860,6 +977,7 @@ mod tests {
             shutdown: Arc::new(AtomicBool::new(false)),
             sharing_enabled: Arc::new(AtomicBool::new(false)),
             contributions_enabled: Arc::new(AtomicBool::new(false)),
+            capture_enabled: Arc::new(AtomicBool::new(false)),
             discovery_path: path,
             token: token.to_owned(),
         }
@@ -872,6 +990,7 @@ mod tests {
 
         assert!(!endpoint.sharing_enabled());
         assert!(!endpoint.contributions_enabled());
+        assert!(!endpoint.capture_enabled());
 
         endpoint.set_sharing_enabled(true);
         assert!(endpoint.sharing_enabled());
@@ -881,9 +1000,60 @@ mod tests {
         assert!(endpoint.sharing_enabled());
         assert!(endpoint.contributions_enabled());
 
-        endpoint.set_sharing_enabled(false);
-        assert!(!endpoint.sharing_enabled());
+        endpoint.set_capture_enabled(true);
+        assert!(endpoint.sharing_enabled());
         assert!(endpoint.contributions_enabled());
+        assert!(endpoint.capture_enabled());
+
+        endpoint.set_sharing_enabled(false);
+        endpoint.set_contributions_enabled(false);
+        assert!(!endpoint.sharing_enabled());
+        assert!(!endpoint.contributions_enabled());
+        assert!(endpoint.capture_enabled());
+    }
+
+    #[test]
+    fn local_agent_capture_only_accepts_agent_hook_runtime_sources() {
+        let valid: CapturedInteraction = serde_json::from_value(json!({
+            "id": "hermes-session-1",
+            "kind": "agent-session",
+            "product": "hermes",
+            "client": "agent-runtime",
+            "mode": "agent",
+            "captureMethod": "agent-hook",
+            "fidelity": "conversation-turns",
+            "provider": "hermes",
+            "subject": "self",
+            "capturedAt": "2026-08-31T22:00:00Z",
+            "turns": [
+                { "id": "u1", "role": "user", "content": "Use British English." },
+                { "id": "a1", "role": "assistant", "content": "Understood." }
+            ],
+            "retention": "review-window"
+        }))
+        .unwrap();
+
+        let valid_request = CaptureRequest {
+            requested_by: "hermes-agent".to_owned(),
+            interaction: valid.clone(),
+        };
+        assert!(validate_local_capture(&valid_request).is_ok());
+
+        let mut invalid = valid.clone();
+        invalid.capture_method = CaptureMethod::LocalMcp;
+        let invalid_request = CaptureRequest {
+            requested_by: "hermes-agent".to_owned(),
+            interaction: invalid,
+        };
+        assert!(validate_local_capture(&invalid_request).is_err());
+
+        let mut wrong_product = valid;
+        wrong_product.product = CaptureProduct::Claude;
+        let wrong_product_request = CaptureRequest {
+            requested_by: "claude-desktop".to_owned(),
+            interaction: wrong_product,
+        };
+        assert!(validate_local_capture(&wrong_product_request).is_err());
     }
 
     #[test]

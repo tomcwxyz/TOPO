@@ -801,7 +801,8 @@ pub fn run() {
             capture_processor::process_capture_with_ollama,
             oos_local::local_context_sharing_status,
             oos_local::set_local_context_sharing,
-            oos_local::set_local_contributions
+            oos_local::set_local_contributions,
+            oos_local::set_local_capture
         ])
         .run(tauri::generate_context!())
         .expect("error while running TOPO");

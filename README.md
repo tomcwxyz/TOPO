@@ -30,7 +30,7 @@ The desktop application is intended to become the primary local manager. CLI, MC
 
 TOPO is also beginning to act as a local memory/context node for the draft [Organisational OS](https://github.com/tomcwxyz/Organisational-OS). The first adapter exposes purpose-bound Context Packets while deliberately keeping external operational state distinct from canonical memory Claims.
 
-See [PLAN.md](PLAN.md), [ROADMAP.md](ROADMAP.md), [capture architecture](docs/CAPTURE.md), [capture alpha test](docs/CAPTURE_ALPHA_TEST.md), [Organisational OS adapter](docs/OOS_ADAPTER.md), [local alpha releases](docs/RELEASE.md) and [docs/adr](docs/adr).
+See [PLAN.md](PLAN.md), [ROADMAP.md](ROADMAP.md), [capture architecture](docs/CAPTURE.md), [capture alpha test](docs/CAPTURE_ALPHA_TEST.md), [agent integrations](docs/AGENT_INTEGRATIONS.md), [Organisational OS adapter](docs/OOS_ADAPTER.md), [local alpha releases](docs/RELEASE.md) and [docs/adr](docs/adr).
 
 ## Repository shape
 
