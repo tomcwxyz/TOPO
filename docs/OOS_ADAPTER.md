@@ -17,6 +17,8 @@ That would collapse two distinct concepts:
 
 The adapter therefore proves the useful direction first:
 
+A Context Packet is a purpose-bound disclosure. It does not grant the requester a reusable copy of the person's profile, and organisational/project membership does not grant access to canonical personal memory. A different purpose — including evaluation or analytics — requires a new explicit disclosure.
+
 ~~~text
 RACK / another node
         │
@@ -45,7 +47,8 @@ The adapter:
 - returns source IDs as evidence references;
 - caps context size;
 - emits a draft OOS Context Packet;
-- defaults the packet to private/local-use-only.
+- defaults the packet to private/local-use-only;
+- carries no implied permission for organisational analytics, individual monitoring, persistent host memory or conversion into shared practice.
 
 It advertises no OOS event ingestion or action capabilities yet.
 

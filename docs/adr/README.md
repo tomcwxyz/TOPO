@@ -13,3 +13,4 @@ TOPO uses ADRs for durable architectural choices. Implementation details can cha
 | [0007](0007-tauri-desktop-runtime-boundary.md) | Desktop uses Tauri/Rust for native capabilities while domain semantics remain portable | Accepted |
 | [0008](0008-mcp-review-authority-is-explicit.md) | MCP clients are proposal-first; review authority requires explicit delegation | Accepted |
 | [0009](0009-ambient-capture-governed-memory.md) | Capture may be ambient; becoming durable memory remains governed | Accepted |
+| [0010](0010-personal-context-boundaries.md) | Personal context does not become organisational exhaust; boundary crossing is explicit | Accepted |
