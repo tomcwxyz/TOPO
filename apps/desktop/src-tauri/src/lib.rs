@@ -786,7 +786,7 @@ fn context_packet_from_store(
                 claim.id.clone(),
                 json!({
                     "score": result.0,
-                    "fields": result.1
+                    "fields": result.1.clone()
                 }),
             )
         })
@@ -966,6 +966,101 @@ mod tests {
     }
 
     #[test]
+    fn purpose_aware_context_ranks_relevant_memory_before_newer_unrelated_memory() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+
+        let mut unrelated_draft = draft();
+        unrelated_draft.key = "writing.locale".to_owned();
+        let unrelated = create_claim_in(&connection, unrelated_draft, false).unwrap();
+
+        let mut relevant_draft = draft();
+        relevant_draft.key = "implementation.testing".to_owned();
+        relevant_draft.category = Some("coding".to_owned());
+        relevant_draft.tags = vec!["tests".to_owned(), "integration".to_owned()];
+        relevant_draft.value =
+            Value::String("Prefer integration tests around changed boundaries.".to_owned());
+        let relevant = create_claim_in(&connection, relevant_draft, false).unwrap();
+
+        // Make the unrelated claim newer so lexical relevance has to outrank recency.
+        connection
+            .execute(
+                "UPDATE claims SET updated_at = ?1 WHERE id = ?2",
+                params!["2026-09-01T12:00:00Z", unrelated.id],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE claims SET updated_at = ?1 WHERE id = ?2",
+                params!["2026-08-31T12:00:00Z", relevant.id],
+            )
+            .unwrap();
+
+        let preview = context_packet_from_store(
+            &connection,
+            "project:rack",
+            "prepare implementation",
+            "rack",
+            Some("add integration tests for the context boundary"),
+            false,
+            1,
+            "test",
+        )
+        .unwrap();
+
+        let objects = preview.packet["objects"].as_array().unwrap();
+        assert_eq!(objects[0]["id"], relevant.id);
+        assert_eq!(
+            preview.packet["extensions"]["topo.selection"],
+            "confirmed+subject+temporal+sensitivity+purpose-lexical-rank-v1"
+        );
+        assert_eq!(
+            preview.packet["extensions"]["topo.relevance"][&relevant.id]["score"],
+            20
+        );
+    }
+
+    #[test]
+    fn purpose_aware_context_falls_back_to_recency_without_a_match() {
+        let connection = Connection::open_in_memory().unwrap();
+        migrate(&connection).unwrap();
+
+        let older = create_claim_in(&connection, draft(), false).unwrap();
+        let mut newer_draft = draft();
+        newer_draft.key = "project.phase".to_owned();
+        newer_draft.value = Value::String("pilot".to_owned());
+        let newer = create_claim_in(&connection, newer_draft, false).unwrap();
+
+        connection
+            .execute(
+                "UPDATE claims SET updated_at = ?1 WHERE id = ?2",
+                params!["2026-08-30T12:00:00Z", older.id],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "UPDATE claims SET updated_at = ?1 WHERE id = ?2",
+                params!["2026-09-01T12:00:00Z", newer.id],
+            )
+            .unwrap();
+
+        let preview = context_packet_from_store(
+            &connection,
+            "project:rack",
+            "arrange catering",
+            "rack",
+            None,
+            false,
+            1,
+            "test",
+        )
+        .unwrap();
+
+        assert_eq!(preview.packet["objects"][0]["id"], newer.id);
+        assert_eq!(preview.packet["extensions"]["topo.relevance"], json!({}));
+    }
+
+    #[test]
     fn local_context_never_discloses_restricted_memory_by_default() {
         let connection = Connection::open_in_memory().unwrap();
         migrate(&connection).unwrap();
@@ -982,6 +1077,7 @@ mod tests {
             "project:rack",
             "prepare implementation",
             "rack",
+            None,
             false,
             20,
             "test",
