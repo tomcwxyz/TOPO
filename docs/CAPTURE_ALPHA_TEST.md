@@ -4,89 +4,69 @@ This is the first end-to-end TOPO capture test path.
 
 The goal is:
 
-> Use ChatGPT, Claude or Gemini normally in a Chromium browser, see TOPO capture a conversation locally, process it with a local Ollama model, then review the resulting candidate memories in TOPO Desktop.
+> Install TOPO, prepare its bundled browser companion, use ChatGPT, Claude or Gemini normally, see TOPO capture the conversation locally, process it with a local Ollama model, then review the resulting candidate memories.
 
 Nothing in this test automatically confirms memory.
 
 ## Prerequisites
 
 - Windows 10/11
-- Node.js 22+
-- Rust toolchain
 - Chrome or Edge
+- TOPO Windows test installer
 - Ollama running locally with at least one model installed
+
+You do **not** need Node.js, npm, Rust, Cargo or a TOPO source checkout to run the packaged alpha test.
 
 The initial extraction path uses local Ollama deliberately. Captured transcripts do not need to be sent to an external model provider.
 
-## 1. Install repository dependencies
+## 1. Install TOPO
 
-From the TOPO repository:
+Download and run the current **TOPO Windows test** installer.
 
-~~~powershell
-npm install
-~~~
+Windows SmartScreen may warn because test builds are not yet code-signed.
 
-## 2. Build the capture extension
+Open TOPO after installation.
 
-~~~powershell
-npm run build --workspace @topo/extension
-~~~
+## 2. Prepare browser capture
 
-The unpacked extension will be in:
+In TOPO Desktop, find **Ambient capture** and choose **Prepare browser capture**.
 
-~~~text
-apps/extension/dist
-~~~
+TOPO will:
 
-## 3. Load the extension
+1. copy the bundled `topo-native-host.exe` to a stable local application folder;
+2. copy the bundled browser extension to a stable local folder;
+3. register the Native Messaging host for Chrome and Edge for the current Windows user;
+4. show the browser-extension folder and its fixed alpha extension ID.
+
+No PowerShell, Cargo build, extension-ID copy/paste or manual registry command is required.
+
+## 3. Load the bundled extension once
+
+Chrome does not allow an unpublished local extension to be silently installed by a normal desktop application. Until the TOPO companion is published through the Chrome/Edge stores, one browser step remains.
 
 In Chrome:
 
-1. Open chrome://extensions.
+1. Open `chrome://extensions`.
 2. Enable **Developer mode**.
 3. Choose **Load unpacked**.
-4. Select apps/extension/dist.
-5. Copy the extension ID shown by Chrome.
+4. In TOPO, choose **Open extension folder**.
+5. Select that `browser-extension` folder in Chrome.
 
-In Edge use edge://extensions and the equivalent developer/load-unpacked controls.
+In Edge use `edge://extensions` and the equivalent controls.
 
-Keep the extension loaded from this same directory so its development ID remains stable.
+The packaged alpha extension has a fixed development ID, so TOPO can register Native Messaging before you load it.
 
-## 4. Register the native capture bridge
+Restart the browser if it was already open while browser capture was prepared.
 
-From PowerShell in the repository root:
+## 4. Confirm Ollama
 
-~~~powershell
-.\scripts\register-topo-native-host.ps1 -ExtensionId <YOUR_EXTENSION_ID> -Browser Chrome
-~~~
+TOPO Desktop should show **Local extractor** in the Ambient capture panel.
 
-For Edge:
+If Ollama is running, TOPO lists the models it can use.
 
-~~~powershell
-.\scripts\register-topo-native-host.ps1 -ExtensionId <YOUR_EXTENSION_ID> -Browser Edge
-~~~
+If no model is installed, install one with Ollama before continuing.
 
-For both:
-
-~~~powershell
-.\scripts\register-topo-native-host.ps1 -ExtensionId <YOUR_EXTENSION_ID> -Browser Both
-~~~
-
-The script builds topo-native-host.exe, writes a Native Messaging manifest under %LOCALAPPDATA%\TOPO\native-messaging, and registers it for the current Windows user.
-
-Restart the browser after registration.
-
-## 5. Start TOPO Desktop
-
-~~~powershell
-npm run dev:desktop
-~~~
-
-The desktop should show the **Ambient capture** panel.
-
-If Ollama is running, the Local extractor control should list installed models.
-
-## 6. Enable capture
+## 5. Enable capture
 
 Open one of:
 
@@ -107,7 +87,7 @@ The states mean:
 
 Queued snapshots should flush when the native host becomes available again.
 
-## 7. Have a small test conversation
+## 6. Have a small test conversation
 
 Use a deliberately obvious, non-sensitive test such as:
 
@@ -119,7 +99,7 @@ Continue for another turn or two so the page settles.
 
 Do not use passwords, API keys or other secrets in a capture test.
 
-## 8. Confirm the raw interaction reached TOPO
+## 7. Confirm the raw interaction reached TOPO
 
 In TOPO Desktop, press **Refresh** in Ambient capture.
 
@@ -139,7 +119,7 @@ The native host writes pending snapshots to:
 ~/.topo/capture-inbox/
 ~~~
 
-## 9. Extract locally
+## 8. Extract locally
 
 Choose an Ollama model in the Local extractor control and press **Extract N waiting**.
 
@@ -152,7 +132,7 @@ TOPO will:
 5. create new candidates, add supporting evidence, or flag potential changes;
 6. move the processed raw snapshot out of the pending inbox.
 
-## 10. Review
+## 9. Review
 
 Candidate cards should show:
 
@@ -171,9 +151,10 @@ If a potential-change candidate is confirmed, TOPO supersedes the prior confirme
 
 Record whether:
 
-- the extension identifies the correct product;
-- ChatGPT Work / Claude Cowork mode is detected correctly when used;
-- the indicator reaches local;
+- TOPO prepares browser capture without a source checkout or developer tools;
+- the extension loads with the fixed alpha ID shown by TOPO;
+- the extension identifies the correct AI product;
+- the indicator reaches `local`;
 - turn count looks plausible;
 - the source title is correct;
 - Ollama proposes only genuinely useful memory;
@@ -184,8 +165,11 @@ Record whether:
 
 ## Known alpha limitations
 
+- the browser companion is bundled but still requires **Load unpacked** until it is published in Chrome/Edge extension stores;
 - selectors for hosted AI products may change and need adapter diagnostics;
-- desktop ChatGPT/Claude capture is designed but not yet implemented through OS accessibility;
-- Claude Desktop local MCP packaging is not yet part of this alpha;
-- Chrome/Edge Native Messaging registration is currently a development script rather than part of the TOPO installer;
-- capture processing is manual from the desktop for this first test; automatic local extraction will follow after the end-to-end behaviour is trusted.
+- desktop ChatGPT/Claude ambient capture is designed but not yet implemented through OS accessibility;
+- capture processing is manual from the desktop for this first test; automatic local extraction should follow after the end-to-end behaviour is trusted.
+
+## Developer fallback
+
+The source-build route remains available for development and diagnostics, but it is not the normal alpha tester path. Developers can still build the extension, native host and Tauri app from the repository when debugging packaging or browser integration.

@@ -3,7 +3,10 @@
   "name": "TOPO Capture",
   "version": "0.1.0",
   "description": "Ambient, governed capture from supported AI conversations into local TOPO.",
-  "permissions": ["storage", "nativeMessaging"],
+  "permissions": [
+    "storage",
+    "nativeMessaging"
+  ],
   "host_permissions": [
     "https://chatgpt.com/*",
     "https://chat.openai.com/*",
@@ -22,11 +25,14 @@
         "https://claude.ai/*",
         "https://gemini.google.com/*"
       ],
-      "js": ["src/content/capture.ts"],
+      "js": [
+        "src/content/capture.ts"
+      ],
       "run_at": "document_idle"
     }
   ],
   "action": {
     "default_title": "Toggle TOPO capture for this AI"
-  }
+  },
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArM+pjM0hoxo8MA0hYFXQHvQs9wfDST3P5KwsvBnZU6T8FuBZfYY3+U6pH30XRCtvbTNOw5MePTgegC9SSQ9e5acMGuoYDl2OOfp+M1CSpGOZvKF1/PplXiuW6S4slivOzfl5AUr+USn6CwAjAgXjGInCqn/jCafWFc4RJw5a5aw/V0fysGJddXDxR54Gw/ZSToNTN3NH26U9VQ4+/c+2M5Vq1nYiWIVzihQJ96RHHH/8CaBYappjxCEVou8o5PCR8AU5qFny1jxzLCzO3LhL5C1b9yRIu+DIetRbpsNMgrHpargvRcyAqmX7tMK1EFfWhEqp9YEzzWMfr7s9o0RjaQIDAQAB"
 }
