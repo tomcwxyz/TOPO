@@ -41,6 +41,20 @@ struct OllamaModel {
 #[derive(Debug, Deserialize)]
 struct OllamaChatResponse {
     message: OllamaChatMessage,
+    #[serde(default)]
+    done_reason: Option<String>,
+    #[serde(default)]
+    total_duration: Option<u64>,
+    #[serde(default)]
+    load_duration: Option<u64>,
+    #[serde(default)]
+    prompt_eval_count: Option<u64>,
+    #[serde(default)]
+    prompt_eval_duration: Option<u64>,
+    #[serde(default)]
+    eval_count: Option<u64>,
+    #[serde(default)]
+    eval_duration: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -547,7 +561,16 @@ pub async fn extract_with_ollama(
         "interactionId": interaction.id,
         "model": model,
         "elapsedMs": started.elapsed().as_millis(),
-        "proposalCount": validated.len()
+        "proposalCount": validated.len(),
+        "ollama": {
+            "doneReason": payload.done_reason,
+            "totalDurationNs": payload.total_duration,
+            "loadDurationNs": payload.load_duration,
+            "promptEvalCount": payload.prompt_eval_count,
+            "promptEvalDurationNs": payload.prompt_eval_duration,
+            "evalCount": payload.eval_count,
+            "evalDurationNs": payload.eval_duration
+        }
     }));
 
     Ok(validated)
