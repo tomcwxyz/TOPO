@@ -598,6 +598,7 @@ pub fn extraction_prompt(fidelity: &CaptureFidelity) -> String {
         "Use concise dot-separated keys such as writing.locale or project.event.database.",
         "Evidence must be a short verbatim excerpt from a USER turn.",
         "Use the field names exactly as shown. Do not use snake_case, rename proposals, or return a single proposal object.",
+        "epistemicType must be exactly one of: assertion, observation, inference, preference, derived-pattern.",
         "proposals must always be a JSON array, even when it contains only one item.",
     ];
 
@@ -842,6 +843,13 @@ fn normalise_proposal_json(value: &mut Value) {
                 .to_ascii_lowercase()
                 .replace(['_', ' '], "-");
         }
+    }
+
+    if let Some(Value::String(epistemic_type)) = map.get_mut("epistemicType") {
+        *epistemic_type = match epistemic_type.as_str() {
+            "information" | "fact" | "statement" => "assertion".to_owned(),
+            other => other.to_owned(),
+        };
     }
 }
 
@@ -1101,6 +1109,16 @@ mod tests {
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].confidence, 0.98);
         assert_eq!(proposals[0].evidence_turn_ids, vec!["u1".to_owned()]);
+    }
+
+    #[test]
+    fn normalises_information_to_assertion() {
+        let proposals = parse_proposals(
+            r#"{"proposals":[{"key":"project.event.example","value":"North East niche businesses","epistemicType":"information","confidence":0.9,"evidenceTurnIds":["u1"],"evidence":"Give me the nichest of niche actual businesses"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(proposals.len(), 1);
+        assert_eq!(proposals[0].epistemic_type, EpistemicType::Assertion);
     }
 
     #[test]
