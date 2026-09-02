@@ -87,6 +87,10 @@ type OllamaStatus = {
   error?: string;
 };
 
+type ExtractorDiagnosticsStatus = {
+  path: string;
+};
+
 type BrowserCaptureSetupStatus = {
   supported: boolean;
   prepared: boolean;
@@ -167,6 +171,9 @@ export function App() {
   const [captureInbox, setCaptureInbox] = useState<CaptureInboxStatus | null>(null);
   const [ollama, setOllama] = useState<OllamaStatus | null>(null);
   const [ollamaBusy, setOllamaBusy] = useState(false);
+  const [extractorDiagnostics, setExtractorDiagnostics] =
+    useState<ExtractorDiagnosticsStatus | null>(null);
+  const [captureProgress, setCaptureProgress] = useState<string | null>(null);
   const [extractorModel, setExtractorModel] = useState(
     () => window.localStorage.getItem("topo.ollamaModel") ?? "",
   );
@@ -243,6 +250,12 @@ export function App() {
     void refreshOllama();
   }, [refreshOllama]);
 
+  useEffect(() => {
+    void invoke<ExtractorDiagnosticsStatus>("extractor_diagnostics_status")
+      .then(setExtractorDiagnostics)
+      .catch(() => setExtractorDiagnostics(null));
+  }, []);
+
   const prepareBrowserCapture = async () => {
     setCaptureSetupBusy(true);
     setError(null);
@@ -260,6 +273,14 @@ export function App() {
   const openCaptureExtensionFolder = async () => {
     try {
       await invoke("open_capture_extension_folder");
+    } catch (cause) {
+      setError(String(cause));
+    }
+  };
+
+  const openExtractorDiagnosticsFolder = async () => {
+    try {
+      await invoke("open_extractor_diagnostics_folder");
     } catch (cause) {
       setError(String(cause));
     }
@@ -518,9 +539,17 @@ export function App() {
     setCaptureBusy(true);
     setError(null);
     setMessage(null);
+
+    let activeItem: CaptureInboxItem | null = null;
+    let activeIndex = 0;
     try {
       const results: CaptureProcessResult[] = [];
-      for (const item of captureInbox.items) {
+      for (const [index, item] of captureInbox.items.entries()) {
+        activeItem = item;
+        activeIndex = index;
+        setCaptureProgress(
+          `${index + 1} of ${captureInbox.items.length} · ${extractorModel} · ${item.title ?? "Untitled interaction"}`,
+        );
         results.push(
           await invoke<CaptureProcessResult>("process_capture_with_ollama", {
             interactionId: item.id,
@@ -536,17 +565,24 @@ export function App() {
       );
       const changes = results.reduce((sum, result) => sum + result.potentialChanges, 0);
       setMessage(
-        `Capture processed locally: ${candidates} candidate${candidates === 1 ? "" : "s"}, ` +
+        `Capture processed locally with ${extractorModel}: ${candidates} candidate${candidates === 1 ? "" : "s"}, ` +
           `${evidence} supporting evidence update${evidence === 1 ? "" : "s"}` +
           (changes > 0 ? `, ${changes} potential change${changes === 1 ? "" : "s"} flagged.` : "."),
       );
       await refresh();
     } catch (cause) {
-      setError(String(cause));
+      const itemLabel = activeItem?.title ?? activeItem?.id ?? "captured interaction";
+      const diagnostics = extractorDiagnostics?.path
+        ? ` Diagnostics: ${extractorDiagnostics.path}`
+        : "";
+      setError(
+        `Extraction failed on ${activeIndex + 1} of ${captureInbox.items.length} (${itemLabel}) using ${extractorModel}. ${String(cause)}${diagnostics}`,
+      );
       if (String(cause).toLowerCase().includes("ollama")) {
         await refreshOllama();
       }
     } finally {
+      setCaptureProgress(null);
       setCaptureBusy(false);
     }
   };
@@ -694,6 +730,27 @@ export function App() {
                     </button>
                   </>
                 )}
+                {captureProgress && (
+                  <small>
+                    Extracting {captureProgress}. Larger local models can take several minutes on a cold start.
+                  </small>
+                )}
+                {extractorDiagnostics && (
+                  <div className="capture-inbox-item">
+                    <span>Alpha extractor diagnostics</span>
+                    <code title={extractorDiagnostics.path}>{extractorDiagnostics.path}</code>
+                    <small>
+                      Local timings, model names and JSON shape/error details. Full captured conversations are not written to this log.
+                    </small>
+                    <button
+                      className="quiet"
+                      type="button"
+                      onClick={() => void openExtractorDiagnosticsFolder()}
+                    >
+                      Open diagnostics folder
+                    </button>
+                  </div>
+                )}
                 <button
                   className="secondary"
                   type="button"
@@ -707,7 +764,9 @@ export function App() {
                   onClick={() => void processCapturedInteractions()}
                 >
                   {captureBusy
-                    ? "Extracting locally…"
+                    ? captureProgress
+                      ? `Extracting ${captureProgress.split(" · ")[0]}…`
+                      : "Extracting locally…"
                     : `Extract ${captureInbox?.pending ?? 0} waiting`}
                 </button>
               </div>

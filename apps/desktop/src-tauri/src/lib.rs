@@ -958,6 +958,8 @@ pub fn run() {
             capture_inbox::capture_inbox_status,
             capture_extractor::ollama_extractor_status,
             capture_extractor::start_ollama_extractor,
+            capture_extractor::extractor_diagnostics_status,
+            capture_extractor::open_extractor_diagnostics_folder,
             capture_processor::process_capture_with_ollama,
             capture_setup::browser_capture_setup_status,
             capture_setup::prepare_browser_capture,
