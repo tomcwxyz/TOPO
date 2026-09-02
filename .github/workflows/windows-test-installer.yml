@@ -33,6 +33,17 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Prepare packaged browser capture companion
+        shell: pwsh
+        run: |
+          npm run test:extension-build
+          cargo build --release --target-dir target --manifest-path crates/topo-native-host/Cargo.toml
+          $resources = "apps/desktop/src-tauri/resources"
+          Remove-Item -Recurse -Force $resources -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force "$resources/capture-extension" | Out-Null
+          Copy-Item "apps/extension/dist/*" "$resources/capture-extension" -Recurse -Force
+          Copy-Item "target/release/topo-native-host.exe" "$resources/topo-native-host.exe" -Force
+
       - name: Check desktop TypeScript
         run: npm run check --workspace @topo/desktop
 
@@ -50,10 +61,10 @@ jobs:
 
             This is an unsigned development/test build. Windows SmartScreen may warn before installation.
 
-            No Node, npm, Rust or Cargo installation is required to run this packaged desktop app.
+            The installer includes the Windows native capture bridge and browser extension files. No Node, npm, Rust or Cargo installation is required to run this packaged desktop app.
           releaseDraft: true
           prerelease: true
           releaseAssetNamePattern: "TOPO_Windows_Test_[version]_[arch][setup][ext]"
           uploadUpdaterJson: false
           uploadUpdaterSignatures: false
-          args: "--bundles nsis"
+          args: "--bundles nsis --config src-tauri/test.windows.json"
