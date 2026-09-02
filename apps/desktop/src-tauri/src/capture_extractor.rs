@@ -1,18 +1,22 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{json, Map, Value};
 use std::{
     collections::BTreeMap,
+    fs::{self, OpenOptions},
+    io::Write,
     path::PathBuf,
     process::Command,
-    time::Duration,
+    time::{Duration, Instant},
 };
 use topo_contracts::{
     CaptureFidelity, CaptureRole, CapturedInteraction, EpistemicType, ExtractedMemoryProposal,
 };
 
 const OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434";
+const OLLAMA_REQUEST_TIMEOUT_SECS: u64 = 300;
 const MAX_TRANSCRIPT_CHARS: usize = 60_000;
+const DIAGNOSTIC_LOG_NAME: &str = "extractor-alpha.jsonl";
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -48,6 +52,91 @@ struct OllamaChatMessage {
 struct ProposalEnvelope {
     #[serde(default)]
     proposals: Vec<ExtractedMemoryProposal>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExtractorDiagnosticsStatus {
+    pub path: String,
+}
+
+fn extractor_diagnostics_path() -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or_else(|| "Unable to determine the home folder.".to_owned())?;
+    Ok(home.join(".topo").join("logs").join(DIAGNOSTIC_LOG_NAME))
+}
+
+fn append_extractor_diagnostic(event: Value) {
+    let Ok(path) = extractor_diagnostics_path() else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        if fs::create_dir_all(parent).is_err() {
+            return;
+        }
+    }
+
+    let mut event = match event {
+        Value::Object(map) => map,
+        _ => Map::new(),
+    };
+    event.insert(
+        "at".to_owned(),
+        Value::String(chrono::Utc::now().to_rfc3339()),
+    );
+
+    let Ok(line) = serde_json::to_string(&Value::Object(event)) else {
+        return;
+    };
+    let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) else {
+        return;
+    };
+    let _ = writeln!(file, "{line}");
+}
+
+#[tauri::command]
+pub fn extractor_diagnostics_status() -> Result<ExtractorDiagnosticsStatus, String> {
+    Ok(ExtractorDiagnosticsStatus {
+        path: extractor_diagnostics_path()?.display().to_string(),
+    })
+}
+
+#[tauri::command]
+pub fn open_extractor_diagnostics_folder() -> Result<(), String> {
+    let path = extractor_diagnostics_path()?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| "Unable to determine extractor diagnostics folder.".to_owned())?;
+    fs::create_dir_all(parent).map_err(|error| error.to_string())?;
+
+    #[cfg(windows)]
+    {
+        Command::new("explorer.exe")
+            .arg(parent)
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        Command::new("open")
+            .arg(parent)
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(all(unix, not(target_os = "macos")))]
+    {
+        Command::new("xdg-open")
+            .arg(parent)
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    Err("Opening the diagnostics folder is not supported on this platform.".to_owned())
 }
 
 fn status_client() -> Result<Client, String> {
@@ -242,6 +331,7 @@ async fn send_ollama_chat(
             "model": model,
             "stream": false,
             "format": "json",
+            "keep_alive": "10m",
             "options": {
                 "temperature": 0.1
             },
@@ -271,65 +361,196 @@ pub async fn extract_with_ollama(
 
     let system = extraction_prompt(&interaction.fidelity);
     let transcript = format_interaction(interaction);
+    let started = Instant::now();
+
+    append_extractor_diagnostic(json!({
+        "event": "extract.start",
+        "interactionId": interaction.id,
+        "model": model,
+        "turnCount": interaction.turns.len(),
+        "transcriptChars": transcript.chars().count(),
+        "timeoutSeconds": OLLAMA_REQUEST_TIMEOUT_SECS
+    }));
 
     let client = Client::builder()
-        .timeout(Duration::from_secs(120))
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(OLLAMA_REQUEST_TIMEOUT_SECS))
         .build()
         .map_err(|error| error.to_string())?;
 
     let response = match send_ollama_chat(&client, model, &system, &transcript).await {
         Ok(response) => response,
         Err(error) if error.is_connect() => {
+            append_extractor_diagnostic(json!({
+                "event": "extract.connection_failed",
+                "interactionId": interaction.id,
+                "model": model,
+                "elapsedMs": started.elapsed().as_millis(),
+                "error": error.to_string()
+            }));
+
             let start_error = start_ollama_process().err();
             if start_error.is_none() {
                 let status_client = status_client()?;
                 let status = wait_for_ollama(&status_client).await;
                 if status.available {
+                    append_extractor_diagnostic(json!({
+                        "event": "extract.ollama_restarted",
+                        "interactionId": interaction.id,
+                        "model": model,
+                        "elapsedMs": started.elapsed().as_millis()
+                    }));
                     send_ollama_chat(&client, model, &system, &transcript)
                         .await
                         .map_err(|retry_error| {
+                            append_extractor_diagnostic(json!({
+                                "event": "extract.retry_failed",
+                                "interactionId": interaction.id,
+                                "model": model,
+                                "elapsedMs": started.elapsed().as_millis(),
+                                "error": retry_error.to_string()
+                            }));
                             format!(
-                                "Ollama started, but TOPO still could not call its local API at {OLLAMA_BASE_URL}: {retry_error}"
+                                "Ollama restarted, but {model} still could not be called at {OLLAMA_BASE_URL} after {}s: {retry_error}",
+                                started.elapsed().as_secs()
                             )
                         })?
                 } else {
-                    return Err(status.error.unwrap_or_else(|| {
+                    let error = status.error.unwrap_or_else(|| {
                         "Ollama did not become ready after TOPO tried to start it.".to_owned()
+                    });
+                    append_extractor_diagnostic(json!({
+                        "event": "extract.ollama_restart_failed",
+                        "interactionId": interaction.id,
+                        "model": model,
+                        "elapsedMs": started.elapsed().as_millis(),
+                        "error": error
                     }));
+                    return Err(error);
                 }
             } else {
-                return Err(start_error.unwrap());
+                let error = start_error.unwrap();
+                append_extractor_diagnostic(json!({
+                    "event": "extract.ollama_start_failed",
+                    "interactionId": interaction.id,
+                    "model": model,
+                    "elapsedMs": started.elapsed().as_millis(),
+                    "error": error
+                }));
+                return Err(error);
             }
         }
         Err(error) if error.is_timeout() => {
-            return Err(
-                "Local Ollama extraction took longer than 120 seconds. Try a smaller local model or check Ollama's server log."
-                    .to_owned(),
-            );
+            append_extractor_diagnostic(json!({
+                "event": "extract.timeout",
+                "interactionId": interaction.id,
+                "model": model,
+                "elapsedMs": started.elapsed().as_millis(),
+                "timeoutSeconds": OLLAMA_REQUEST_TIMEOUT_SECS
+            }));
+            return Err(format!(
+                "Local Ollama model {model} did not finish within {OLLAMA_REQUEST_TIMEOUT_SECS} seconds. This is usually model loading or slow local generation; try again while the model is warm or choose a smaller model."
+            ));
         }
         Err(error) => {
+            append_extractor_diagnostic(json!({
+                "event": "extract.request_failed",
+                "interactionId": interaction.id,
+                "model": model,
+                "elapsedMs": started.elapsed().as_millis(),
+                "error": error.to_string()
+            }));
             return Err(format!(
-                "Could not call local Ollama at {OLLAMA_BASE_URL}: {error}"
+                "Could not call local Ollama model {model} at {OLLAMA_BASE_URL} after {}s: {error}",
+                started.elapsed().as_secs()
             ));
         }
     };
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
+    let status = response.status();
+    let body = response.text().await.map_err(|error| {
+        append_extractor_diagnostic(json!({
+            "event": "extract.response_read_failed",
+            "interactionId": interaction.id,
+            "model": model,
+            "elapsedMs": started.elapsed().as_millis(),
+            "error": error.to_string()
+        }));
+        format!("Could not read Ollama response from {model}: {error}")
+    })?;
+
+    if !status.is_success() {
+        let preview = body.chars().take(500).collect::<String>();
+        append_extractor_diagnostic(json!({
+            "event": "extract.http_error",
+            "interactionId": interaction.id,
+            "model": model,
+            "elapsedMs": started.elapsed().as_millis(),
+            "httpStatus": status.as_u16(),
+            "bodyChars": body.chars().count(),
+            "bodyPreview": preview
+        }));
         return Err(format!(
-            "Ollama extraction failed with HTTP {status}: {}",
+            "Ollama model {model} returned HTTP {status} after {}s: {}",
+            started.elapsed().as_secs(),
             body.chars().take(500).collect::<String>()
         ));
     }
 
-    let payload = response
-        .json::<OllamaChatResponse>()
-        .await
-        .map_err(|error| format!("Ollama returned an unreadable response: {error}"))?;
+    let payload = serde_json::from_str::<OllamaChatResponse>(&body).map_err(|error| {
+        append_extractor_diagnostic(json!({
+            "event": "extract.ollama_envelope_invalid",
+            "interactionId": interaction.id,
+            "model": model,
+            "elapsedMs": started.elapsed().as_millis(),
+            "responseChars": body.chars().count(),
+            "error": error.to_string()
+        }));
+        format!(
+            "Ollama returned an unreadable chat response for {model} after {}s: {error}",
+            started.elapsed().as_secs()
+        )
+    })?;
 
-    let proposals = parse_proposals(&payload.message.content)?;
-    validate_proposals(interaction, proposals)
+    let proposals = parse_proposals(&payload.message.content).map_err(|error| {
+        append_extractor_diagnostic(json!({
+            "event": "extract.proposal_parse_failed",
+            "interactionId": interaction.id,
+            "model": model,
+            "elapsedMs": started.elapsed().as_millis(),
+            "modelOutputChars": payload.message.content.chars().count(),
+            "modelOutputShape": json_shape_summary(&payload.message.content),
+            "error": error
+        }));
+        format!(
+            "{model} returned JSON TOPO could not use after {}s: {error}",
+            started.elapsed().as_secs()
+        )
+    })?;
+
+    let validated = validate_proposals(interaction, proposals).map_err(|error| {
+        append_extractor_diagnostic(json!({
+            "event": "extract.validation_failed",
+            "interactionId": interaction.id,
+            "model": model,
+            "elapsedMs": started.elapsed().as_millis(),
+            "error": error
+        }));
+        format!(
+            "{model} returned proposals that failed TOPO evidence validation after {}s: {error}",
+            started.elapsed().as_secs()
+        )
+    })?;
+
+    append_extractor_diagnostic(json!({
+        "event": "extract.success",
+        "interactionId": interaction.id,
+        "model": model,
+        "elapsedMs": started.elapsed().as_millis(),
+        "proposalCount": validated.len()
+    }));
+
+    Ok(validated)
 }
 
 pub fn extraction_prompt(fidelity: &CaptureFidelity) -> String {
@@ -353,6 +574,8 @@ pub fn extraction_prompt(fidelity: &CaptureFidelity) -> String {
         "Be conservative with sensitive personal data and set sensitivity when needed.",
         "Use concise dot-separated keys such as writing.locale or project.event.database.",
         "Evidence must be a short verbatim excerpt from a USER turn.",
+        "Use the field names exactly as shown. Do not use snake_case, rename proposals, or return a single proposal object.",
+        "proposals must always be a JSON array, even when it contains only one item.",
     ];
 
     if incomplete {
@@ -457,28 +680,200 @@ pub fn parse_proposals(text: &str) -> Result<Vec<ExtractedMemoryProposal>, Strin
         return Ok(Vec::new());
     }
 
-    if let Ok(envelope) = serde_json::from_str::<ProposalEnvelope>(trimmed) {
-        return Ok(envelope.proposals);
+    let root = parse_model_json(trimmed)?;
+    let raw_items = proposal_items(root)?;
+    let mut proposals = Vec::with_capacity(raw_items.len());
+
+    for (index, mut item) in raw_items.into_iter().enumerate() {
+        normalise_proposal_json(&mut item);
+        match serde_json::from_value::<ExtractedMemoryProposal>(item.clone()) {
+            Ok(proposal) => proposals.push(proposal),
+            Err(error) => {
+                return Err(format!(
+                    "proposal {} did not match the TOPO contract: {error}. Fields seen: {}",
+                    index + 1,
+                    object_keys(&item).join(", ")
+                ));
+            }
+        }
     }
 
-    if let Ok(items) = serde_json::from_str::<Vec<ExtractedMemoryProposal>>(trimmed) {
-        return Ok(items);
-    }
-
-    let candidate = extract_json_object(trimmed)
-        .ok_or_else(|| "Extractor response did not contain valid JSON.".to_owned())?;
-
-    if let Ok(envelope) = serde_json::from_str::<ProposalEnvelope>(&candidate) {
-        return Ok(envelope.proposals);
-    }
-
-    Err("Extractor JSON did not match the TOPO proposal contract.".to_owned())
+    Ok(proposals)
 }
 
-fn extract_json_object(text: &str) -> Option<String> {
-    let start = text.find('{')?;
-    let end = text.rfind('}')?;
+fn parse_model_json(text: &str) -> Result<Value, String> {
+    if let Ok(value) = serde_json::from_str::<Value>(text) {
+        return Ok(value);
+    }
+
+    let fragment = extract_json_fragment(text)
+        .ok_or_else(|| "Extractor response did not contain a JSON object or array.".to_owned())?;
+    serde_json::from_str::<Value>(&fragment).map_err(|error| {
+        format!("Extractor response contained malformed JSON: {error}")
+    })
+}
+
+fn extract_json_fragment(text: &str) -> Option<String> {
+    let object_start = text.find('{');
+    let array_start = text.find('[');
+    let (start, closing) = match (object_start, array_start) {
+        (Some(object), Some(array)) if object <= array => (object, '}'),
+        (Some(_object), Some(array)) => (array, ']'),
+        (Some(object), None) => (object, '}'),
+        (None, Some(array)) => (array, ']'),
+        (None, None) => return None,
+    };
+    let end = text.rfind(closing)?;
     (end > start).then(|| text[start..=end].to_owned())
+}
+
+fn proposal_items(root: Value) -> Result<Vec<Value>, String> {
+    match root {
+        Value::Array(items) => Ok(items),
+        Value::Object(mut map) => {
+            for key in ["proposals", "memories", "candidates", "memoryProposals"] {
+                if let Some(value) = map.remove(key) {
+                    return match value {
+                        Value::Array(items) => Ok(items),
+                        Value::Object(item) => Ok(vec![Value::Object(item)]),
+                        other => Err(format!(
+                            "Extractor field {key} must be an array, got {}.",
+                            value_kind(&other)
+                        )),
+                    };
+                }
+            }
+
+            if map.contains_key("key") {
+                Ok(vec![Value::Object(map)])
+            } else {
+                Err(format!(
+                    "Extractor JSON had no proposals array. Top-level fields seen: {}",
+                    map.keys().cloned().collect::<Vec<_>>().join(", ")
+                ))
+            }
+        }
+        other => Err(format!(
+            "Extractor JSON root must be an object or array, got {}.",
+            value_kind(&other)
+        )),
+    }
+}
+
+fn move_alias(map: &mut Map<String, Value>, from: &str, to: &str) {
+    if map.contains_key(to) {
+        return;
+    }
+    if let Some(value) = map.remove(from) {
+        map.insert(to.to_owned(), value);
+    }
+}
+
+fn normalise_proposal_json(value: &mut Value) {
+    let Value::Object(map) = value else {
+        return;
+    };
+
+    for (from, to) in [
+        ("epistemic_type", "epistemicType"),
+        ("evidence_turn_ids", "evidenceTurnIds"),
+        ("evidence_turns", "evidenceTurnIds"),
+        ("valid_until", "validUntil"),
+    ] {
+        move_alias(map, from, to);
+    }
+
+    if let Some(Value::String(turn_id)) = map.get("evidenceTurnIds").cloned() {
+        map.insert(
+            "evidenceTurnIds".to_owned(),
+            Value::Array(vec![Value::String(turn_id)]),
+        );
+    }
+
+    if let Some(Value::String(tag)) = map.get("tags").cloned() {
+        map.insert("tags".to_owned(), Value::Array(vec![Value::String(tag)]));
+    }
+
+    if let Some(Value::String(confidence)) = map.get("confidence").cloned() {
+        if let Ok(number) = confidence.parse::<f64>() {
+            if let Some(number) = serde_json::Number::from_f64(number) {
+                map.insert("confidence".to_owned(), Value::Number(number));
+            }
+        }
+    }
+
+    if let Some(Value::Number(number)) = map.get("confidence") {
+        if let Some(number) = number.as_f64() {
+            if number > 1.0 && number <= 100.0 {
+                if let Some(normalised) = serde_json::Number::from_f64(number / 100.0) {
+                    map.insert("confidence".to_owned(), Value::Number(normalised));
+                }
+            }
+        }
+    }
+
+    for key in ["epistemicType", "sensitivity", "horizon"] {
+        if let Some(Value::String(raw)) = map.get_mut(key) {
+            *raw = raw
+                .trim()
+                .to_ascii_lowercase()
+                .replace(['_', ' '], "-");
+        }
+    }
+}
+
+fn object_keys(value: &Value) -> Vec<String> {
+    match value {
+        Value::Object(map) => map.keys().cloned().collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn value_kind(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "boolean",
+        Value::Number(_) => "number",
+        Value::String(_) => "string",
+        Value::Array(_) => "array",
+        Value::Object(_) => "object",
+    }
+}
+
+fn json_shape_summary(text: &str) -> Value {
+    match parse_model_json(text) {
+        Ok(Value::Object(map)) => {
+            let top_level = map.keys().cloned().collect::<Vec<_>>();
+            let proposal_shape = ["proposals", "memories", "candidates", "memoryProposals"]
+                .iter()
+                .find_map(|key| map.get(*key))
+                .and_then(|value| match value {
+                    Value::Array(items) => items.first(),
+                    Value::Object(_) => Some(value),
+                    _ => None,
+                })
+                .map(object_keys)
+                .unwrap_or_default();
+            json!({
+                "root": "object",
+                "topLevelFields": top_level,
+                "proposalFields": proposal_shape
+            })
+        }
+        Ok(Value::Array(items)) => json!({
+            "root": "array",
+            "items": items.len(),
+            "proposalFields": items.first().map(object_keys).unwrap_or_default()
+        }),
+        Ok(other) => json!({
+            "root": value_kind(&other)
+        }),
+        Err(error) => json!({
+            "root": "invalid-json",
+            "chars": text.chars().count(),
+            "error": error
+        }),
+    }
 }
 
 pub fn validate_proposals(
@@ -665,6 +1060,43 @@ mod tests {
         .unwrap();
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].key, "writing.locale");
+    }
+
+    #[test]
+    fn accepts_single_proposal_and_common_local_model_aliases() {
+        let proposals = parse_proposals(
+            r#"{
+              "key":"writing.locale",
+              "value":"en-GB",
+              "epistemic_type":"preference",
+              "confidence":"98",
+              "evidence_turn_ids":"u1",
+              "evidence":"Please use British English."
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(proposals.len(), 1);
+        assert_eq!(proposals[0].confidence, 0.98);
+        assert_eq!(proposals[0].evidence_turn_ids, vec!["u1".to_owned()]);
+    }
+
+    #[test]
+    fn accepts_memories_wrapper_from_small_local_models() {
+        let proposals = parse_proposals(
+            r#"{"memories":[{"key":"writing.locale","value":"en-GB","epistemicType":"preference","confidence":0.98,"evidenceTurnIds":["u1"],"evidence":"Please use British English."}]}"#,
+        )
+        .unwrap();
+        assert_eq!(proposals.len(), 1);
+    }
+
+    #[test]
+    fn contract_error_names_missing_field() {
+        let error = parse_proposals(
+            r#"{"proposals":[{"key":"writing.locale","value":"en-GB"}]}"#,
+        )
+        .unwrap_err();
+        assert!(error.contains("epistemicType"));
+        assert!(error.contains("Fields seen"));
     }
 
     #[test]
