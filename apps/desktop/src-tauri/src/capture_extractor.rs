@@ -1,7 +1,12 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::BTreeMap, time::Duration};
+use std::{
+    collections::BTreeMap,
+    path::{Path, PathBuf},
+    process::Command,
+    time::Duration,
+};
 use topo_contracts::{
     CaptureFidelity, CaptureRole, CapturedInteraction, EpistemicType, ExtractedMemoryProposal,
 };
@@ -45,22 +50,14 @@ struct ProposalEnvelope {
     proposals: Vec<ExtractedMemoryProposal>,
 }
 
-#[tauri::command]
-pub async fn ollama_extractor_status() -> OllamaStatus {
-    let client = match Client::builder()
+fn status_client() -> Result<Client, String> {
+    Client::builder()
         .timeout(Duration::from_secs(3))
         .build()
-    {
-        Ok(client) => client,
-        Err(error) => {
-            return OllamaStatus {
-                available: false,
-                models: Vec::new(),
-                error: Some(error.to_string()),
-            }
-        }
-    };
+        .map_err(|error| error.to_string())
+}
 
+async fn ollama_status_with_client(client: &Client) -> OllamaStatus {
     match client
         .get(format!("{OLLAMA_BASE_URL}/api/tags"))
         .send()
@@ -98,29 +95,148 @@ pub async fn ollama_extractor_status() -> OllamaStatus {
         Err(error) => OllamaStatus {
             available: false,
             models: Vec::new(),
-            error: Some(format!("Ollama is not reachable: {error}")),
+            error: Some(format!(
+                "Ollama is not running on {OLLAMA_BASE_URL}. Start Ollama and try again. ({error})"
+            )),
         },
     }
 }
 
-pub async fn extract_with_ollama(
-    interaction: &CapturedInteraction,
-    model: &str,
-) -> Result<Vec<ExtractedMemoryProposal>, String> {
-    let model = model.trim();
-    if model.is_empty() {
-        return Err("Choose an Ollama model before extracting capture.".to_owned());
+#[tauri::command]
+pub async fn ollama_extractor_status() -> OllamaStatus {
+    let client = match status_client() {
+        Ok(client) => client,
+        Err(error) => {
+            return OllamaStatus {
+                available: false,
+                models: Vec::new(),
+                error: Some(error),
+            }
+        }
+    };
+    ollama_status_with_client(&client).await
+}
+
+#[cfg(windows)]
+fn start_ollama_process() -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let local_app_data = std::env::var_os("LOCALAPPDATA").map(PathBuf::from);
+    let mut app_candidates = Vec::<PathBuf>::new();
+    let mut server_candidates = Vec::<PathBuf>::new();
+
+    if let Some(root) = local_app_data {
+        app_candidates.push(root.join("Programs").join("Ollama").join("ollama app.exe"));
+        app_candidates.push(root.join("Ollama").join("ollama app.exe"));
+        server_candidates.push(root.join("Programs").join("Ollama").join("ollama.exe"));
     }
 
-    let system = extraction_prompt(&interaction.fidelity);
-    let transcript = format_interaction(interaction);
+    for candidate in app_candidates {
+        if candidate.is_file() {
+            Command::new(&candidate)
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .map_err(|error| format!("Could not start {}: {error}", candidate.display()))?;
+            return Ok(());
+        }
+    }
 
-    let client = Client::builder()
-        .timeout(Duration::from_secs(120))
-        .build()
-        .map_err(|error| error.to_string())?;
+    if Command::new("ollama app.exe")
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .is_ok()
+    {
+        return Ok(());
+    }
 
-    let response = client
+    for candidate in server_candidates {
+        if candidate.is_file() {
+            Command::new(&candidate)
+                .arg("serve")
+                .creation_flags(CREATE_NO_WINDOW)
+                .spawn()
+                .map_err(|error| format!("Could not start {} serve: {error}", candidate.display()))?;
+            return Ok(());
+        }
+    }
+
+    Command::new("ollama")
+        .arg("serve")
+        .creation_flags(CREATE_NO_WINDOW)
+        .spawn()
+        .map(|_| ())
+        .map_err(|error| {
+            format!(
+                "TOPO could not find or start Ollama. Open Ollama from the Windows Start menu, then try again. ({error})"
+            )
+        })
+}
+
+#[cfg(not(windows))]
+fn start_ollama_process() -> Result<(), String> {
+    Err("Start Ollama on this computer, then try again.".to_owned())
+}
+
+async fn wait_for_ollama(client: &Client) -> OllamaStatus {
+    let mut latest = ollama_status_with_client(client).await;
+    if latest.available {
+        return latest;
+    }
+
+    for _ in 0..8 {
+        std::thread::sleep(Duration::from_millis(500));
+        latest = ollama_status_with_client(client).await;
+        if latest.available {
+            return latest;
+        }
+    }
+    latest
+}
+
+#[tauri::command]
+pub async fn start_ollama_extractor() -> OllamaStatus {
+    let client = match status_client() {
+        Ok(client) => client,
+        Err(error) => {
+            return OllamaStatus {
+                available: false,
+                models: Vec::new(),
+                error: Some(error),
+            }
+        }
+    };
+
+    let current = ollama_status_with_client(&client).await;
+    if current.available {
+        return current;
+    }
+
+    if let Err(error) = start_ollama_process() {
+        return OllamaStatus {
+            available: false,
+            models: Vec::new(),
+            error: Some(error),
+        };
+    }
+
+    let mut status = wait_for_ollama(&client).await;
+    if !status.available {
+        status.error = Some(
+            "TOPO started Ollama but its local API did not become ready. Open Ollama from the Windows Start menu or run `ollama serve`, then try again."
+                .to_owned(),
+        );
+    }
+    status
+}
+
+async fn send_ollama_chat(
+    client: &Client,
+    model: &str,
+    system: &str,
+    transcript: &str,
+) -> Result<reqwest::Response, reqwest::Error> {
+    client
         .post(format!("{OLLAMA_BASE_URL}/api/chat"))
         .json(&json!({
             "model": model,
@@ -142,7 +258,61 @@ pub async fn extract_with_ollama(
         }))
         .send()
         .await
-        .map_err(|error| format!("Could not call local Ollama: {error}"))?;
+}
+
+pub async fn extract_with_ollama(
+    interaction: &CapturedInteraction,
+    model: &str,
+) -> Result<Vec<ExtractedMemoryProposal>, String> {
+    let model = model.trim();
+    if model.is_empty() {
+        return Err("Choose an Ollama model before extracting capture.".to_owned());
+    }
+
+    let system = extraction_prompt(&interaction.fidelity);
+    let transcript = format_interaction(interaction);
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|error| error.to_string())?;
+
+    let response = match send_ollama_chat(&client, model, &system, &transcript).await {
+        Ok(response) => response,
+        Err(error) if error.is_connect() => {
+            let start_error = start_ollama_process().err();
+            if start_error.is_none() {
+                let status_client = status_client()?;
+                let status = wait_for_ollama(&status_client).await;
+                if status.available {
+                    send_ollama_chat(&client, model, &system, &transcript)
+                        .await
+                        .map_err(|retry_error| {
+                            format!(
+                                "Ollama started, but TOPO still could not call its local API at {OLLAMA_BASE_URL}: {retry_error}"
+                            )
+                        })?
+                } else {
+                    return Err(status.error.unwrap_or_else(|| {
+                        "Ollama did not become ready after TOPO tried to start it.".to_owned()
+                    }));
+                }
+            } else {
+                return Err(start_error.unwrap());
+            }
+        }
+        Err(error) if error.is_timeout() => {
+            return Err(
+                "Local Ollama extraction took longer than 120 seconds. Try a smaller local model or check Ollama's server log."
+                    .to_owned(),
+            );
+        }
+        Err(error) => {
+            return Err(format!(
+                "Could not call local Ollama at {OLLAMA_BASE_URL}: {error}"
+            ));
+        }
+    };
 
     if !response.status().is_success() {
         let status = response.status();
