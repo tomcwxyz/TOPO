@@ -166,6 +166,7 @@ export function App() {
   const [sharingBusy, setSharingBusy] = useState(false);
   const [captureInbox, setCaptureInbox] = useState<CaptureInboxStatus | null>(null);
   const [ollama, setOllama] = useState<OllamaStatus | null>(null);
+  const [ollamaBusy, setOllamaBusy] = useState(false);
   const [extractorModel, setExtractorModel] = useState(
     () => window.localStorage.getItem("topo.ollamaModel") ?? "",
   );
@@ -213,22 +214,34 @@ export function App() {
       .catch(() => setCaptureSetup(null));
   }, []);
 
-  useEffect(() => {
-    void invoke<OllamaStatus>("ollama_extractor_status")
-      .then((next) => {
-        setOllama(next);
-        if (next.available && next.models.length > 0) {
-          setExtractorModel((current) => {
-            const selected = current && next.models.includes(current)
-              ? current
-              : next.models[0];
-            if (selected) window.localStorage.setItem("topo.ollamaModel", selected);
-            return selected ?? "";
-          });
-        }
-      })
-      .catch((cause) => setOllama({ available: false, models: [], error: String(cause) }));
+  const applyOllamaStatus = useCallback((next: OllamaStatus) => {
+    setOllama(next);
+    if (next.available && next.models.length > 0) {
+      setExtractorModel((current) => {
+        const selected = current && next.models.includes(current)
+          ? current
+          : next.models[0];
+        if (selected) window.localStorage.setItem("topo.ollamaModel", selected);
+        return selected ?? "";
+      });
+    }
   }, []);
+
+  const refreshOllama = useCallback(async () => {
+    try {
+      const next = await invoke<OllamaStatus>("ollama_extractor_status");
+      applyOllamaStatus(next);
+      return next;
+    } catch (cause) {
+      const next = { available: false, models: [], error: String(cause) };
+      setOllama(next);
+      return next;
+    }
+  }, [applyOllamaStatus]);
+
+  useEffect(() => {
+    void refreshOllama();
+  }, [refreshOllama]);
 
   const prepareBrowserCapture = async () => {
     setCaptureSetupBusy(true);
@@ -467,6 +480,28 @@ export function App() {
     }
   };
 
+  const startOllama = async () => {
+    setOllamaBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const next = await invoke<OllamaStatus>("start_ollama_extractor");
+      applyOllamaStatus(next);
+      if (next.available) {
+        setMessage(
+          `Ollama is running locally with ${next.models.length} model${next.models.length === 1 ? "" : "s"} available.`,
+        );
+      } else {
+        setError(next.error ?? "Ollama did not become available.");
+      }
+    } catch (cause) {
+      setError(String(cause));
+      await refreshOllama();
+    } finally {
+      setOllamaBusy(false);
+    }
+  };
+
   const selectExtractorModel = (model: string) => {
     setExtractorModel(model);
     if (model) window.localStorage.setItem("topo.ollamaModel", model);
@@ -508,6 +543,9 @@ export function App() {
       await refresh();
     } catch (cause) {
       setError(String(cause));
+      if (String(cause).toLowerCase().includes("ollama")) {
+        await refreshOllama();
+      }
     } finally {
       setCaptureBusy(false);
     }
@@ -642,9 +680,19 @@ export function App() {
                     ))}
                   </select>
                 ) : (
-                  <small>
-                    {ollama?.error ?? "Install/start Ollama to extract captures locally."}
-                  </small>
+                  <>
+                    <small>
+                      {ollama?.error ?? "Install/start Ollama to extract captures locally."}
+                    </small>
+                    <button
+                      className="quiet"
+                      type="button"
+                      disabled={ollamaBusy}
+                      onClick={() => void startOllama()}
+                    >
+                      {ollamaBusy ? "Starting Ollama…" : "Start / retry Ollama"}
+                    </button>
+                  </>
                 )}
                 <button
                   className="secondary"
