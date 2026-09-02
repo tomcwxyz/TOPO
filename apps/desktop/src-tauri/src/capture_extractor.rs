@@ -802,7 +802,7 @@ fn normalise_proposal_json(value: &mut Value) {
         }
     }
 
-    if let Some(Value::Number(number)) = map.get("confidence") {
+    if let Some(Value::Number(number)) = map.get("confidence").cloned() {
         if let Some(number) = number.as_f64() {
             if number > 1.0 && number <= 100.0 {
                 if let Some(normalised) = serde_json::Number::from_f64(number / 100.0) {
