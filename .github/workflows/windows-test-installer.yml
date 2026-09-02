@@ -1,0 +1,59 @@
+name: Windows test installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/windows-test-installer.yml"
+
+concurrency:
+  group: topo-windows-test-installer
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build TOPO Windows test installer
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Check desktop TypeScript
+        run: npm run check --workspace @topo/desktop
+
+      - name: Build unsigned Windows installer and draft test release
+        uses: tauri-apps/tauri-action@action-v1.0.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CI: true
+        with:
+          projectPath: apps/desktop
+          tagName: topo-test-${{ github.run_number }}
+          releaseName: "TOPO Windows test · run ${{ github.run_number }}"
+          releaseBody: |
+            Windows test installer built from current TOPO main for hands-on loop testing.
+
+            This is an unsigned development/test build. Windows SmartScreen may warn before installation.
+
+            No Node, npm, Rust or Cargo installation is required to run this packaged desktop app.
+          releaseDraft: true
+          prerelease: true
+          releaseAssetNamePattern: "TOPO_Windows_Test_[version]_[arch][setup][ext]"
+          uploadUpdaterJson: false
+          uploadUpdaterSignatures: false
+          args: "--bundles nsis"
