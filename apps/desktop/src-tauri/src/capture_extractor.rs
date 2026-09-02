@@ -172,6 +172,7 @@ pub fn extraction_prompt(fidelity: &CaptureFidelity) -> String {
         "You identify user-owned context that may be worth remembering across future AI interactions.",
         "Return candidate memories only. A human will review them before they become durable memory.",
         "Every proposal must be grounded in at least one USER turn ID from the transcript.",
+        "The transcript uses short turn IDs such as u1, u2 and a1. Copy USER turn IDs exactly into evidenceTurnIds.",
         "Assistant, tool and system messages may provide context but are not evidence about the user.",
         "Questions are weak evidence. Do not infer personal facts merely because the user asked about something.",
         "Keep assertion, preference, observation, inference and derived-pattern epistemic types distinct.",
@@ -218,10 +219,41 @@ Omit optional fields instead of returning null. Return {"proposals":[]} when not
     )
 }
 
+fn turn_aliases(interaction: &CapturedInteraction) -> Vec<String> {
+    let mut user = 0usize;
+    let mut assistant = 0usize;
+    let mut system = 0usize;
+    let mut tool = 0usize;
+
+    interaction
+        .turns
+        .iter()
+        .map(|turn| match turn.role {
+            CaptureRole::User => {
+                user += 1;
+                format!("u{user}")
+            }
+            CaptureRole::Assistant => {
+                assistant += 1;
+                format!("a{assistant}")
+            }
+            CaptureRole::System => {
+                system += 1;
+                format!("s{system}")
+            }
+            CaptureRole::Tool => {
+                tool += 1;
+                format!("t{tool}")
+            }
+        })
+        .collect()
+}
+
 pub fn format_interaction(interaction: &CapturedInteraction) -> String {
     let mut output = String::new();
+    let aliases = turn_aliases(interaction);
 
-    for turn in &interaction.turns {
+    for (turn, alias) in interaction.turns.iter().zip(aliases.iter()) {
         let role = match turn.role {
             CaptureRole::User => "USER",
             CaptureRole::Assistant => "ASSISTANT",
@@ -238,7 +270,7 @@ pub fn format_interaction(interaction: &CapturedInteraction) -> String {
             content.push_str(" …[truncated]");
         }
 
-        let line = format!("[TURN {}][{}]: {}\n", turn.id, role, content);
+        let line = format!("[TURN {alias}][{role}]: {content}\n");
         if output.len() + line.len() > MAX_TRANSCRIPT_CHARS {
             output.push_str("[... transcript truncated by TOPO ...]\n");
             break;
@@ -288,6 +320,12 @@ pub fn validate_proposals(
         .iter()
         .map(|turn| (turn.id.as_str(), turn))
         .collect::<BTreeMap<_, _>>();
+    let aliases = interaction
+        .turns
+        .iter()
+        .zip(turn_aliases(interaction))
+        .map(|(turn, alias)| (alias, turn.id.as_str()))
+        .collect::<BTreeMap<_, _>>();
     let incomplete = matches!(
         interaction.fidelity,
         CaptureFidelity::TaskSummary | CaptureFidelity::PartialVisible
@@ -295,7 +333,7 @@ pub fn validate_proposals(
 
     let mut valid = Vec::with_capacity(proposals.len());
 
-    for proposal in proposals {
+    for mut proposal in proposals {
         if proposal.key.trim().is_empty() || proposal.evidence.trim().is_empty() {
             return Err("Extractor returned an empty key or evidence string.".to_owned());
         }
@@ -315,18 +353,33 @@ pub fn validate_proposals(
             ));
         }
 
-        let mut has_user_evidence = false;
-        for turn_id in &proposal.evidence_turn_ids {
-            let turn = turns.get(turn_id.as_str()).ok_or_else(|| {
-                format!(
-                    "Extractor referenced unknown evidence turn {turn_id} for {}.",
-                    proposal.key
-                )
-            })?;
-            if matches!(turn.role, CaptureRole::User) {
-                has_user_evidence = true;
-            }
-        }
+        let resolved_evidence_turn_ids = proposal
+            .evidence_turn_ids
+            .iter()
+            .map(|turn_id| {
+                if turns.contains_key(turn_id.as_str()) {
+                    return Ok(turn_id.clone());
+                }
+
+                aliases
+                    .get(&turn_id.to_ascii_lowercase())
+                    .map(|captured_id| (*captured_id).to_owned())
+                    .ok_or_else(|| {
+                        format!(
+                            "Extractor referenced unknown evidence turn {turn_id} for {}.",
+                            proposal.key
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>, String>>()?;
+        proposal.evidence_turn_ids = resolved_evidence_turn_ids;
+
+        let has_user_evidence = proposal.evidence_turn_ids.iter().any(|turn_id| {
+            turns
+                .get(turn_id.as_str())
+                .map(|turn| matches!(turn.role, CaptureRole::User))
+                .unwrap_or(false)
+        });
         if !has_user_evidence {
             return Err(format!(
                 "Extractor proposal {} is not grounded in a user-authored turn.",
@@ -401,13 +454,13 @@ mod tests {
             captured_at: "2026-08-31T20:00:00Z".to_owned(),
             turns: vec![
                 topo_contracts::CapturedTurn {
-                    id: "u1".to_owned(),
+                    id: "user-0-8c19d2af".to_owned(),
                     role: CaptureRole::User,
                     content: "Please use British English.".to_owned(),
                     occurred_at: None,
                 },
                 topo_contracts::CapturedTurn {
-                    id: "a1".to_owned(),
+                    id: "assistant-1-1bc44902".to_owned(),
                     role: CaptureRole::Assistant,
                     content: "Understood.".to_owned(),
                     occurred_at: None,
@@ -442,6 +495,19 @@ mod tests {
         .unwrap();
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].key, "writing.locale");
+    }
+
+    #[test]
+    fn resolves_model_alias_to_captured_turn_id() {
+        let result = validate_proposals(
+            &interaction(CaptureFidelity::ConversationTurns),
+            vec![preference()],
+        )
+        .unwrap();
+        assert_eq!(
+            result[0].evidence_turn_ids,
+            vec!["user-0-8c19d2af".to_owned()]
+        );
     }
 
     #[test]
