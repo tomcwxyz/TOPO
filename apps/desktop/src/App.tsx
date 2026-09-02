@@ -87,6 +87,16 @@ type OllamaStatus = {
   error?: string;
 };
 
+type BrowserCaptureSetupStatus = {
+  supported: boolean;
+  prepared: boolean;
+  extensionId: string;
+  extensionDirectory?: string;
+  hostPath?: string;
+  bundledResourcesAvailable: boolean;
+  message: string;
+};
+
 type CaptureProcessResult = {
   interactionId: string;
   extractor: string;
@@ -160,6 +170,8 @@ export function App() {
     () => window.localStorage.getItem("topo.ollamaModel") ?? "",
   );
   const [captureBusy, setCaptureBusy] = useState(false);
+  const [captureSetup, setCaptureSetup] = useState<BrowserCaptureSetupStatus | null>(null);
+  const [captureSetupBusy, setCaptureSetupBusy] = useState(false);
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
 
   const refresh = useCallback(async () => {
@@ -196,6 +208,12 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    void invoke<BrowserCaptureSetupStatus>("browser_capture_setup_status")
+      .then(setCaptureSetup)
+      .catch(() => setCaptureSetup(null));
+  }, []);
+
+  useEffect(() => {
     void invoke<OllamaStatus>("ollama_extractor_status")
       .then((next) => {
         setOllama(next);
@@ -211,6 +229,28 @@ export function App() {
       })
       .catch((cause) => setOllama({ available: false, models: [], error: String(cause) }));
   }, []);
+
+  const prepareBrowserCapture = async () => {
+    setCaptureSetupBusy(true);
+    setError(null);
+    try {
+      const next = await invoke<BrowserCaptureSetupStatus>("prepare_browser_capture");
+      setCaptureSetup(next);
+      setMessage("Browser capture companion prepared. Load the bundled extension in Chrome or Edge once.");
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setCaptureSetupBusy(false);
+    }
+  };
+
+  const openCaptureExtensionFolder = async () => {
+    try {
+      await invoke("open_capture_extension_folder");
+    } catch (cause) {
+      setError(String(cause));
+    }
+  };
 
   const candidateCount = status?.candidates ?? 0;
   const visibleSubjects = useMemo(
@@ -544,6 +584,42 @@ export function App() {
                 ChatGPT, Claude and Gemini browser capture can queue locally even when TOPO is closed.
                 Captured interactions remain source material until TOPO extracts candidates and you review them.
               </p>
+              <div className="local-permission-row">
+                <div>
+                  <strong>Browser companion</strong>
+                  <span>{captureSetup?.message ?? "Checking packaged browser capture…"}</span>
+                </div>
+                <button
+                  className={captureSetup?.prepared ? "quiet" : "secondary"}
+                  type="button"
+                  disabled={
+                    captureSetupBusy ||
+                    !captureSetup?.supported ||
+                    (!captureSetup?.prepared && !captureSetup?.bundledResourcesAvailable)
+                  }
+                  onClick={() => void prepareBrowserCapture()}
+                >
+                  {captureSetupBusy
+                    ? "Preparing…"
+                    : captureSetup?.prepared
+                      ? "Prepare again"
+                      : "Prepare browser capture"}
+                </button>
+              </div>
+              {captureSetup?.prepared && captureSetup.extensionDirectory && (
+                <div className="capture-inbox-item">
+                  <span>Chrome / Edge extension · fixed alpha ID {captureSetup.extensionId}</span>
+                  <strong>One browser step remains</strong>
+                  <small>
+                    Open chrome://extensions or edge://extensions, enable Developer mode, choose Load unpacked,
+                    then select the TOPO browser-extension folder.
+                  </small>
+                  <code>{captureSetup.extensionDirectory}</code>
+                  <button className="quiet" type="button" onClick={() => void openCaptureExtensionFolder()}>
+                    Open extension folder
+                  </button>
+                </div>
+              )}
               <div className="capture-extractor">
                 <div>
                   <strong>Local extractor</strong>
