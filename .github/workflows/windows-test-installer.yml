@@ -47,7 +47,7 @@ jobs:
           Copy-Item "target/release/topo-native-host.exe" "$resources/topo-native-host.exe" -Force
 
       - name: Build internal unsigned Windows installer
-        run: npm run tauri --workspace @topo/desktop -- build -- --bundles nsis --config src-tauri/test.windows.json
+        run: npm run tauri --workspace @topo/desktop -- build --bundles nsis --config src-tauri/test.windows.json
 
       - name: Require packaged Windows installer
         shell: pwsh
@@ -136,7 +136,7 @@ jobs:
           chmod 0755 "$resources/ollama-install.sh"
 
       - name: Build internal Linux packages
-        run: npm run tauri --workspace @topo/desktop -- build -- --bundles deb,appimage
+        run: npm run tauri --workspace @topo/desktop -- build --bundles deb,appimage
 
       - name: Require both Linux package formats
         shell: bash
