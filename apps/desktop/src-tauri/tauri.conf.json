@@ -37,6 +37,14 @@
     "targets": "all",
     "category": "DeveloperTool",
     "shortDescription": "Portable, user-owned context for AI.",
-    "longDescription": "Keep useful AI context local, inspectable, portable and under your control."
+    "longDescription": "Keep useful AI context local, inspectable, portable and under your control.",
+    "resources": [
+      "resources/"
+    ],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
   }
 }
