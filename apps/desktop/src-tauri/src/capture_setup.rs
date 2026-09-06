@@ -8,6 +8,7 @@ use tauri::{path::BaseDirectory, AppHandle, Manager};
 
 pub const CAPTURE_EXTENSION_ID: &str = "akckfofkebcbpbkcpcnemeaegpkbnpgd";
 const HOST_NAME: &str = "uk.co.goodship.topo.capture";
+const OLLAMA_INSTALL_SCRIPT: &str = "resources/ollama-install.sh";
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,6 +64,13 @@ fn bundled_host(app: &AppHandle) -> Result<PathBuf, String> {
 fn bundled_extension(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
         .resolve("resources/capture-extension", BaseDirectory::Resource)
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(target_os = "linux")]
+fn bundled_ollama_install_script(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .resolve(OLLAMA_INSTALL_SCRIPT, BaseDirectory::Resource)
         .map_err(|error| error.to_string())
 }
 
@@ -254,17 +262,14 @@ pub fn open_capture_extension_folder() -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn open_ollama_download() -> Result<(), String> {
-    let url = if cfg!(windows) {
-        "https://ollama.com/download/windows"
-    } else {
-        "https://ollama.com/download/linux"
-    };
-
+pub fn open_ollama_download(app: AppHandle) -> Result<(), String> {
     #[cfg(windows)]
     {
         Command::new("rundll32.exe")
-            .args(["url.dll,FileProtocolHandler", url])
+            .args([
+                "url.dll,FileProtocolHandler",
+                "https://ollama.com/download/windows",
+            ])
             .spawn()
             .map_err(|error| error.to_string())?;
         return Ok(());
@@ -272,15 +277,34 @@ pub fn open_ollama_download() -> Result<(), String> {
 
     #[cfg(target_os = "linux")]
     {
-        Command::new("xdg-open")
-            .arg(url)
-            .spawn()
-            .map_err(|error| error.to_string())?;
+        let script = bundled_ollama_install_script(&app)?;
+        if !script.is_file() {
+            return Err(
+                "This TOPO build is missing its verified Linux local-engine installer. Reinstall the current TOPO build and try again."
+                    .to_owned(),
+            );
+        }
+
+        let status = Command::new("pkexec")
+            .arg("sh")
+            .arg(&script)
+            .status()
+            .map_err(|error| {
+                format!(
+                    "TOPO could not open the Linux system installer. A graphical PolicyKit prompt is required: {error}"
+                )
+            })?;
+        if !status.success() {
+            return Err(
+                "The Linux local-engine installation was cancelled or did not complete successfully."
+                    .to_owned(),
+            );
+        }
         return Ok(());
     }
 
     #[allow(unreachable_code)]
-    Err("Open https://ollama.com/download in your browser.".to_owned())
+    Err("Automatic local-engine setup is currently available on Windows and Linux.".to_owned())
 }
 
 #[cfg(test)]
@@ -302,5 +326,11 @@ mod tests {
         } else {
             assert!(!host_filename().ends_with(".exe"));
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn linux_local_engine_uses_a_bundled_installer() {
+        assert_eq!(OLLAMA_INSTALL_SCRIPT, "resources/ollama-install.sh");
     }
 }
