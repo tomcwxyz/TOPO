@@ -32,7 +32,7 @@ export function SetupGate({ children }: SetupGateProps) {
   const [ollama, setOllama] = useState<OllamaStatus | null>(null);
   const [browser, setBrowser] = useState<BrowserCaptureSetupStatus | null>(null);
   const [browserLoaded, setBrowserLoaded] = useState(false);
-  const [busy, setBusy] = useState<"model" | "browser" | null>(null);
+  const [busy, setBusy] = useState<"engine" | "model" | "browser" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = async () => {
@@ -65,6 +65,19 @@ export function SetupGate({ children }: SetupGateProps) {
     if (browserReady) value += 1;
     return value;
   }, [modelReady, browserReady]);
+
+  const installEngine = async () => {
+    setBusy("engine");
+    setError(null);
+    try {
+      await invoke("open_ollama_download");
+      await refresh();
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const installModel = async () => {
     setBusy("model");
@@ -126,11 +139,11 @@ export function SetupGate({ children }: SetupGateProps) {
             <div>
               <strong>Private local extraction</strong>
               {!ollama ? (
-                <p>Checking for Ollama…</p>
+                <p>Checking the local engine…</p>
               ) : !ollama.available ? (
-                <p>TOPO uses Ollama locally to turn captured conversations into reviewable memory suggestions.</p>
+                <p>Install the local engine from here. Windows opens the normal Ollama installer; Linux uses a graphical system prompt with no terminal commands.</p>
               ) : ollama.models.length === 0 ? (
-                <p>Ollama is ready. Install TOPO’s recommended model once, then extraction stays on this computer.</p>
+                <p>The local engine is ready. Install TOPO’s recommended model once, then extraction stays on this computer.</p>
               ) : (
                 <p>{ollama.models.length} local model{ollama.models.length === 1 ? " is" : "s are"} ready.</p>
               )}
@@ -138,10 +151,15 @@ export function SetupGate({ children }: SetupGateProps) {
             <div className="setup-actions">
               {ollama && !ollama.available && (
                 <>
-                  <button className="setup-primary" type="button" onClick={() => void invoke("open_ollama_download")}>
-                    Get Ollama
+                  <button
+                    className="setup-primary"
+                    type="button"
+                    disabled={busy === "engine"}
+                    onClick={() => void installEngine()}
+                  >
+                    {busy === "engine" ? "Opening installer…" : "Install local engine"}
                   </button>
-                  <button className="setup-link" type="button" onClick={() => void refresh()}>
+                  <button className="setup-link" type="button" disabled={busy !== null} onClick={() => void refresh()}>
                     Check again
                   </button>
                 </>
