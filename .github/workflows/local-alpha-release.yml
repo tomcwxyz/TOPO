@@ -106,7 +106,7 @@ jobs:
           Copy-Item "apps/extension/dist/*" "$resources/capture-extension" -Recurse -Force
           Copy-Item "target/release/topo-native-host.exe" "$resources/topo-native-host.exe" -Force
 
-      - name: Package Linux browser companion
+      - name: Package Linux browser companion and local-engine installer
         if: runner.os == 'Linux'
         shell: bash
         run: |
@@ -117,6 +117,15 @@ jobs:
           mkdir -p "$resources/capture-extension"
           cp -R apps/extension/dist/. "$resources/capture-extension/"
           install -m 0755 target/release/topo-native-host "$resources/topo-native-host"
+
+          # Pin the official Ollama Linux installer used by TOPO's graphical
+          # first-run setup. The user never needs to paste a terminal command.
+          curl --fail --location --silent --show-error \
+            "https://github.com/ollama/ollama/releases/download/v0.33.3/install.sh" \
+            --output "$resources/ollama-install.sh"
+          echo "25f64b810b947145095956533e1bdf56eacea2673c55a7e586be4515fc882c9f  $resources/ollama-install.sh" \
+            | sha256sum --check --strict
+          chmod 0755 "$resources/ollama-install.sh"
 
       - name: Import Windows signing certificate
         if: runner.os == 'Windows'
@@ -162,6 +171,7 @@ jobs:
             - Windows uses a signed per-user NSIS installer.
             - Linux ships a Debian package and AppImage.
             - Browser capture resources are bundled on both platforms.
+            - Linux local-engine setup is launched from TOPO with a normal graphical PolicyKit prompt; there are no copy/paste terminal instructions.
             - Setup happens inside TOPO; users do not need Node, npm, Rust, Cargo or terminal commands.
             - Core data remains local in ~/.topo/topo.sqlite and no account is required.
 
