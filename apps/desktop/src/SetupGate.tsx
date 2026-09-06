@@ -54,7 +54,9 @@ export function SetupGate({ children }: SetupGateProps) {
   }, [complete]);
 
   const modelReady = Boolean(ollama?.available && ollama.models.length > 0);
-  const browserReady = Boolean(!browser?.supported || (browser.prepared && browserLoaded));
+  const browserReady = Boolean(
+    browser && (!browser.supported || (browser.prepared && browserLoaded)),
+  );
   const ready = modelReady && browserReady;
 
   const progress = useMemo(() => {
