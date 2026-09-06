@@ -42,17 +42,21 @@ It creates a draft GitHub pre-release for inspection before publication.
 
 ### Windows trust requirement
 
-User-facing Windows releases **must be Authenticode signed** and timestamped. The release workflow fails closed when the signing certificate, password or timestamp URL is absent.
+User-facing Windows releases **must be Authenticode signed** and timestamped. The release workflow fails closed when the signing certificate, password or timestamp URL is absent, and it verifies the Authenticode signature on the packaged installer after the build.
 
 Unsigned Windows installers are restricted to a short-lived internal GitHub Actions smoke-test artefact. They are not published as normal TOPO downloads and users should never be told to bypass SmartScreen or Windows Defender to install TOPO.
 
-Code signing and a stable publisher identity are the correct way to build Windows trust/reputation. They materially reduce SmartScreen warnings, but no software publisher can promise that every endpoint-security product will never produce a false positive.
+For pilot/public distribution where the goal is **no SmartScreen warning**, use a signing route that receives immediate/high Microsoft reputation — preferably an EV code-signing certificate or Azure Artifact Signing — rather than assuming a new OV certificate will be warning-free. A normal OV certificate may still need time or Microsoft review to build SmartScreen reputation.
 
-Required repository secrets for a user-facing Windows release:
+The installer package smoke test also requests a Microsoft Defender custom scan of the built `.exe` whenever Defender is enabled on the hosted Windows runner. A clean-machine Defender test remains mandatory before publication because hosted runners cannot substitute for real end-user machines and no publisher can guarantee that every endpoint-security product will never produce a false positive.
+
+Current PFX-based release workflow secrets:
 
 - `WINDOWS_CERTIFICATE` — base64-encoded PFX/PKCS#12 signing certificate;
 - `WINDOWS_CERTIFICATE_PASSWORD` — certificate password;
 - `WINDOWS_TIMESTAMP_URL` — RFC3161/Authenticode timestamp service supplied by the certificate provider.
+
+If TOPO moves to Azure Artifact Signing, replace the PFX import step with Tauri's `signCommand`/Artifact Signing route rather than weakening the release gate.
 
 ### Linux trust requirement
 
@@ -65,12 +69,13 @@ The Linux packages do not require a terminal-based post-install step. Browser-na
    - `apps/desktop/package.json`
    - `apps/desktop/src-tauri/Cargo.toml`
    - `apps/desktop/src-tauri/tauri.conf.json`
-3. Confirm the Windows signing secrets are configured.
+3. Confirm a high-reputation Windows signing route and its required secrets are configured.
 4. Run **Local alpha desktop release** from `main`.
 5. Supply version `0.1.1-alpha.1` and confirmation `RELEASE`.
-6. Inspect the draft release and verify the Windows signature before publishing.
+6. Inspect the draft release, its verified signer identity and package artefacts before publishing.
 7. Test first run on a clean Windows account and a clean Linux desktop using only the graphical setup path.
-8. Exercise capture, extraction, review and recall with a disposable or backed-up TOPO store first.
+8. Confirm Windows SmartScreen/Defender does not require a bypass on the actual release artefact.
+9. Exercise capture, extraction, review and recall with a disposable or backed-up TOPO store first.
 
 ## Alpha quality gates
 
@@ -78,7 +83,7 @@ Do not broaden distribution until we have exercised:
 
 - clean install/uninstall on Windows and Linux;
 - no user-facing terminal instructions in first run;
-- Windows signature verification and normal SmartScreen behaviour;
+- Windows signature verification and warning-free clean-machine SmartScreen/Defender behaviour;
 - Ollama detection and local-model installation;
 - browser companion registration and extension capture;
 - a normal day's captured interactions through the review inbox;
