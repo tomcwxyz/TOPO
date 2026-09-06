@@ -182,3 +182,21 @@ jobs:
           uploadUpdaterJson: false
           uploadUpdaterSignatures: false
           args: ${{ matrix.args }}
+
+      - name: Verify packaged Windows Authenticode signature
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem "apps/desktop/src-tauri/target/release/bundle/nsis/*.exe")
+          if ($installers.Count -eq 0) { throw "No Windows installer was produced for signature verification." }
+
+          foreach ($installer in $installers) {
+            $signature = Get-AuthenticodeSignature $installer.FullName
+            if ($signature.Status -ne "Valid") {
+              throw "Invalid Authenticode signature for $($installer.Name): $($signature.Status)"
+            }
+            if (-not $signature.SignerCertificate.Subject) {
+              throw "Windows installer $($installer.Name) has no signer identity."
+            }
+            Write-Host "Verified $($installer.Name) signed by $($signature.SignerCertificate.Subject)"
+          }
