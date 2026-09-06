@@ -1,0 +1,48 @@
+name: Installer alpha wiring
+
+on:
+  push:
+    branches:
+      - feat/installer-first-alpha
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/installer-first-alpha
+
+      - name: Register first-run setup commands
+        shell: python
+        run: |
+          from pathlib import Path
+
+          path = Path("apps/desktop/src-tauri/src/lib.rs")
+          text = path.read_text()
+          text = text.replace(
+              "            capture_extractor::ollama_extractor_status,\n            capture_processor::process_capture_with_ollama,",
+              "            capture_extractor::ollama_extractor_status,\n            capture_extractor::install_recommended_ollama_model,\n            capture_processor::process_capture_with_ollama,",
+          )
+          text = text.replace(
+              "            capture_setup::open_capture_extension_folder,\n            oos_local::local_context_sharing_status,",
+              "            capture_setup::open_capture_extension_folder,\n            capture_setup::open_ollama_download,\n            oos_local::local_context_sharing_status,",
+          )
+          path.write_text(text)
+
+      - name: Commit wiring if needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- apps/desktop/src-tauri/src/lib.rs; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add apps/desktop/src-tauri/src/lib.rs
+          git commit -m "Wire first-run setup commands into desktop"
+          git push origin HEAD:feat/installer-first-alpha
