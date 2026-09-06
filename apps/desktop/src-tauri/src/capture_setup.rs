@@ -1,5 +1,9 @@
 use serde::Serialize;
-use std::{fs, path::{Path, PathBuf}, process::Command};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+    process::Command,
+};
 use tauri::{path::BaseDirectory, AppHandle, Manager};
 
 pub const CAPTURE_EXTENSION_ID: &str = "akckfofkebcbpbkcpcnemeaegpkbnpgd";
@@ -31,8 +35,16 @@ fn host_directory() -> Result<PathBuf, String> {
     Ok(local_root()?.join("native-messaging"))
 }
 
+fn host_filename() -> &'static str {
+    if cfg!(windows) {
+        "topo-native-host.exe"
+    } else {
+        "topo-native-host"
+    }
+}
+
 fn host_path() -> Result<PathBuf, String> {
-    Ok(host_directory()?.join("topo-native-host.exe"))
+    Ok(host_directory()?.join(host_filename()))
 }
 
 fn manifest_path() -> Result<PathBuf, String> {
@@ -41,7 +53,10 @@ fn manifest_path() -> Result<PathBuf, String> {
 
 fn bundled_host(app: &AppHandle) -> Result<PathBuf, String> {
     app.path()
-        .resolve("resources/topo-native-host.exe", BaseDirectory::Resource)
+        .resolve(
+            format!("resources/{}", host_filename()),
+            BaseDirectory::Resource,
+        )
         .map_err(|error| error.to_string())
 }
 
@@ -70,6 +85,21 @@ fn copy_directory(source: &Path, destination: &Path) -> Result<(), String> {
     Ok(())
 }
 
+fn write_manifest(manifest: &Path, host: &Path) -> Result<(), String> {
+    let payload = serde_json::json!({
+        "name": HOST_NAME,
+        "description": "Local bridge for governed TOPO AI conversation capture",
+        "path": host.to_string_lossy(),
+        "type": "stdio",
+        "allowed_origins": [format!("chrome-extension://{CAPTURE_EXTENSION_ID}/")]
+    });
+    fs::write(
+        manifest,
+        serde_json::to_vec_pretty(&payload).map_err(|error| error.to_string())?,
+    )
+    .map_err(|error| error.to_string())
+}
+
 #[cfg(windows)]
 fn register_native_host(manifest: &Path) -> Result<(), String> {
     use winreg::{enums::HKEY_CURRENT_USER, RegKey};
@@ -91,9 +121,44 @@ fn register_native_host(manifest: &Path) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(not(windows))]
+#[cfg(target_os = "linux")]
+fn register_native_host(manifest: &Path) -> Result<(), String> {
+    let config = dirs::config_dir()
+        .ok_or_else(|| "Unable to determine the browser configuration folder.".to_owned())?;
+    let targets = [
+        config.join("google-chrome/NativeMessagingHosts"),
+        config.join("chromium/NativeMessagingHosts"),
+        config.join("microsoft-edge/NativeMessagingHosts"),
+        config.join("microsoft-edge-beta/NativeMessagingHosts"),
+        config.join("microsoft-edge-dev/NativeMessagingHosts"),
+    ];
+
+    for directory in targets {
+        fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
+        fs::copy(manifest, directory.join(format!("{HOST_NAME}.json")))
+            .map_err(|error| error.to_string())?;
+    }
+    Ok(())
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
 fn register_native_host(_manifest: &Path) -> Result<(), String> {
-    Err("Packaged browser capture setup is currently available on Windows only.".to_owned())
+    Err("Packaged browser capture setup is currently available on Windows and Linux.".to_owned())
+}
+
+#[cfg(target_os = "linux")]
+fn ensure_host_executable(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = fs::metadata(path)
+        .map_err(|error| error.to_string())?
+        .permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions).map_err(|error| error.to_string())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn ensure_host_executable(_path: &Path) -> Result<(), String> {
+    Ok(())
 }
 
 #[tauri::command]
@@ -105,18 +170,21 @@ pub fn browser_capture_setup_status(app: AppHandle) -> Result<BrowserCaptureSetu
     let bundled_extension = bundled_extension(&app)?;
     let resources_available = bundled_host.is_file() && bundled_extension.is_dir();
     let prepared = extension.join("manifest.json").is_file() && host.is_file() && manifest.is_file();
+    let supported = cfg!(windows) || cfg!(target_os = "linux");
 
     Ok(BrowserCaptureSetupStatus {
-        supported: cfg!(windows),
+        supported,
         prepared,
         extension_id: CAPTURE_EXTENSION_ID,
         extension_directory: prepared.then(|| extension.display().to_string()),
         host_path: prepared.then(|| host.display().to_string()),
         bundled_resources_available: resources_available,
-        message: if prepared {
-            "Browser capture companion is prepared for Chrome and Edge.".to_owned()
+        message: if !supported {
+            "Packaged browser capture is not available on this operating system yet.".to_owned()
+        } else if prepared {
+            "Browser capture is prepared for Chrome, Edge and Chromium.".to_owned()
         } else if resources_available {
-            "TOPO can prepare the bundled browser capture companion on this computer.".to_owned()
+            "TOPO can set up browser capture on this computer in one click.".to_owned()
         } else {
             "This TOPO build does not include the packaged browser capture companion.".to_owned()
         },
@@ -125,15 +193,18 @@ pub fn browser_capture_setup_status(app: AppHandle) -> Result<BrowserCaptureSetu
 
 #[tauri::command]
 pub fn prepare_browser_capture(app: AppHandle) -> Result<BrowserCaptureSetupStatus, String> {
-    if !cfg!(windows) {
-        return Err("Packaged browser capture setup is currently available on Windows only.".to_owned());
+    if !(cfg!(windows) || cfg!(target_os = "linux")) {
+        return Err(
+            "Packaged browser capture setup is currently available on Windows and Linux."
+                .to_owned(),
+        );
     }
 
     let source_host = bundled_host(&app)?;
     let source_extension = bundled_extension(&app)?;
     if !source_host.is_file() || !source_extension.is_dir() {
         return Err(
-            "This TOPO build does not include the browser capture companion. Install a Windows test build that bundles capture resources."
+            "This TOPO build does not include the browser capture companion. Install the current TOPO desktop build and try again."
                 .to_owned(),
         );
     }
@@ -145,21 +216,9 @@ pub fn prepare_browser_capture(app: AppHandle) -> Result<BrowserCaptureSetupStat
 
     fs::create_dir_all(&destination_host_directory).map_err(|error| error.to_string())?;
     fs::copy(&source_host, &destination_host).map_err(|error| error.to_string())?;
+    ensure_host_executable(&destination_host)?;
     copy_directory(&source_extension, &destination_extension)?;
-
-    let manifest = serde_json::json!({
-        "name": HOST_NAME,
-        "description": "Local bridge for governed TOPO AI conversation capture",
-        "path": destination_host.to_string_lossy(),
-        "type": "stdio",
-        "allowed_origins": [format!("chrome-extension://{CAPTURE_EXTENSION_ID}/")]
-    });
-    fs::write(
-        &destination_manifest,
-        serde_json::to_vec_pretty(&manifest).map_err(|error| error.to_string())?,
-    )
-    .map_err(|error| error.to_string())?;
-
+    write_manifest(&destination_manifest, &destination_host)?;
     register_native_host(&destination_manifest)?;
 
     browser_capture_setup_status(app)
@@ -167,21 +226,61 @@ pub fn prepare_browser_capture(app: AppHandle) -> Result<BrowserCaptureSetupStat
 
 #[tauri::command]
 pub fn open_capture_extension_folder() -> Result<(), String> {
-    if !cfg!(windows) {
-        return Err("Opening the packaged extension folder is currently available on Windows only.".to_owned());
-    }
-
     let extension = extension_directory()?;
     if !extension.is_dir() {
-        return Err("Prepare browser capture before opening the extension folder.".to_owned());
+        return Err("Set up browser capture before opening the extension folder.".to_owned());
     }
 
-    Command::new("explorer.exe")
-        .arg(extension)
-        .spawn()
-        .map_err(|error| error.to_string())?;
+    #[cfg(windows)]
+    {
+        Command::new("explorer.exe")
+            .arg(extension)
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
 
-    Ok(())
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(extension)
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    Err("Opening the browser extension folder is not supported on this operating system.".to_owned())
+}
+
+#[tauri::command]
+pub fn open_ollama_download() -> Result<(), String> {
+    let url = if cfg!(windows) {
+        "https://ollama.com/download/windows"
+    } else {
+        "https://ollama.com/download/linux"
+    };
+
+    #[cfg(windows)]
+    {
+        Command::new("rundll32.exe")
+            .args(["url.dll,FileProtocolHandler", url])
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        Command::new("xdg-open")
+            .arg(url)
+            .spawn()
+            .map_err(|error| error.to_string())?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    Err("Open https://ollama.com/download in your browser.".to_owned())
 }
 
 #[cfg(test)]
@@ -191,6 +290,17 @@ mod tests {
     #[test]
     fn alpha_extension_id_is_valid_for_chromium_native_messaging() {
         assert_eq!(CAPTURE_EXTENSION_ID.len(), 32);
-        assert!(CAPTURE_EXTENSION_ID.chars().all(|character| ('a'..='p').contains(&character)));
+        assert!(CAPTURE_EXTENSION_ID
+            .chars()
+            .all(|character| ('a'..='p').contains(&character)));
+    }
+
+    #[test]
+    fn native_host_filename_matches_platform_convention() {
+        if cfg!(windows) {
+            assert!(host_filename().ends_with(".exe"));
+        } else {
+            assert!(!host_filename().ends_with(".exe"));
+        }
     }
 }
