@@ -7,6 +7,7 @@ use topo_contracts::{
 };
 
 const OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434";
+pub const RECOMMENDED_MODEL: &str = "qwen3:4b";
 const MAX_TRANSCRIPT_CHARS: usize = 60_000;
 
 #[derive(Debug, Clone, Serialize)]
@@ -14,6 +15,7 @@ const MAX_TRANSCRIPT_CHARS: usize = 60_000;
 pub struct OllamaStatus {
     pub available: bool,
     pub models: Vec<String>,
+    pub recommended_model: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }
@@ -47,15 +49,13 @@ struct ProposalEnvelope {
 
 #[tauri::command]
 pub async fn ollama_extractor_status() -> OllamaStatus {
-    let client = match Client::builder()
-        .timeout(Duration::from_secs(3))
-        .build()
-    {
+    let client = match Client::builder().timeout(Duration::from_secs(3)).build() {
         Ok(client) => client,
         Err(error) => {
             return OllamaStatus {
                 available: false,
                 models: Vec::new(),
+                recommended_model: RECOMMENDED_MODEL,
                 error: Some(error.to_string()),
             }
         }
@@ -80,12 +80,14 @@ pub async fn ollama_extractor_status() -> OllamaStatus {
                     OllamaStatus {
                         available: true,
                         models,
+                        recommended_model: RECOMMENDED_MODEL,
                         error: None,
                     }
                 }
                 Err(error) => OllamaStatus {
                     available: false,
                     models: Vec::new(),
+                    recommended_model: RECOMMENDED_MODEL,
                     error: Some(format!("Ollama returned an unreadable model list: {error}")),
                 },
             }
@@ -93,14 +95,50 @@ pub async fn ollama_extractor_status() -> OllamaStatus {
         Ok(response) => OllamaStatus {
             available: false,
             models: Vec::new(),
+            recommended_model: RECOMMENDED_MODEL,
             error: Some(format!("Ollama returned HTTP {}.", response.status())),
         },
         Err(error) => OllamaStatus {
             available: false,
             models: Vec::new(),
+            recommended_model: RECOMMENDED_MODEL,
             error: Some(format!("Ollama is not reachable: {error}")),
         },
     }
+}
+
+#[tauri::command]
+pub async fn install_recommended_ollama_model() -> Result<OllamaStatus, String> {
+    let client = Client::builder()
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(30 * 60))
+        .build()
+        .map_err(|error| error.to_string())?;
+
+    let response = client
+        .post(format!("{OLLAMA_BASE_URL}/api/pull"))
+        .json(&json!({
+            "model": RECOMMENDED_MODEL,
+            "stream": false
+        }))
+        .send()
+        .await
+        .map_err(|error| {
+            format!(
+                "Could not install the recommended local model. Make sure Ollama is open, then try again: {error}"
+            )
+        })?;
+
+    if !response.status().is_success() {
+        let status = response.status();
+        let body = response.text().await.unwrap_or_default();
+        return Err(format!(
+            "Ollama could not install {RECOMMENDED_MODEL} (HTTP {status}): {}",
+            body.chars().take(500).collect::<String>()
+        ));
+    }
+
+    Ok(ollama_extractor_status().await)
 }
 
 pub async fn extract_with_ollama(
@@ -487,5 +525,10 @@ mod tests {
         let prompt = extraction_prompt(&CaptureFidelity::TaskSummary);
         assert!(prompt.contains("This capture is incomplete"));
         assert!(prompt.contains("Do not propose observations, inferences or derived patterns"));
+    }
+
+    #[test]
+    fn recommended_model_is_small_enough_for_alpha_setup() {
+        assert_eq!(RECOMMENDED_MODEL, "qwen3:4b");
     }
 }
