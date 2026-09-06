@@ -207,6 +207,51 @@ Remaining:
 
 **Exit:** RACK and agents receive compact context selected for the work they are actually doing, not merely the newest confirmed claims.
 
+### Optional practice-context loop — roadmap only until RACK ↔ Ship Check is proved
+
+TOPO may later make the RACK/Ship Check loop more useful by supplying **purpose-bound context**, but it is not required for that loop and must not become an assurance engine.
+
+Potential context includes:
+
+- project stage and expected lifetime;
+- intended users and accessibility needs;
+- data/security sensitivity;
+- maintenance ownership and team capability;
+- operating-cost sensitivity;
+- explicitly accepted risk or temporary constraints.
+
+The intended relationship is:
+
+```text
+TOPO context (optional)
+        │
+        ├─ may help RACK select/emphasise practice
+        └─ may help a person interpret Ship Check evidence
+
+RACK practice ─────► work ─────► Ship Check evidence
+       ▲                               │
+       └──── same stable principle IDs ┘
+```
+
+Boundaries:
+
+- TOPO does not own or redefine `practice.*` principle identifiers.
+- TOPO context never suppresses, rewrites or upgrades deterministic Ship Check evidence.
+- Ship Check evidence does not become canonical TOPO memory automatically.
+- A repeated evidence pattern may be proposed as a memory or practice signal only through the normal review/proposal boundary.
+- Personal context remains personal; no per-person compliance history is created.
+- RACK + Ship Check must remain fully functional when TOPO is absent.
+
+First test after the RACK ↔ Ship Check contract is stable:
+
+1. request a small reviewed TOPO packet describing stage, lifetime, cost sensitivity and security sensitivity;
+2. use it to explain why a RACK practice principle is emphasised;
+3. run Ship Check independently;
+4. confirm the raw finding is unchanged with and without TOPO;
+5. compare whether the contextual explanation helps the person make a better repair decision.
+
+Do not add a TOPO runtime dependency to RACK or Ship Check for this test.
+
 ## Phase 5 — Derived human-readable views
 
 Build category documents, profile/About Me views, version/diff review, filesystem sync and Markdown/OKF exports as projections over canonical Claims.
@@ -230,7 +275,8 @@ Extend the existing bridge with:
 - live/static context modes;
 - purpose-aware context budgets;
 - snapshot provenance;
-- “promote repeated context to practice” review flow.
+- “promote repeated context to practice” review flow;
+- optional practice-evidence context that can explain why a principle matters without storing source code or individual verification history.
 
 TOPO may suggest RACK practice. It never establishes practice automatically.
 
