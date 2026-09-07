@@ -32,11 +32,14 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Require main and explicit confirmation
+      - name: Require main, confirmation, version and signing credentials
         shell: bash
         env:
           EXPECTED_VERSION: ${{ inputs.version }}
           RELEASE_CONFIRMATION: ${{ inputs.confirm }}
+          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+          WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
@@ -48,6 +51,24 @@ jobs:
             exit 1
           fi
           node scripts/check-desktop-version.mjs "$EXPECTED_VERSION"
+
+          missing=0
+          if [[ -z "$WINDOWS_CERTIFICATE" ]]; then
+            echo "::error::WINDOWS_CERTIFICATE is not configured. Add the base64-encoded PFX/PKCS#12 certificate as a repository Actions secret before releasing."
+            missing=1
+          fi
+          if [[ -z "$WINDOWS_CERTIFICATE_PASSWORD" ]]; then
+            echo "::error::WINDOWS_CERTIFICATE_PASSWORD is not configured. Add the PFX certificate password as a repository Actions secret before releasing."
+            missing=1
+          fi
+          if [[ -z "$WINDOWS_TIMESTAMP_URL" ]]; then
+            echo "::error::WINDOWS_TIMESTAMP_URL is not configured. Add the certificate provider's timestamp service URL as a repository Actions secret before releasing."
+            missing=1
+          fi
+          if [[ "$missing" -ne 0 ]]; then
+            echo "::error::Release stopped before packaging so a partial Linux-only draft cannot be created."
+            exit 1
+          fi
 
       - name: Install dependencies
         run: npm install
