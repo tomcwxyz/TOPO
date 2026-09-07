@@ -35,6 +35,10 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico"
+    ],
     "category": "DeveloperTool",
     "shortDescription": "Portable, user-owned context for AI.",
     "longDescription": "Keep useful AI context local, inspectable, portable and under your control.",
