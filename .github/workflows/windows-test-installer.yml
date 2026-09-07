@@ -1,23 +1,27 @@
-name: Windows test installer
+name: installer-package-smoke
 
 on:
+  pull_request:
+    paths:
+      - "apps/desktop/**"
+      - "apps/extension/**"
+      - "crates/topo-native-host/**"
+      - ".github/workflows/local-alpha-release.yml"
+      - ".github/workflows/windows-test-installer.yml"
   workflow_dispatch:
-  push:
-    branches:
-      - main
 
 concurrency:
-  group: topo-windows-test-installer
-  cancel-in-progress: false
+  group: topo-installer-package-smoke-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build:
-    name: Build TOPO Windows test installer
+  windows:
+    name: Package Windows NSIS smoke installer
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 50
 
     steps:
       - uses: actions/checkout@v4
@@ -42,27 +46,113 @@ jobs:
           Copy-Item "apps/extension/dist/*" "$resources/capture-extension" -Recurse -Force
           Copy-Item "target/release/topo-native-host.exe" "$resources/topo-native-host.exe" -Force
 
-      - name: Check desktop TypeScript
-        run: npm run check --workspace @topo/desktop
+      - name: Build internal unsigned Windows installer
+        run: npm run tauri --workspace @topo/desktop -- build --bundles nsis --config src-tauri/test.windows.json
 
-      - name: Build unsigned Windows installer and draft test release
-        uses: tauri-apps/tauri-action@action-v1.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CI: true
+      - name: Require packaged Windows installer
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem "apps/desktop/src-tauri/target/release/bundle/nsis/*.exe")
+          if ($installers.Count -eq 0) { throw "TOPO did not produce an NSIS installer." }
+          foreach ($installer in $installers) {
+            Write-Host "Packaged $($installer.Name) ($($installer.Length) bytes)"
+          }
+
+      - name: Scan packaged installer with Microsoft Defender when available
+        shell: pwsh
+        run: |
+          $installers = @(Get-ChildItem "apps/desktop/src-tauri/target/release/bundle/nsis/*.exe")
+          $status = Get-MpComputerStatus -ErrorAction SilentlyContinue
+          if (-not $status -or -not $status.AntivirusEnabled) {
+            Write-Warning "Microsoft Defender Antivirus is not enabled on this hosted runner. Clean-machine Defender acceptance remains mandatory before publishing."
+            exit 0
+          }
+
+          foreach ($installer in $installers) {
+            Write-Host "Scanning $($installer.FullName) with Microsoft Defender..."
+            Start-MpScan -ScanPath $installer.FullName -ScanType CustomScan
+          }
+
+          $detections = @(Get-MpThreatDetection -ErrorAction SilentlyContinue)
+          foreach ($installer in $installers) {
+            $escaped = [Regex]::Escape($installer.FullName)
+            $hits = @($detections | Where-Object {
+              ($_.Resources -join "`n") -match $escaped
+            })
+            if ($hits.Count -gt 0) {
+              $names = ($hits | ForEach-Object { $_.ThreatID }) -join ", "
+              throw "Microsoft Defender reported the TOPO installer as a threat. Threat IDs: $names"
+            }
+          }
+          Write-Host "Microsoft Defender reported no detections for the packaged TOPO installer."
+
+      - name: Upload internal Windows package
+        uses: actions/upload-artifact@v4
         with:
-          projectPath: apps/desktop
-          tagName: topo-test-${{ github.run_number }}
-          releaseName: "TOPO Windows test · run ${{ github.run_number }}"
-          releaseBody: |
-            Windows test installer built automatically from current TOPO main for hands-on alpha testing.
+          name: topo-windows-unsigned-smoke
+          path: apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+          if-no-files-found: error
+          retention-days: 7
 
-            This is an unsigned development/test build. Windows SmartScreen may warn before installation.
+  linux:
+    name: Package Linux deb and AppImage smoke installers
+    runs-on: ubuntu-22.04
+    timeout-minutes: 50
 
-            The installer includes the Windows native capture bridge and browser extension files. No Node, npm, Rust or Cargo installation is required to run this packaged desktop app.
-          releaseDraft: true
-          prerelease: true
-          releaseAssetNamePattern: "TOPO_Windows_Test_[version]_[arch][setup][ext]"
-          uploadUpdaterJson: false
-          uploadUpdaterSignatures: false
-          args: "--bundles nsis --config src-tauri/test.windows.json"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Prepare packaged browser companion and verified local-engine installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run test:extension-build
+          cargo build --release --target-dir target --manifest-path crates/topo-native-host/Cargo.toml
+          resources="apps/desktop/src-tauri/resources"
+          rm -rf "$resources"
+          mkdir -p "$resources/capture-extension"
+          cp -R apps/extension/dist/. "$resources/capture-extension/"
+          install -m 0755 target/release/topo-native-host "$resources/topo-native-host"
+
+          curl --fail --location --silent --show-error \
+            "https://github.com/ollama/ollama/releases/download/v0.33.3/install.sh" \
+            --output "$resources/ollama-install.sh"
+          echo "25f64b810b947145095956533e1bdf56eacea2673c55a7e586be4515fc882c9f  $resources/ollama-install.sh" \
+            | sha256sum --check --strict
+          chmod 0755 "$resources/ollama-install.sh"
+
+      - name: Build internal Linux packages
+        run: npm run tauri --workspace @topo/desktop -- build --bundles deb,appimage
+
+      - name: Require both Linux package formats
+        shell: bash
+        run: |
+          set -euo pipefail
+          compgen -G "apps/desktop/src-tauri/target/release/bundle/deb/*.deb" > /dev/null
+          compgen -G "apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage" > /dev/null
+          ls -lh apps/desktop/src-tauri/target/release/bundle/deb/*.deb
+          ls -lh apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+
+      - name: Upload internal Linux packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: topo-linux-package-smoke
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/deb/*.deb
+            apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+          retention-days: 7
