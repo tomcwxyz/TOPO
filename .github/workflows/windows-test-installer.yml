@@ -107,17 +107,20 @@ jobs:
 
           foreach ($file in $files) {
             Write-Host "Scanning $($file.FullName) with Microsoft Defender..."
-            & $mpcmd -Scan -ScanType 3 -File $file.FullName
+            $scanLog = Join-Path $env:RUNNER_TEMP ("defender-" + $file.Name + ".log")
+            Remove-Item $scanLog -ErrorAction SilentlyContinue
+            & $mpcmd -Scan -ScanType 3 -File $file.FullName -DisableRemediation 2>&1 | Tee-Object -FilePath $scanLog
             $scanExit = $LASTEXITCODE
+            $scanText = if (Test-Path $scanLog) { Get-Content $scanLog -Raw } else { "" }
+
+            if ($scanText -match '(?i)was skipped') {
+              throw "Microsoft Defender skipped $($file.Name); Windows acceptance requires an actual scan."
+            }
             if ($scanExit -ne 0) {
-              $detections = @(Get-MpThreatDetection -ErrorAction SilentlyContinue)
-              $escaped = [Regex]::Escape($file.FullName)
-              $hits = @($detections | Where-Object { ($_.Resources -join "`n") -match $escaped })
-              if ($hits.Count -gt 0) {
-                $ids = ($hits | ForEach-Object { $_.ThreatID }) -join ", "
-                throw "Microsoft Defender reported $($file.Name) as a threat. Threat IDs: $ids"
-              }
-              throw "Microsoft Defender could not cleanly scan $($file.Name); MpCmdRun exit code: $scanExit"
+              throw "Microsoft Defender did not return a clean result for $($file.Name); MpCmdRun exit code: $scanExit"
+            }
+            if ($scanText -notmatch '(?i)found no threats|detected 0 threats') {
+              throw "Microsoft Defender returned no positive clean-scan result for $($file.Name); refusing to publish an unchecked artifact."
             }
           }
 
