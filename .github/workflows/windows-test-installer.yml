@@ -34,8 +34,8 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Install locked dependencies
-        run: npm ci
+      - name: Install locked dependencies without unrelated native lifecycle scripts
+        run: npm ci --ignore-scripts
 
       - name: Require current Rust lockfiles
         shell: pwsh
