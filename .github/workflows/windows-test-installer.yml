@@ -80,22 +80,44 @@ jobs:
           if (-not $status -or -not $status.AntivirusEnabled) {
             throw "Microsoft Defender Antivirus is not enabled on this hosted runner; Windows acceptance cannot pass without a scan."
           }
-
           Write-Host "Defender signature version: $($status.AntivirusSignatureVersion)"
           Write-Host "Defender signature updated: $($status.AntivirusSignatureLastUpdated)"
-          try { Update-MpSignature -ErrorAction Stop | Out-Null } catch { Write-Warning "Could not refresh Defender signatures: $($_.Exception.Message)" }
+
+          $candidates = @()
+          $platformRoot = Join-Path $env:ProgramData "Microsoft\Windows Defender\Platform"
+          if (Test-Path $platformRoot) {
+            $latestPlatform = Get-ChildItem $platformRoot -Directory -ErrorAction SilentlyContinue |
+              Sort-Object Name -Descending |
+              Select-Object -First 1
+            if ($latestPlatform) {
+              $candidates += (Join-Path $latestPlatform.FullName "MpCmdRun.exe")
+            }
+          }
+          $candidates += (Join-Path $env:ProgramFiles "Windows Defender\MpCmdRun.exe")
+          $mpcmd = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $mpcmd) {
+            throw "Microsoft Defender command-line scanner (MpCmdRun.exe) was not found; Windows acceptance cannot pass without an actual scan."
+          }
+          Write-Host "Using Defender scanner: $mpcmd"
+
+          & $mpcmd -SignatureUpdate
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Defender signature refresh returned exit code $LASTEXITCODE; continuing with the installed signatures reported above."
+          }
 
           foreach ($file in $files) {
             Write-Host "Scanning $($file.FullName) with Microsoft Defender..."
-            Start-MpScan -ScanPath $file.FullName -ScanType CustomScan
-            $detections = @(Get-MpThreatDetection -ErrorAction SilentlyContinue)
-            $escaped = [Regex]::Escape($file.FullName)
-            $hits = @($detections | Where-Object {
-              ($_.Resources -join "`n") -match $escaped
-            })
-            if ($hits.Count -gt 0) {
-              $ids = ($hits | ForEach-Object { $_.ThreatID }) -join ", "
-              throw "Microsoft Defender reported $($file.Name) as a threat. Threat IDs: $ids"
+            & $mpcmd -Scan -ScanType 3 -File $file.FullName
+            $scanExit = $LASTEXITCODE
+            if ($scanExit -ne 0) {
+              $detections = @(Get-MpThreatDetection -ErrorAction SilentlyContinue)
+              $escaped = [Regex]::Escape($file.FullName)
+              $hits = @($detections | Where-Object { ($_.Resources -join "`n") -match $escaped })
+              if ($hits.Count -gt 0) {
+                $ids = ($hits | ForEach-Object { $_.ThreatID }) -join ", "
+                throw "Microsoft Defender reported $($file.Name) as a threat. Threat IDs: $ids"
+              }
+              throw "Microsoft Defender could not cleanly scan $($file.Name); MpCmdRun exit code: $scanExit"
             }
           }
 
