@@ -59,7 +59,7 @@ jobs:
         with:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
-      - run: npm ci
+      - run: npm ci --ignore-scripts
       - name: Validate native host registration script
         shell: pwsh
         run: |
