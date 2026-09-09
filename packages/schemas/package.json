@@ -11,6 +11,10 @@
     "./memory-page": {
       "types": "./dist/memory-page.d.ts",
       "default": "./dist/memory-page.js"
+    },
+    "./portable-bundle": {
+      "types": "./dist/portable-bundle.d.ts",
+      "default": "./dist/portable-bundle.js"
     }
   },
   "scripts": {
