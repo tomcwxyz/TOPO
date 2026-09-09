@@ -15,6 +15,10 @@
     "./portable-bundle": {
       "types": "./dist/portableBundle.d.ts",
       "default": "./dist/portableBundle.js"
+    },
+    "./portable-store": {
+      "types": "./dist/portableStore.d.ts",
+      "default": "./dist/portableStore.js"
     }
   },
   "scripts": {
