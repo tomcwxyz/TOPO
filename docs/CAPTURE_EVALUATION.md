@@ -2,66 +2,113 @@
 
 TOPO should optimise for **a small number of genuinely useful memories**, not maximum extraction volume.
 
+The page-first architecture changes the unit of evaluation from extracted keys/claims to coherent memories that improve later work.
+
 The alpha evaluation loop therefore measures the complete product path:
 
 ```text
-known conversation
+known source interaction
       ↓
 expected useful memories
       ↓
-TOPO extraction
+TOPO Memory Page proposals
       ↓
-candidates shown
+human review/edit
       ↓
-human review
-      ↓
-accepted memory
+confirmed portable memory
       ↓
 purpose-bound recall
+      ↓
+useful context in another tool/model
 ```
 
 ## Core metrics
 
 For each labelled conversation or daily-use sample record:
 
-- `expectedKeys` — the memories a human believes would materially improve a future interaction;
-- `proposedKeys` — the distinct keys TOPO actually proposed;
-- `acceptedKeys` — the distinct keys the reviewer kept;
-- `candidatesShown` — total candidate cards shown to the reviewer, including duplicates;
-- `duplicateCandidates` — candidate cards that should have been absorbed as duplicates/supporting evidence;
-- `reviewSeconds` — active review time for the sample.
+- `expectedMemories` — the pieces of context a human believes would materially improve a future interaction;
+- `proposedMemories` — distinct Memory Pages TOPO proposed;
+- `acceptedMemories` — pages the reviewer kept after any edits/merges;
+- `reviewSeconds` — active review time;
+- `duplicateOrFragmented` — candidates that should have been absorbed into another page or expressed as one coherent memory;
+- `unsupportedMemories` — proposals not adequately supported by source evidence;
+- `laterRecallExpected` — memories that should be selected for a labelled future task;
+- `laterRecallReturned` — memories/context actually returned for that task.
 
-The scorer reports:
+The scorer should report or make it possible to assess:
 
-- **precision** — expected proposals / all distinct proposals;
-- **recall** — expected proposals found / expected memories;
-- **memory yield** — accepted memories / distinct proposals;
-- **overreach rate** — proposals that were not expected / all proposals;
-- **duplicate rate** — duplicate candidate cards / candidate cards shown;
-- **review seconds per accepted memory** — governance effort, rather than raw processing speed.
+- **useful-memory precision** — expected/useful proposals divided by all distinct proposals;
+- **useful-memory recall** — expected memories found divided by expected memories;
+- **memory yield** — accepted memories divided by proposed memories;
+- **overreach rate** — unsupported or unwarranted proposals divided by all proposals;
+- **fragmentation rate** — proposals that should have been merged into a coherent memory;
+- **duplicate rate** — repeated candidates that add no useful new meaning;
+- **faithfulness** — accepted/proposed prose is supported by cited evidence;
+- **contextual completeness** — the memory preserves enough surrounding meaning to be useful later without reopening the full source;
+- **temporal correctness** — temporary, changed and superseded context is represented correctly;
+- **review seconds per accepted memory** — governance effort;
+- **cross-tool recall precision/recall** — the right memories are returned for a future purpose/task;
+- **portable round-trip integrity** — Markdown export/import preserves meaning, governance and evidence links;
+- **context efficiency** — useful resolved context per token/character budget.
 
-Run the deterministic scorer with:
+A clean interaction where nothing should be remembered is a successful result when TOPO proposes nothing.
 
-```text
-npm run test:capture-eval
-```
+## Qualitative scoring
 
-The scoring script itself is `scripts/score-capture-eval.mjs`. It can also score a labelled JSON result file during development or a dogfood review.
+Some page-first qualities are not well represented by key matching alone. Labelled fixtures should therefore include small human judgements, for example:
 
-## Alpha targets
+### Faithfulness
 
-These are product targets, not claims that the current extractor already meets them:
+- `2` — clearly supported by source evidence;
+- `1` — mostly supported but phrasing adds interpretation;
+- `0` — unsupported, misleading or invented.
+
+### Contextual completeness
+
+- `2` — enough context to guide a later interaction correctly;
+- `1` — broadly right but missing an important qualifier/rationale/boundary;
+- `0` — atomised or ambiguous enough to mislead later use.
+
+### Portability
+
+- `2` — understandable and useful as standalone Markdown;
+- `1` — understandable but depends on TOPO-specific field knowledge;
+- `0` — meaning is not recoverable outside the internal model.
+
+The aim is not to maximise prose length. A concise memory can score highly if it preserves the right context.
+
+## Initial targets
+
+These are product targets, not claims that the current page-first extractor already meets them:
 
 | Metric | Initial target |
 | --- | ---: |
-| Precision | ≥ 0.80 |
-| Recall | ≥ 0.70 |
+| Useful-memory precision | ≥ 0.80 |
+| Useful-memory recall | ≥ 0.70 |
 | Memory yield | ≥ 0.70 |
 | Overreach | ≤ 0.20 |
-| Duplicate rate | ≤ 0.10 |
-| Review time | ≤ 20 seconds per accepted memory |
+| Duplicate + fragmentation | ≤ 0.15 |
+| Review time | ≤ 30 seconds per accepted memory |
+| Faithfulness average | ≥ 1.8 / 2 |
+| Contextual completeness average | ≥ 1.6 / 2 |
+| Portable round-trip integrity | 100% metadata/evidence identity preservation |
 
-A clean conversation where nothing should be remembered is a successful result when TOPO proposes nothing.
+These targets should be calibrated against real dogfooding rather than treated as permanent benchmarks.
+
+## Migration comparison
+
+During the transition, run the same source samples through the existing claim-based extractor and the new page-first extractor.
+
+Compare:
+
+- number of review objects generated;
+- review time;
+- accepted useful information;
+- lost qualifiers/context;
+- later recall quality;
+- token size of resolved context.
+
+The page-first approach should not be accepted merely because it feels nicer. It should demonstrate lower review burden and equal or better later usefulness.
 
 ## Daily-use test
 
@@ -69,28 +116,33 @@ At least once per dogfood day:
 
 1. use supported AI tools normally;
 2. record obvious capture misses or selector failures;
-3. label a small sample of conversations with the memories that were actually worth keeping;
+3. label a small sample of conversations with the memories actually worth keeping;
 4. process captures locally;
-5. review the inbox without changing the expected labels to fit TOPO's output;
-6. record accepted/rejected/duplicate candidates and review time;
-7. score the sample;
-8. later request purpose-bound context for a real task and record whether the accepted memory was recalled correctly.
+5. review the inbox without changing expected labels to fit TOPO's output;
+6. record accepted/rejected/merged candidates and review time;
+7. inspect source faithfulness and contextual completeness;
+8. export/import at least a small sample during migration;
+9. later request purpose-bound context for a real task;
+10. record whether the correct memory was recalled and whether it improved the interaction.
 
 Do not tune solely against one user's wording or one provider. Keep a mixed fixture set covering:
 
 - explicit durable preferences;
-- project decisions and constraints;
+- project decisions and their rationale/boundaries;
 - temporary circumstances that should expire;
 - changed/superseding information;
 - questions that should **not** become personal facts;
 - assistant statements that are not user evidence;
-- conversations containing no worthwhile memory;
-- sensitive material that should be omitted or correctly classified.
+- nuanced context that would be damaged by atomisation;
+- interactions containing no worthwhile memory;
+- sensitive material that should be omitted or correctly classified;
+- two memories with similar vocabulary but different purposes;
+- one memory that should be useful across several different AI systems.
 
 ## Release principle
 
-Adding more providers, embeddings or automatic confirmation is lower priority than improving these numbers and reducing review effort.
+Adding more providers, a larger ontology, a vector database or automatic confirmation is lower priority than proving that page-first memory improves real recall while reducing review effort.
 
-The practical alpha exit remains:
+The practical alpha exit becomes:
 
-> Use AI normally for a day, open TOPO, review a short high-quality inbox in a few minutes, and see confirmed context surface correctly in another tool.
+> Use AI normally for a day, review a small high-quality set of coherent memories in a few minutes, export them in a form that still makes sense outside TOPO, and see the right context surface correctly in a different tool or model.
