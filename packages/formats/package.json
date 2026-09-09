@@ -11,6 +11,10 @@
     "./memory-markdown": {
       "types": "./dist/memoryMarkdown.d.ts",
       "default": "./dist/memoryMarkdown.js"
+    },
+    "./portable-bundle": {
+      "types": "./dist/portableBundle.d.ts",
+      "default": "./dist/portableBundle.js"
     }
   },
   "scripts": {
