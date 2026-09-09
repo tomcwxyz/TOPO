@@ -1,14 +1,26 @@
 # TOPO Roadmap
 
-The immediate product priority is now **capture quality and daily-use validation**. TOPO has a credible governed local memory core, a working context path into RACK, and a first end-to-end ambient browser capture path. The next question is whether it learns the right things from normal work with little enough review effort to be genuinely useful day to day.
+TOPO is moving from a **claim-first memory model** to a **portable prose-first memory model**.
+
+The alpha has already proved important foundations: governed capture, provenance, review authority, temporal history, local SQLite persistence, purpose-bound context sharing and a working RACK/OOS bridge. Those foundations remain.
+
+What changes is the durable thing TOPO is trying to create.
+
+The primary durable memory object is now a **Memory Page**: a short, coherent, human-readable piece of context with governance metadata and traceable evidence. Claims remain available as optional structured annotations where structure materially helps, but TOPO should no longer atomise all useful memory into claims by default.
+
+See [Memory architecture](docs/MEMORY_ARCHITECTURE.md) and [ADR 0011](docs/adr/0011-memory-pages-are-the-primary-durable-memory-unit.md).
 
 Across every phase, personal context remains personal by default. TOPO uses the non-hierarchical **inside / between / beneath / around** model for reasoning about relationships and information movement. A Context Packet is a purpose-bound disclosure, not permission for secondary use, organisational analytics or individual monitoring.
 
-The near-term milestone is:
+## Near-term product proof
 
-> Use AI tools normally for a day, open TOPO, review a short high-quality inbox of things worth remembering, then see confirmed context surface correctly in another tool.
+The next milestone is:
 
-See [Capture architecture](docs/CAPTURE.md) and [capture surfaces](docs/CAPTURE_SURFACES.md).
+> Use AI tools normally for a day, open TOPO, review a small number of coherent memories worth keeping, then see the right context surface in another AI/tool without that tool needing to understand TOPO's internal storage model.
+
+A successful memory should also remain useful when exported as ordinary Markdown and read outside TOPO.
+
+---
 
 ## Completed foundation
 
@@ -16,9 +28,11 @@ See [Capture architecture](docs/CAPTURE.md) and [capture surfaces](docs/CAPTURE_
 
 Product principles, architecture boundaries, ADRs, threat model and repository conventions are established.
 
-### Phase 1 — Core
+### Phase 1 — Claim-based core
 
-Claim/Source/Event contracts, proposal-first lifecycle, sensitivity, expiry/supersession, SQLite persistence, audit events, CLI, search and portable bundles are implemented.
+The existing Claim/Source/Event contracts, proposal-first lifecycle, sensitivity, expiry/supersession, SQLite persistence, audit events, CLI, search and portable bundles are implemented.
+
+This remains useful migration infrastructure, but Claims are no longer the target canonical representation for all memory. ADR 0011 supersedes ADR 0002 on that point.
 
 ### Iteration 2.5 — Desktop runtime alignment
 
@@ -28,141 +42,230 @@ Tauri/React desktop architecture, runtime-neutral storage contracts and shared T
 
 A proposal-first stdio MCP server is implemented with search, candidate proposal, optional delegated review, history and sensitivity ceilings.
 
+The MCP transport remains useful, but its memory-facing contracts will become Memory Page aware during migration.
+
 ### Early RACK/OOS context bridge
 
 TOPO Desktop exposes an authenticated loopback context endpoint with explicit per-session sharing consent. RACK can discover TOPO, request selected context and record context provenance.
 
-This bridge is useful enough for current testing. Do not broaden it ahead of capture.
+This bridge is strategically important because it already demonstrates the boundary we want to preserve: **RACK consumes purpose-bound context, not TOPO's internal memory schema.**
+
+Do not broaden the transport until the Memory Page migration is stable.
 
 ---
 
-## Phase 3 — Capture-first product loop
+# Immediate reorientation — Memory Pages
 
-### Iteration 5A — Capture contract
+## Iteration M1 — Canonical Memory Page contract
 
-**Status:** implemented in local alpha.
+**Priority:** now.
 
-**Goal:** make captured interactions a first-class input to canonical TOPO memory.
+**Goal:** introduce the new durable memory representation without discarding the working alpha.
+
+Build:
+
+- `MemoryPage` schema with body, title/summary, review state, sensitivity, horizon, temporal validity, source references, tags and version/supersession metadata;
+- runtime-neutral TypeScript + Rust interchange fixtures;
+- store interfaces and SQLite persistence;
+- explicit links between Memory Pages and existing Sources;
+- optional structured annotations linked to Memory Pages;
+- event types for propose/confirm/edit/reject/supersede/expire;
+- compatibility adapters for existing Claims.
+
+Rules:
+
+- the body is the memory; metadata governs it;
+- structured annotations are optional;
+- existing Source IDs, events and provenance are preserved;
+- generated text cannot cite itself as evidence;
+- migration must be reversible during alpha.
+
+**Exit:** TOPO can persist, inspect and round-trip a governed Memory Page alongside existing Claims.
+
+## Iteration M2 — Portable Markdown as a first-class representation
+
+**Goal:** make portability a property of canonical memory, not merely an export feature.
+
+Build:
+
+- deterministic Markdown rendering for Memory Pages;
+- documented frontmatter/governance metadata;
+- portable bundle update with `memories/*.md` as first-class entries;
+- optional `annotations.jsonl` for structured annotations;
+- conservative import and identity conflict handling;
+- round-trip tests proving that meaning and governance survive export/import;
+- human-readable filesystem export suitable for Git and notes tools.
+
+Target portable shape:
+
+```text
+topo/
+├── memories/
+│   └── *.md
+├── sources.jsonl
+├── annotations.jsonl
+├── events.jsonl
+├── manifest.json
+└── index.sqlite        # optional/disposable
+```
+
+**Exit:** a TOPO memory export remains meaningfully usable without TOPO.
+
+## Iteration M3 — Page-first capture and review
+
+**Goal:** stop optimising the product around atomic claim extraction.
+
+Change the capture question from:
+
+> Which facts can we extract?
+
+into:
+
+> What small pieces of context would materially improve a future interaction?
+
+Build:
+
+- extraction provider contract that proposes one or more coherent Memory Pages;
+- source/evidence citation for every proposed page;
+- optional annotation extraction only when structure adds value;
+- duplicate/supporting-evidence/change detection at page level;
+- Memory Inbox cards centred on coherent prose;
+- inline editing as the normal review action;
+- batch review only where it does not hide change/supersession decisions;
+- claim-based candidate review retained temporarily for compatibility.
+
+**Exit:** one normal captured conversation produces a small number of useful, readable memory candidates rather than a spray of atomised facts.
+
+## Iteration M4 — Page-aware context resolution
+
+**Goal:** resolve useful context without requiring consumers to know TOPO's internal representation.
+
+Build:
+
+- authorised Memory Page filtering by review state, sensitivity, scope and temporal validity;
+- FTS over Memory Page body/title/tags;
+- purpose/task-aware ranking;
+- context/token budgets;
+- compact rendered excerpts in Context Packets;
+- stable page/revision/source provenance;
+- explainable selection metadata.
+
+Existing Claim-based retrieval remains a compatibility fallback during migration.
+
+**Exit:** the same purpose-bound Context Packet transport can be fulfilled from Memory Pages.
+
+## Iteration M5 — Small local semantic index
+
+**Goal:** improve retrieval quality without turning TOPO into vector infrastructure.
+
+Build only after M4 has deterministic tests:
+
+- optional local embeddings for Memory Pages;
+- small SQLite/sidecar index;
+- hybrid FTS + semantic ranking;
+- complete index rebuild from canonical Memory Pages;
+- no vector index data required for portable restore;
+- local-model-first embedding path where practical.
+
+Principle:
+
+> The index is disposable. The memory is not.
+
+**Exit:** semantic retrieval measurably improves real recall while deletion/rebuild of the index changes no canonical memory.
+
+---
+
+# Capture-first product loop
+
+The existing capture implementation remains valuable and should now feed the Memory Page migration rather than be optimised indefinitely around Claims.
+
+## Iteration 5A — Capture contract
+
+**Status:** implemented in the claim-based alpha; adapt during M3.
 
 Implemented:
 
-- the TOPO capture package;
 - captured interaction and turn contracts;
 - ChatGPT, Claude, Gemini, Copilot, agent and generic source identities;
 - user-evidence requirement;
 - memory horizons: durable / project / temporary;
-- default review-window source retention;
-- candidate preparation over the canonical Claim lifecycle;
+- review-window source retention;
 - duplicate/supporting-evidence/potential-change comparison;
 - conservative extraction prompt and tests.
 
-**Exit:** a captured interaction plus extracted proposals can produce traceable candidate Claims without weakening review authority.
+Next:
 
-### Iteration 5B — Desktop ingestion and extraction
+- retain these evidence and source contracts;
+- change extraction output from claim-first to page-first;
+- ensure assistant statements do not silently become user memory.
 
-**Status:** the core local path is implemented: captured interactions can enter TOPO, be extracted with local Ollama, compared with current memory and persisted as canonical candidates. Provider disclosure/consent beyond the local path, pruning policy and automatic processing remain hardening work rather than prerequisites for the first alpha.
+## Iteration 5B — Desktop ingestion and extraction
 
-**Goal:** accept captured interactions without manual data entry.
+**Status:** core local path implemented.
 
-Implemented/core:
+Captured interactions can enter TOPO, be extracted with local Ollama, compared with current memory and persisted for review.
 
-- local capture ingestion service;
-- extraction provider abstraction;
-- local model option;
-- cloud-provider disclosure/consent;
-- transactional Source + candidate persistence;
-- extraction-run diagnostics;
-- source pruning hooks;
-- retry and failure queue.
+Next:
 
-**Exit:** a conversation payload can enter TOPO, be extracted and appear in the desktop review inbox automatically.
+- teach this path to persist proposed Memory Pages;
+- preserve transactional Source + memory persistence;
+- retain diagnostics, failure queues and provider disclosure/consent;
+- avoid parallel claim/page extraction where one page-first pass can serve both.
 
-### Iteration 5C — Ambient browser capture
+## Iteration 5C — Ambient browser capture
 
-**Status:** the first Windows + Chromium end-to-end path is implemented and testable for ChatGPT, Claude and Gemini. The remaining work is daily-use hardening and packaging, not proving the architecture.
+**Status:** first Windows + Chromium end-to-end path works for ChatGPT, Claude and Gemini.
 
-**Goal:** make normal hosted-AI use populate TOPO.
+Keep the capture mechanics:
 
-Adapter priority:
-
-1. ChatGPT
-2. Claude
-3. Gemini
-4. Microsoft Copilot
-5. generic adapter contract
-
-Migrate the strongest capture mechanics from llm-memory-extractor rather than its storage or inference model.
-
-Implemented in the current alpha:
-
-- Chromium extension shell;
-- site/conversation detection;
 - stable completed-turn capture;
 - SPA navigation handling;
 - render deduplication;
 - local unsent queue;
-- Native Messaging connection to TOPO Desktop;
-- per-site enable/pause;
+- Native Messaging connection;
+- per-site controls;
 - per-conversation exclusion;
 - visible connection/capture state;
-- capture diagnostics.
+- diagnostics.
 
-Remaining hardening:
+Remaining hardening should be driven by real page-first dogfooding, not by adding providers for its own sake.
 
-- sustained real-use testing across ChatGPT, Claude and Gemini;
-- selector/failure diagnostics from observed breakage;
-- native-host and extension installation as part of ordinary TOPO setup rather than a development script;
-- per-conversation exclusion and any remaining capture controls;
-- automatic local processing only after candidate quality is trusted;
-- Copilot, Firefox and further providers only when real demand justifies them.
+## Iteration 5D — Memory Inbox
 
-**Exit:** normal ChatGPT/Claude/Gemini use creates source-grouped TOPO candidates without manual capture setup, and a normal day's inbox can be governed in a few minutes.
+**Status:** claim-based inbox exists; redesign during M3.
 
-### Iteration 5D — Memory inbox
-
-**Goal:** make governance fast enough for ambient capture.
-
-**Current implementation slice (1 September 2026):** the desktop now opens on candidates, clusters review around captured-source provenance, supports multi-select bulk confirm/reject, and keeps potential changes out of bulk confirmation so supersession remains an individual decision.
+The inbox becomes a review surface for **memories**, not a queue of database atoms.
 
 Build:
 
-- Inbox as the desktop default;
-- group candidates by source interaction;
+- source-grouped proposed Memory Pages;
 - evidence preview;
-- batch confirm/reject;
-- inline edit;
-- duplicate/supporting-evidence absorption;
-- potential-change/contradiction emphasis;
+- inline prose edit;
+- confirm/reject;
+- merge/extend/supersede flows;
+- optional structured annotations collapsed by default;
 - source and connection health;
-- review counts/badges.
+- review counts and time-to-govern metrics.
 
-**Exit:** a normal day's capture can be governed in a few minutes rather than managed claim-by-claim.
+**Exit:** a normal day's capture can be governed in a few minutes and leaves behind readable memories.
 
-### Iteration 5E — Agent capture and memory pressure
+## Iteration 5E — Agent capture and memory pressure
 
-**Goal:** make TOPO useful to long-running agents without replacing their runtime memory.
+**Status:** governed Hermes and OpenClaw integrations retrieve small purpose-bound context and contribute interactions into TOPO capture.
 
-**Current implementation slice:** governed Hermes and OpenClaw integrations now retrieve small purpose-bound confirmed context and contribute successful user/assistant interactions into TOPO's capture inbox under separate session-scoped permissions. Runtime memory remains separate. Memory-pressure handoff experiments and explicit hot-context projection remain to do.
-
-Build:
-
-- a high-level MCP interaction-capture path;
-- explicit “remember this” path;
-- purpose-bound TOPO retrieval for agent sessions;
-- Hermes general plugin using post_llm_call for ambient capture;
-- OpenClaw companion plugin using agent_end for ambient capture;
-- memory-pressure handoff experiments;
-- small hot-context projection where explicitly useful.
-
-Principle:
+Keep the principle:
 
 > Agent memory is a bounded hot cache; TOPO is governed durable cross-agent context.
 
-Do not mirror all canonical TOPO memory into an agent's MEMORY.md or equivalent.
+Next:
 
-**Exit:** Hermes/OpenClaw can contribute durable candidates to TOPO and retrieve relevant older context while retaining their own native working memory.
+- page-first agent memory proposals;
+- explicit “remember this” → proposed Memory Page path;
+- memory-pressure handoff experiments;
+- small hot-context projection where explicitly useful;
+- never mirror an entire TOPO field into `MEMORY.md` or equivalent.
 
-### Iteration 5F — Bootstrap existing histories
+## Iteration 5F — Bootstrap existing histories
 
 **Goal:** make a new TOPO useful immediately.
 
@@ -175,86 +278,82 @@ Build:
 - legacy llm-memory-extractor import;
 - legacy MyMemory imports.
 
-All imports use the same extraction, evidence, deduplication and review pipeline as live capture.
-
-**Exit:** an existing AI history can create a governed starting memory without becoming an unreviewed profile.
+All histories flow through the same page-first extraction, evidence, deduplication and review pipeline.
 
 ---
 
+# Purpose-aware context and RACK
+
 ## Phase 4 — Purpose-aware context resolution
 
-**Current implementation slice (1 September 2026):** Context resolution now ranks authorised confirmed memory against the stated purpose and an optional task query before using recency/confidence as tie-breakers. The selection remains deterministic and local; when there is no lexical match it falls back to the previous recency behaviour. Token budgets, stronger filtering and user-facing relevance explanations remain later work.
+The current lexical Claim resolver is a useful prototype. M4 migrates this capability to Memory Pages.
 
-Context resolution must preserve the boundary described in ADR 0010: a new purpose requires a new disclosure, and consumers must not silently reuse a task packet for evaluation, shared memory or reporting.
+Resolution order remains governance-first:
 
-After capture is producing real memory, improve the read path.
+1. explicit sharing/authority;
+2. review status;
+3. sensitivity;
+4. temporal validity;
+5. subject/project scope;
+6. relevance to purpose/task;
+7. freshness;
+8. context budget.
 
-Implemented:
+Relevance never widens access.
 
-- purpose/query-aware lexical scoring;
-- key/category/tag/value relevance;
-- recency/confidence tie-breaking with recency fallback;
-- selection method and relevance metadata.
+### RACK integration contract
 
-Remaining:
+RACK should consume a stable **ContextSource** abstraction.
 
-- project-aware refinement from real usage;
-- stronger freshness and epistemic weighting;
-- context/token budgets;
-- user-facing explainable selection;
-- context manifests, stable revisions and digests;
-- later optional embedding assistance if deterministic selection proves insufficient.
+```text
+TOPO Memory Pages
+       │
+       ▼
+TOPO context resolver
+       │
+       ▼
+Context Packet
+       │
+       ▼
+RACK ContextSource ─────┐
+                       │
+RACK PracticeSources ───┼──► assembled working context
+                       │
+other task context ─────┘
+```
 
-**Exit:** RACK and agents receive compact context selected for the work they are actually doing, not merely the newest confirmed claims.
+RACK should not know or care whether a packet originated from Memory Pages, legacy Claims or a later TOPO representation.
 
-### Optional practice-context loop — roadmap only until RACK ↔ Ship Check is proved
+For live-capable destinations, RACK can request fresh context when the purpose/task changes. For static destinations, it may snapshot explicitly selected context and record packet revision/digest/provenance.
 
-TOPO may later make the RACK/Ship Check loop more useful by supplying **purpose-bound context**, but it is not required for that loop and must not become an assurance engine.
+### Practice-context loop
 
-Potential context includes:
+TOPO may provide context such as:
 
 - project stage and expected lifetime;
 - intended users and accessibility needs;
 - data/security sensitivity;
 - maintenance ownership and team capability;
 - operating-cost sensitivity;
-- explicitly accepted risk or temporary constraints.
+- explicitly accepted temporary constraints.
 
-The intended relationship is:
+That context may help RACK select or explain practice. It must not establish practice.
 
-```text
-TOPO context (optional)
-        │
-        ├─ may help RACK select/emphasise practice
-        └─ may help a person interpret Ship Check evidence
+The invariant remains:
 
-RACK practice ─────► work ─────► Ship Check evidence
-       ▲                               │
-       └──── same stable principle IDs ┘
-```
+> TOPO may suggest practice. TOPO cannot establish practice.
 
-Boundaries:
+RACK + Ship Check must remain fully functional when TOPO is absent.
 
-- TOPO does not own or redefine `practice.*` principle identifiers.
-- TOPO context never suppresses, rewrites or upgrades deterministic Ship Check evidence.
-- Ship Check evidence does not become canonical TOPO memory automatically.
-- A repeated evidence pattern may be proposed as a memory or practice signal only through the normal review/proposal boundary.
-- Personal context remains personal; no per-person compliance history is created.
-- RACK + Ship Check must remain fully functional when TOPO is absent.
+---
 
-First test after the RACK ↔ Ship Check contract is stable:
+# Later phases
 
-1. request a small reviewed TOPO packet describing stage, lifetime, cost sensitivity and security sensitivity;
-2. use it to explain why a RACK practice principle is emphasised;
-3. run Ship Check independently;
-4. confirm the raw finding is unchanged with and without TOPO;
-5. compare whether the contextual explanation helps the person make a better repair decision.
+## Phase 5 — Derived views
 
-Do not add a TOPO runtime dependency to RACK or Ship Check for this test.
+Build category pages, profile/About Me views, version/diff views and other human-facing syntheses as **projections over canonical Memory Pages**.
 
-## Phase 5 — Derived human-readable views
-
-Build category documents, profile/About Me views, version/diff review, filesystem sync and Markdown/OKF exports as projections over canonical Claims.
+These are different from canonical Memory Pages: a generated profile is a view, not evidence.
 
 ## Phase 6 — Broader connectors
 
@@ -265,7 +364,7 @@ Only after browser and agent capture are validated in daily use:
 - external-object/event ledger for OOS/FlowLance-style operational data;
 - connector-specific promotion policy.
 
-Operational records should not silently become canonical memory.
+Operational records should not silently become personal memory.
 
 ## Phase 7 — Mature RACK bridge
 
@@ -274,15 +373,13 @@ Extend the existing bridge with:
 - stable ContextSource abstraction;
 - live/static context modes;
 - purpose-aware context budgets;
-- snapshot provenance;
+- page/revision provenance;
 - “promote repeated context to practice” review flow;
-- optional practice-evidence context that can explain why a principle matters without storing source code or individual verification history.
-
-TOPO may suggest RACK practice. It never establishes practice automatically.
+- optional practice-evidence context that explains why a principle matters without storing individual compliance history.
 
 ## Phase 8 — Optional sync / managed TOPO
 
-Only after the local capture/review/retrieval loop is trustworthy:
+Only after the local page-first capture/review/retrieval loop is trustworthy:
 
 - encrypted multi-device sync;
 - backup/recovery;
@@ -290,4 +387,47 @@ Only after the local capture/review/retrieval loop is trustworthy:
 - team/shared boundaries that model shared context as a separate relationship/source rather than administrator access to personal memory;
 - mobile client.
 
-Local use must remain first-class.
+Local use and open portable files must remain first-class.
+
+---
+
+# Evaluation
+
+The old capture metrics remain useful for migration comparisons, but key-level precision/recall is no longer sufficient.
+
+Evaluate the complete product loop:
+
+```text
+source interaction
+      ↓
+expected useful memories
+      ↓
+proposed Memory Pages
+      ↓
+human review/edit
+      ↓
+confirmed portable memory
+      ↓
+purpose-bound recall
+      ↓
+useful context in another system
+```
+
+Track:
+
+- useful-memory precision and recall;
+- faithfulness to evidence;
+- contextual completeness;
+- overreach;
+- duplicate/fragmentation rate;
+- temporal correctness;
+- review time per accepted memory;
+- cross-tool recall success;
+- portability/round-trip integrity;
+- token cost of resolved context.
+
+A clean interaction where nothing should be remembered is still a successful result when TOPO proposes nothing.
+
+The practical alpha exit becomes:
+
+> Use AI normally for a day, review a small high-quality set of coherent memories in a few minutes, export them in a form that still makes sense outside TOPO, and see the right context surface correctly in a different tool or model.
