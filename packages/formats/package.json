@@ -7,6 +7,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./memory-markdown": {
+      "types": "./dist/memoryMarkdown.d.ts",
+      "default": "./dist/memoryMarkdown.js"
     }
   },
   "scripts": {
