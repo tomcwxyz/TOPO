@@ -2,6 +2,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::BTreeMap;
 
+mod memory_page;
+pub use memory_page::*;
+
 pub const DOMAIN_CONTRACT_VERSION: &str = "0.1";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -371,6 +374,17 @@ mod tests {
             serde_json::from_value(original.clone()).expect("claim fixture should parse");
         assert_eq!(parsed.epistemic_type, EpistemicType::Inference);
         assert_eq!(parsed.status, ClaimStatus::Candidate);
+        assert_eq!(serde_json::to_value(parsed).unwrap(), original);
+    }
+
+    #[test]
+    fn memory_page_fixture_round_trips() {
+        let original = fixture("memory-page-project.json");
+        let parsed: MemoryPage =
+            serde_json::from_value(original.clone()).expect("Memory Page fixture should parse");
+        assert_eq!(parsed.status, MemoryPageStatus::Confirmed);
+        assert_eq!(parsed.horizon, MemoryHorizon::Project);
+        assert_eq!(parsed.source_refs[0].source_id, "source-1");
         assert_eq!(serde_json::to_value(parsed).unwrap(), original);
     }
 
