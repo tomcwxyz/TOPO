@@ -1,6 +1,6 @@
 # ADR 0002 — Claims are the canonical memory unit
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR 0011](0011-memory-pages-are-the-primary-durable-memory-unit.md)
 - **Date:** 2026-08-30
 
 ## Context
@@ -9,11 +9,11 @@ The predecessor projects use incompatible notions of a “fact”. Some store st
 
 A memory system needs to represent uncertainty and origin without pretending every extracted statement is equally true.
 
-## Decision
+## Original decision
 
-TOPO's canonical unit is a **claim**.
+TOPO's canonical unit was a **claim**.
 
-Every claim must retain:
+Every claim retained:
 
 - an epistemic type;
 - user-review status;
@@ -23,7 +23,7 @@ Every claim must retain:
 - temporal validity where relevant;
 - supersession relationships where relevant.
 
-Initial epistemic types:
+Initial epistemic types were:
 
 - `assertion` — explicitly stated by the subject/user;
 - `observation` — directly observed behaviour or repeated evidence;
@@ -31,13 +31,12 @@ Initial epistemic types:
 - `preference` — an expressed preference;
 - `derived-pattern` — a pattern derived from multiple observations.
 
-Model confidence and user confirmation are separate dimensions.
+Model confidence and user confirmation were separate dimensions.
 
-## Consequences
+## Supersession
 
-- a high-confidence inference remains visibly an inference;
-- extraction prompts can be generous without silently converting interpretation into fact;
-- contradictions and changes over time can be represented rather than flattened;
-- adapters can use a simple human-readable rendering without losing structured metadata.
+ADR 0011 keeps the valuable governance distinctions proved by this ADR but changes the primary durable memory representation from atomised Claims to coherent human-readable **Memory Pages**.
 
-The exact TypeScript/storage schema may evolve. These semantic distinctions require an ADR change to remove.
+Claims remain useful as optional structured annotations where structure earns its keep. They are no longer required to carry all of the meaning of memory.
+
+The existing Claim implementation remains part of the alpha migration path and should not be removed before Memory Page compatibility is proven.
