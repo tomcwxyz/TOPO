@@ -1,8 +1,26 @@
 import { z } from "zod";
-import type { Actor, JsonValue } from "./index.js";
 
 const nonEmptyString = z.string().trim().min(1);
 const dateTime = z.string().datetime({ offset: true });
+const memoryJsonValueSchema: z.ZodType<
+  string | number | boolean | null | unknown[] | { [key: string]: unknown }
+> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number().finite(),
+    z.boolean(),
+    z.null(),
+    z.array(memoryJsonValueSchema),
+    z.record(z.string(), memoryJsonValueSchema),
+  ]),
+);
+
+const memoryPageActorSchema = z
+  .object({
+    type: z.enum(["user", "agent", "system", "import"]),
+    id: nonEmptyString.optional(),
+  })
+  .strict();
 
 const memoryPageSensitivitySchema = z.enum([
   "ordinary",
@@ -105,23 +123,28 @@ export const memoryPageSchema = z
   });
 export type MemoryPage = z.infer<typeof memoryPageSchema>;
 
-export type MemoryPageEventType =
-  | "memory.proposed"
-  | "memory.confirmed"
-  | "memory.edited"
-  | "memory.rejected"
-  | "memory.superseded"
-  | "memory.expired";
+export const memoryPageEventTypeSchema = z.enum([
+  "memory.proposed",
+  "memory.confirmed",
+  "memory.edited",
+  "memory.rejected",
+  "memory.superseded",
+  "memory.expired",
+]);
+export type MemoryPageEventType = z.infer<typeof memoryPageEventTypeSchema>;
 
-export interface MemoryPageEvent {
-  id: string;
-  type: MemoryPageEventType;
-  entityType: "memory";
-  entityId: string;
-  occurredAt: string;
-  actor: Actor;
-  data?: Record<string, JsonValue>;
-}
+export const memoryPageEventSchema = z
+  .object({
+    id: nonEmptyString,
+    type: memoryPageEventTypeSchema,
+    entityType: z.literal("memory"),
+    entityId: nonEmptyString,
+    occurredAt: dateTime,
+    actor: memoryPageActorSchema,
+    data: z.record(z.string(), memoryJsonValueSchema).optional(),
+  })
+  .strict();
+export type MemoryPageEvent = z.infer<typeof memoryPageEventSchema>;
 
 export interface MemoryPageTransition {
   page: MemoryPage;
@@ -133,6 +156,22 @@ export function validateMemoryPage(value: unknown): asserts value is MemoryPage 
   if (!result.success) {
     throw new Error(
       `Invalid TOPO Memory Page: ${result.error.issues
+        .map((issue) => {
+          const path = issue.path.length > 0 ? `${issue.path.join(".")}: ` : "";
+          return `${path}${issue.message}`;
+        })
+        .join("; ")}`,
+    );
+  }
+}
+
+export function validateMemoryPageEvent(
+  value: unknown,
+): asserts value is MemoryPageEvent {
+  const result = memoryPageEventSchema.safeParse(value);
+  if (!result.success) {
+    throw new Error(
+      `Invalid TOPO Memory Page event: ${result.error.issues
         .map((issue) => {
           const path = issue.path.length > 0 ? `${issue.path.join(".")}: ` : "";
           return `${path}${issue.message}`;
