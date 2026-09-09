@@ -2,124 +2,137 @@
 
 ## 1. Purpose
 
-TOPO is a user-owned context layer for AI.
+TOPO is a user-owned context layer for AI and other tools.
 
 It gathers, reviews, maintains and selectively supplies useful context about a person, their work and their ongoing activity across different AI tools and providers.
 
-The problem is not simply that AI systems forget. Useful context is fragmented between products, buried in conversations, inferred without adequate evidence, or repeatedly re-entered by the user. Provider-native memory can be useful, but it is usually provider-specific and difficult to inspect, govern or move.
+The problem is not simply that AI systems forget. Useful context is fragmented between products, buried in conversations, inferred without adequate evidence, repeatedly re-entered by the user, and often stored in forms that are difficult to inspect or move.
 
 TOPO provides a portable, inspectable context layer underneath those systems.
 
-> Keep what matters. Know where it came from. Decide what AI gets to use.
+> Keep what matters. Know where it came from. Decide what gets to use it.
+
+A new architectural principle now follows from that purpose:
+
+> **The durable memory itself should remain useful outside TOPO.**
+
+See [Memory architecture](docs/MEMORY_ARCHITECTURE.md) and [ADR 0011](docs/adr/0011-memory-pages-are-the-primary-durable-memory-unit.md).
 
 ## 2. Relationship to RACK
 
-TOPO and RACK are separate layers.
+TOPO and RACK remain separate layers.
 
-- **TOPO** answers: **What should this AI know?**
+- **TOPO** answers: **What should this AI know for this purpose?**
 - **RACK** answers: **How should this AI work?**
 
-TOPO contains descriptive context: claims, preferences, observations, current circumstances, project context, relevant history and derived patterns.
+TOPO contains descriptive context: memories, preferences, observations, current circumstances, project context, relevant history and patterns.
 
 RACK contains normative practice: methods, instructions, guardrails, voice, tasks, tools and reusable working approaches.
 
-A TOPO observation such as “the user has requested British English repeatedly” is evidence. A RACK instruction such as “use British English” is governed practice.
+A TOPO memory such as “the user repeatedly requests British English” is descriptive context. A RACK instruction such as “use British English” is governed practice.
 
-TOPO may later propose a RACK change. It must never silently establish one.
+TOPO may propose a RACK change. It must never silently establish one.
+
+RACK consumes TOPO through a stable `ContextSource`/Context Packet boundary and must not depend on TOPO's internal schema.
 
 ## 3. Product principles
 
 ### User authority
-AI systems may propose additions. The default lifecycle is:
+
+AI systems may propose additions. The default lifecycle becomes:
 
 ```text
-capture → extract → candidate → review → confirm/edit/reject → memory
+capture → propose Memory Page → review/edit → confirm/reject → durable memory
 ```
 
-Direct writes are an explicit higher-trust permission, not the default.
+Direct confirmed writes remain an explicit higher-trust permission, not the default.
 
-### Claims, not unquestioned facts
-The canonical unit is a **claim**, because context can be asserted, observed, inferred, preferred or derived. Confidence does not erase that distinction.
+### Meaning before atomisation
+
+TOPO should preserve coherent meaning before introducing structure.
+
+A memory should normally be a short piece of readable contextual prose. Structured Claims/annotations are optional and exist where they materially improve machine reasoning or interoperability.
 
 ### Provenance by default
+
 It should be possible to answer:
 
 - Where did this come from?
 - When was it learned?
-- Was it stated, observed or inferred?
 - What evidence supports it?
 - Has the user reviewed it?
-- Has it been superseded?
+- Has it changed or been superseded?
+- Is it appropriate to use for this purpose?
+
+### Governance is independent of representation
+
+Moving from Claims to prose-first Memory Pages does not weaken authority, sensitivity, temporal validity or disclosure rules.
+
+Semantic relevance is never permission.
 
 ### Local first
+
 TOPO should work without an account, hosted database, telemetry or required cloud model.
 
 ### Portable by design
-The user should be able to leave TOPO without losing their memory. Native structured export and human-readable Markdown are product requirements, not backup features.
 
-### Derived content is not evidence
-Generated profiles and category documents are useful views over claims. They do not become source evidence merely because an LLM wrote them.
+The user should be able to leave TOPO without losing their memory.
+
+Human-readable Markdown memories and open structured metadata are part of the core product contract, not backup features.
+
+### Derived views are not evidence
+
+Generated profiles, category summaries and other syntheses are projections over canonical memories. They do not become source evidence merely because an LLM wrote them.
 
 ### Selective context
-TOPO should resolve context for a task rather than dump an entire profile into every interaction.
+
+TOPO resolves context for a task rather than dumping an entire profile into every interaction.
 
 ### Inspectability over magic
-Candidates, changes, contradictions, stale information, sources and context sharing should be visible.
+
+Candidates, edits, changes, contradictions, stale information, sources and context sharing should be visible.
 
 ## 4. Canonical domain model
 
-### Claim
+### Memory Page
 
-The exact schema will be validated during implementation, but the durable concepts are:
+The primary durable memory unit is a **Memory Page**.
+
+A Memory Page is short human-readable prose plus compact governance metadata.
+
+Conceptually:
 
 ```ts
-type EpistemicType =
-  | "assertion"
-  | "observation"
-  | "inference"
-  | "preference"
-  | "derived-pattern";
-
-type ClaimStatus =
-  | "candidate"
-  | "confirmed"
-  | "rejected"
-  | "superseded"
-  | "expired";
-
-type Sensitivity =
-  | "ordinary"
-  | "personal"
-  | "sensitive"
-  | "restricted";
-
-interface MemoryClaim {
+interface MemoryPage {
   id: string;
+  title: string;
+  body: string;
+
   subject: string;
-  key: string;
-  value: unknown;
   category?: string;
   tags: string[];
 
-  epistemicType: EpistemicType;
-  confidence: number;
+  status:
+    | "candidate"
+    | "confirmed"
+    | "rejected"
+    | "superseded"
+    | "expired";
 
-  provenance: {
-    sourceType:
-      | "conversation"
-      | "document"
-      | "manual"
-      | "mcp"
-      | "import"
-      | "connector";
-    provider?: string;
-    sourceId?: string;
-    evidence?: string;
-    capturedAt: string;
-  };
+  sensitivity:
+    | "ordinary"
+    | "personal"
+    | "sensitive"
+    | "restricted";
 
-  status: ClaimStatus;
-  sensitivity: Sensitivity;
+  horizon?: "durable" | "project" | "temporary";
+
+  sourceIds: string[];
+  evidence?: Array<{
+    sourceId: string;
+    excerpt?: string;
+    locator?: string;
+  }>;
 
   validFrom?: string;
   validUntil?: string;
@@ -130,47 +143,98 @@ interface MemoryClaim {
 }
 ```
 
-User confirmation and model confidence are separate concepts. A high-confidence inference remains an inference.
+The exact schema may evolve, but the durable concepts are:
+
+- the prose body carries meaning;
+- source evidence remains explicit;
+- review status and sensitivity remain explicit;
+- temporal validity remains explicit;
+- version/supersession history remains inspectable.
+
+### Structured annotation / Claim
+
+The existing Claim model remains available as an optional structured annotation.
+
+It is useful when structure earns its keep, for example:
+
+```ts
+interface MemoryAnnotation {
+  id: string;
+  memoryPageId: string;
+  key: string;
+  value: unknown;
+  epistemicType?:
+    | "assertion"
+    | "observation"
+    | "inference"
+    | "preference"
+    | "derived-pattern";
+  confidence?: number;
+  validFrom?: string;
+  validUntil?: string;
+}
+```
+
+Examples include explicit preferences, architectural constraints, temporary locations and machine-readable compatibility facts.
+
+A Memory Page may have no structured annotations at all.
+
+User confirmation and model confidence remain separate concepts when annotations carry epistemic metadata.
 
 ### Source
-A source represents the original evidence container: a conversation, document, manual entry, import bundle or connector record. Multiple claims may reference one source.
+
+A Source represents original evidence: a conversation, document, manual entry, import bundle or connector record. Multiple Memory Pages may reference one Source and a Memory Page may cite several Sources.
 
 ### Event
+
 TOPO maintains an append-oriented history of meaningful changes, for example:
 
 - `source.captured`
-- `claim.proposed`
-- `claim.confirmed`
-- `claim.edited`
-- `claim.rejected`
-- `claim.superseded`
-- `claim.expired`
-- `document.generated`
-- `document.accepted`
+- `memory.proposed`
+- `memory.confirmed`
+- `memory.edited`
+- `memory.rejected`
+- `memory.superseded`
+- `memory.expired`
+- `annotation.added`
+- `annotation.changed`
+- `view.generated`
 - `context.resolved`
 - `context.shared`
 
-### Memory document
-A Markdown synthesis of confirmed claims. Each generated version records its source claim IDs, generator/model, generation time and review state.
+### Derived view
+
+A generated profile, category summary, About Me document or other synthesis is a view over identified Memory Pages.
+
+Each generated version should be able to record:
+
+- source Memory Page IDs/revisions;
+- generator/model;
+- generation time;
+- review state;
+- version lineage.
 
 Canonical direction:
 
 ```text
-sources → claims → derived documents → context views
+sources → Memory Pages → context views / Context Packets
+             │
+             └── optional structured annotations
 ```
 
 Never:
 
 ```text
-claims → prose → summarised prose → untraceable new facts
+source → generated prose → summarised prose → untraceable new truth
 ```
 
 ### Schema
-A configurable schema defines categories, descriptions, extraction hints, examples, sensitivity defaults and context visibility defaults. The default schema must remain editable rather than becoming a fixed ontology.
+
+A configurable schema may provide categories, extraction hints, examples, sensitivity defaults and visibility defaults. It must not become a mandatory ontology for every memory.
 
 ## 5. Context resolution
 
-The primary output of TOPO is ultimately **resolved context**, not a database dump.
+The primary output of TOPO is **resolved context**, not a database dump.
 
 Conceptually:
 
@@ -186,28 +250,32 @@ resolveContext({
 
 Resolution considers:
 
-1. review status
-2. expiry / temporal validity
-3. sensitivity
-4. explicit visibility
-5. relevance to the task
-6. recency
-7. confidence
-8. context budget
+1. explicit sharing/authority;
+2. review status;
+3. sensitivity;
+4. temporal validity;
+5. subject/project scope;
+6. relevance to purpose/task;
+7. freshness;
+8. optional confidence/epistemic information;
+9. context budget.
 
-The returned context should include provenance and a stable revision/digest suitable for audit or snapshotting.
+The resolver returns concise excerpts or renderings from authorised Memory Pages with provenance and stable revision/digest metadata.
 
-Start with deterministic lexical/full-text retrieval, categories, tags, recency and explicit relationships. Embeddings are optional later.
+Start with deterministic metadata filters and full-text search. Add a small local semantic index when it demonstrably improves recall.
+
+Embeddings are retrieval infrastructure, not canonical memory.
 
 ## 6. Architecture
 
-TOPO should be a monorepo with the domain model isolated from UI, storage and transport.
+TOPO remains a monorepo with the domain model isolated from UI, storage and transport.
 
 ```text
 topo/
 ├── apps/
 │   ├── desktop/
 │   ├── extension/
+│   ├── mcp/
 │   └── cli/
 ├── packages/
 │   ├── schemas/
@@ -217,146 +285,284 @@ topo/
 │   ├── formats/
 │   ├── capture/
 │   ├── retrieval/
-│   ├── providers/
 │   └── mcp/
 ├── crates/
 │   └── topo-contracts/
 ├── adapters/
-│   └── rack/
+│   └── oos/
 ├── docs/
 └── test-fixtures/
 ```
 
 ### Schemas
-`packages/schemas` owns the canonical serialisable/runtime-validated interchange contract. Stable fixtures are shared with the Rust native boundary so TypeScript and Rust agree on the same claim, source and event records.
+
+`packages/schemas` owns the canonical serialisable/runtime-validated interchange contracts for Memory Pages, Sources, annotations, Events and Context Packets.
+
+Stable fixtures are shared with the Rust native boundary so TypeScript and Rust agree on the same interchange semantics.
 
 ### Core
-`packages/core` owns lifecycle and authority policy over those contracts. It should remain independent of UI, database and transport implementations.
+
+`packages/core` owns lifecycle and authority policy. Representation changes must not duplicate governance rules across UI, database or transport layers.
 
 ### Store
-`packages/store` owns runtime-neutral persistence interfaces. `packages/store-node` is the Node SQLite implementation used by CLI and later MCP. TOPO Desktop uses a native Rust persistence implementation behind the same conceptual contract rather than embedding a Node native SQLite module. Browser-only standalone mode can use IndexedDB.
+
+`packages/store` owns runtime-neutral persistence interfaces. SQLite remains the primary local operational store.
+
+The database is an implementation of the memory model, not the user's only representation of it.
+
+### Portable files
+
+Markdown Memory Pages are first-class portable artefacts. TOPO may maintain an internal SQLite representation for efficient operation while guaranteeing round-trip export/import to open files and metadata.
 
 ### Desktop
-`apps/desktop` follows the RACK pattern: React/TypeScript for the application layer, with Tauri/Rust owning native capabilities such as SQLite, filesystem access, secrets and local-service integration. Rust should not independently reimplement TOPO lifecycle policy.
+
+`apps/desktop` follows the RACK pattern: React/TypeScript for the application layer, with Tauri/Rust owning native capabilities such as SQLite, filesystem access, secrets and local-service integration.
 
 ### Capture
-Capture is a reusable pipeline:
+
+Capture becomes a reusable page-first pipeline:
 
 ```text
 capture source
   → normalise
-  → extract
-  → validate
-  → compare
-  → detect duplicate/contradiction/change
-  → candidate claims
+  → identify useful future context
+  → draft coherent Memory Pages
+  → validate against evidence
+  → compare duplicate/extension/change
+  → candidate memories
 ```
 
+Optional structured annotations can be extracted when useful, but should not multiply review burden by default.
+
+### Retrieval
+
+Retrieval is layered:
+
+```text
+governance filters
+       ↓
+metadata + FTS
+       ↓
+optional local semantic index
+       ↓
+purpose/task ranking
+       ↓
+context budget/composition
+       ↓
+Context Packet
+```
+
+Any embedding index must be completely reconstructable from canonical Memory Pages.
+
 ### MCP
-MCP is an adapter around the shared core, not a separate memory implementation. The normal agent path is proposal/review rather than direct confirmed writes.
+
+MCP remains an adapter around the shared core, not a separate memory implementation.
+
+The normal agent path is proposal/review rather than silent confirmed writes. MCP resources and tools will migrate from claim-first operations to page-first operations while retaining compatibility during alpha.
 
 ### Browser extension
-The current `llm-memory-extractor` provides useful capture adapters, review UX, local-model support, schema editing, document views, diff/version UX and filesystem sync. These should migrate onto the canonical TOPO model rather than retain a second source of truth.
+
+The Chromium capture companion remains a capture surface only. It must not become a second memory store.
 
 ## 7. Portable format
 
-TOPO defines a versioned native bundle independent of internal database layout. The first contract is intentionally small:
+TOPO defines a versioned native bundle independent of internal database layout.
+
+Target direction:
 
 ```text
 topo-bundle/
 ├── manifest.json
+├── memories/
+│   └── *.md
 ├── sources.jsonl
-├── claims.jsonl
-└── events.jsonl
+├── annotations.jsonl
+├── events.jsonl
+└── index.sqlite        # optional, disposable
 ```
 
-The v0.1 bundle is complete for the records implemented today, validates internal references, and imports conservatively without overwriting existing IDs. Future format versions may add `schema.json`, derived documents and other assets explicitly through the manifest.
+The exact vNext contract will be introduced additively alongside the existing v0.1 Claim bundle.
 
-Adapters may additionally support Markdown, JSON, OKF and MCP resources. See `docs/BUNDLE_FORMAT.md`.
+Portable format rules:
+
+- Memory Page Markdown is first-class;
+- governance metadata is documented and open;
+- meaning must not depend on `annotations.jsonl`;
+- source/evidence links must survive round trip;
+- the index is optional and rebuildable;
+- imports remain conservative about identity/conflicts;
+- the filesystem representation should be usable from Git, notes tools and other AI systems.
 
 ## 8. Security posture
 
-Before remote or managed functionality, TOPO needs an explicit threat model.
+Initial rules remain:
 
-Initial rules:
+- local-only by default;
+- loopback network binding by default;
+- no unauthenticated non-loopback transport;
+- no secrets or encryption keys in query strings;
+- no analytics by default;
+- cloud-model disclosure must be explicit;
+- sensitivity-aware context filtering;
+- purpose-bound disclosure;
+- at-rest encryption, if enabled, must cover sensitive history as well as current records;
+- no zero-knowledge or end-to-end claims unless the architecture genuinely guarantees them.
 
-- local-only by default
-- loopback network binding by default
-- no unauthenticated non-loopback transport
-- no secrets or encryption keys in query strings
-- no analytics by default
-- cloud-model disclosure must be explicit
-- sensitivity-aware context filtering
-- at-rest encryption, if enabled, must cover sensitive history as well as current records
-- no zero-knowledge or end-to-end claims unless the architecture genuinely guarantees them
+A semantic index must never become a path around governance filters.
 
 ## 9. Temporal memory and contradictions
 
 TOPO should distinguish:
 
-- duplicate
-- extension
-- contradiction
-- replacement
-- historical change
+- duplicate;
+- supporting evidence;
+- extension;
+- contradiction;
+- replacement;
+- historical change.
 
-A newer preference should not necessarily erase the older state. Temporal change is useful context in its own right.
+A newer state should not necessarily erase older context.
+
+Page-level edits and supersession should retain meaningful history. Structured annotations can assist deterministic comparison where useful, but the user-facing memory should remain coherent prose.
 
 ## 10. RACK integration
 
-RACK integration comes after the TOPO core stabilises.
+RACK integration is deliberately representation-independent.
 
-RACK should gain a **ContextSource** abstraction separate from its existing PracticeSource/authority model. TOPO context is selected by relevance, sensitivity, confidence, freshness, scope and budget. RACK practice is resolved by explicit authority and precedence.
+RACK gains/retains a **ContextSource** abstraction separate from its PracticeSource/authority model.
 
-For live-capable destinations, TOPO can remain a dynamic context resource. For static destinations, RACK can snapshot selected TOPO context and record the revision/digest in its build manifest.
+TOPO context is selected by authority, sensitivity, scope, freshness, relevance and budget. RACK practice is resolved by explicit authority and precedence.
 
-### Promote to practice
-A later bridge may identify a repeated confirmed preference or pattern and propose a RACK module/change.
+```text
+TOPO Memory Pages
+       │
+       ▼
+TOPO resolver
+       │
+       ▼
+Context Packet
+       │
+       ▼
+RACK ContextSource ─────┐
+                       │
+RACK PracticeSources ───┼──► working context/instructions
+                       │
+other task context ─────┘
+```
 
-The invariant is:
+For live-capable destinations, TOPO remains a dynamic context resource.
+
+For static destinations, RACK may snapshot selected TOPO context and record packet revision/digest/provenance in its build manifest.
+
+### Promote context to practice
+
+A repeated confirmed memory or pattern may later lead TOPO to propose a RACK module/change.
+
+The invariant remains:
 
 > TOPO may suggest practice. TOPO cannot establish practice.
 
-## 11. Existing repositories
+### Portability consequence
 
-### mymemory
-Reference implementation. Preserve useful ideas around staging, imports, selective disclosure, provenance and provider abstraction. Do not carry forward its current hosted encryption/key-handling assumptions or mixed legacy storage model.
+RACK should be one consumer among many.
 
-### llm-memory-extractor
-Primary source for browser capture mechanics and UX. Preserve adapters, configurable extraction, review, local model support, derived documents, version/diff UX and OKF ideas. Replace its canonical IndexedDB model, aggressive inference semantics and timestamp-only document provenance.
+A user should be able to provide the same governed TOPO memory to another agent, model, local tool or future working-practice system without converting it through RACK first.
 
-### mymemory-mcp-server
-Primary source for local agent interaction patterns. Preserve candidate workflows, MCP tools/resources, search, stale review, attribution, audit and schema customisation. Replace the flat JSON canonical store, direct-write defaults, broad profile injection and unsafe optional remote authentication.
+## 11. Organisational OS boundary
 
-### myAImemory
-Historical snapshot; no architectural dependency.
+Operational state remains distinct from personal durable memory.
 
-## 12. v0.1 success criteria
+A FlowLance task, calendar event or organisational record should not become a canonical Memory Page merely because TOPO can connect to it.
 
-TOPO v0.1 succeeds when:
+TOPO may reference external state or propose a memory from it under explicit connector policy, but organisational systems do not inherit access to a person's memory field.
+
+Context disclosure remains purpose-bound.
+
+## 12. Migration from the claim-based alpha
+
+Do not rewrite the working alpha in one step.
+
+Migration sequence:
+
+1. add Memory Page schemas/fixtures alongside Claims;
+2. add SQLite persistence and events;
+3. add Markdown round-trip export/import;
+4. link existing confirmed Claims to provisional Memory Pages where useful;
+5. change capture extraction to page-first proposals;
+6. redesign the inbox around coherent memories;
+7. make context resolution page-aware while preserving Context Packet transport;
+8. add optional semantic retrieval after deterministic page retrieval works;
+9. migrate MCP/CLI operations;
+10. remove assumptions that every durable memory must be a Claim only after compatibility and data migration tests pass.
+
+Existing Sources, Event history and provenance are assets and must survive.
+
+## 13. Evaluation
+
+TOPO should optimise for **useful future context**, not extraction volume.
+
+The end-to-end test becomes:
+
+```text
+known source interaction
+      ↓
+expected useful memories
+      ↓
+proposed Memory Pages
+      ↓
+human review/edit
+      ↓
+confirmed portable memory
+      ↓
+purpose-bound recall
+      ↓
+useful context in another tool/model
+```
+
+Measure:
+
+- useful-memory precision/recall;
+- faithfulness to evidence;
+- contextual completeness;
+- overreach;
+- fragmentation/duplication;
+- temporal correctness;
+- review effort;
+- cross-tool recall success;
+- portable round-trip integrity;
+- context/token efficiency.
+
+A conversation where nothing is worth remembering is a successful result when TOPO proposes nothing.
+
+## 14. vNext success criteria
+
+TOPO's next architecture milestone succeeds when:
 
 1. it runs locally without an account;
-2. multiple AI clients can use one local memory store;
-3. AI clients can propose claims without silently confirming them;
-4. users can inspect evidence/provenance;
-5. assertions and inferences remain distinct;
-6. claims can expire, change or supersede one another;
-7. useful retrieval works without mandatory embeddings;
-8. the complete store can be exported in a documented portable format;
-9. browser capture can populate the same canonical model;
-10. the architecture leaves a clean path to RACK integration.
+2. Memory Pages can be proposed, reviewed and confirmed;
+3. each memory remains traceable to source evidence;
+4. Markdown export is readable/useful without TOPO;
+5. export/import round trips without losing governance/history;
+6. structured annotations remain optional;
+7. browser capture can populate the page-first model;
+8. purpose-bound retrieval works over Memory Pages;
+9. RACK consumes the same stable Context Packet boundary without depending on page internals;
+10. another non-RACK AI/tool can consume the same portable context;
+11. semantic indexing, if enabled, is fully disposable/rebuildable;
+12. existing alpha Claim data can migrate without losing provenance.
 
-## 13. Explicit non-goals for v0.1
+## 15. Explicit non-goals for the migration
 
 Defer:
 
-- hosted accounts
-- team memory
-- automatic broad email ingestion
-- SaaS connector ecosystem
-- mobile app
-- automatic RACK modification
-- organisation-wide memory
-- vector database dependency
-- autonomous hidden extraction
-- automatic sharing of sensitive context
+- hosted accounts;
+- team memory;
+- automatic broad email ingestion;
+- SaaS connector ecosystem;
+- mobile app;
+- automatic RACK modification;
+- organisation-wide memory;
+- knowledge graph/ontology infrastructure;
+- vector database dependency;
+- autonomous hidden extraction;
+- automatic sharing of sensitive context.
