@@ -1,0 +1,26 @@
+{
+  "id": "memory-1",
+  "subject": "self",
+  "title": "RACK architecture",
+  "summary": "RACK deliberately uses Neon rather than Supabase.",
+  "body": "RACK uses Neon rather than Supabase. The managed architecture uses Neon Postgres with Drizzle and Neon Auth, while local projects remain account-free. The choice is deliberate, so future architecture work should not introduce Supabase as a dependency.",
+  "category": "project-context",
+  "tags": ["rack", "architecture"],
+  "status": "confirmed",
+  "sensitivity": "ordinary",
+  "horizon": "project",
+  "origin": "extracted",
+  "sourceRefs": [
+    {
+      "sourceId": "source-1",
+      "evidence": "not Supabase, use Neon",
+      "turnIds": ["turn-user-1"]
+    }
+  ],
+  "annotationIds": ["claim-1"],
+  "validFrom": "2026-08-30T18:00:00.000Z",
+  "supersedes": [],
+  "revision": 2,
+  "createdAt": "2026-08-30T18:00:00.000Z",
+  "updatedAt": "2026-09-09T20:30:00.000Z"
+}

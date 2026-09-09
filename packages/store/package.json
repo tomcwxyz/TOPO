@@ -7,6 +7,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./memory-pages": {
+      "types": "./dist/memoryPages.d.ts",
+      "default": "./dist/memoryPages.js"
     }
   },
   "scripts": {

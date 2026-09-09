@@ -8,6 +8,7 @@ import {
   memoryEventSchema,
   memorySourceSchema,
 } from "../dist/index.js";
+import { memoryPageSchema } from "../dist/memory-page.js";
 
 const fixtures = fileURLToPath(
   new URL("../../../test-fixtures/domain/", import.meta.url),
@@ -35,6 +36,13 @@ test("TypeScript accepts the shared event fixture", () => {
   assert.equal(memoryEventSchema.safeParse(read("event-confirmed.json")).success, true);
 });
 
+test("TypeScript accepts the shared Memory Page fixture", () => {
+  const result = memoryPageSchema.parse(read("memory-page-project.json"));
+  assert.equal(result.status, "confirmed");
+  assert.equal(result.horizon, "project");
+  assert.equal(result.sourceRefs[0].sourceId, "source-1");
+  assert.match(result.body, /Neon rather than Supabase/);
+});
 
 test("TypeScript accepts the shared capture fixture", () => {
   const result = capturedInteractionSchema.parse(read("capture-conversation.json"));
