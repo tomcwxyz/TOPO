@@ -1,13 +1,21 @@
 import { z } from "zod";
-import {
-  actorSchema,
-  memoryHorizonSchema,
-  sensitivitySchema,
-  type Actor,
-} from "./index.js";
+import type { Actor, JsonValue } from "./index.js";
 
 const nonEmptyString = z.string().trim().min(1);
 const dateTime = z.string().datetime({ offset: true });
+
+const memoryPageSensitivitySchema = z.enum([
+  "ordinary",
+  "personal",
+  "sensitive",
+  "restricted",
+]);
+
+const memoryPageHorizonSchema = z.enum([
+  "durable",
+  "project",
+  "temporary",
+]);
 
 export const memoryPageStatusSchema = z.enum([
   "candidate",
@@ -55,8 +63,8 @@ export const memoryPageSchema = z
       "tags must be unique",
     ),
     status: memoryPageStatusSchema,
-    sensitivity: sensitivitySchema,
-    horizon: memoryHorizonSchema,
+    sensitivity: memoryPageSensitivitySchema,
+    horizon: memoryPageHorizonSchema,
     origin: memoryPageOriginSchema,
     sourceRefs: z.array(memoryPageSourceRefSchema).min(1),
     annotationIds: z.array(nonEmptyString).refine(
@@ -97,23 +105,27 @@ export const memoryPageSchema = z
   });
 export type MemoryPage = z.infer<typeof memoryPageSchema>;
 
+export type MemoryPageEventType =
+  | "memory.proposed"
+  | "memory.confirmed"
+  | "memory.edited"
+  | "memory.rejected"
+  | "memory.superseded"
+  | "memory.expired";
+
+export interface MemoryPageEvent {
+  id: string;
+  type: MemoryPageEventType;
+  entityType: "memory";
+  entityId: string;
+  occurredAt: string;
+  actor: Actor;
+  data?: Record<string, JsonValue>;
+}
+
 export interface MemoryPageTransition {
   page: MemoryPage;
-  event: {
-    id: string;
-    type:
-      | "memory.proposed"
-      | "memory.confirmed"
-      | "memory.edited"
-      | "memory.rejected"
-      | "memory.superseded"
-      | "memory.expired";
-    entityType: "memory";
-    entityId: string;
-    occurredAt: string;
-    actor: Actor;
-    data?: Record<string, import("./index.js").JsonValue>;
-  };
+  event: MemoryPageEvent;
 }
 
 export function validateMemoryPage(value: unknown): asserts value is MemoryPage {
@@ -128,8 +140,4 @@ export function validateMemoryPage(value: unknown): asserts value is MemoryPage 
         .join("; ")}`,
     );
   }
-}
-
-export function validateMemoryPageActor(value: unknown): asserts value is Actor {
-  actorSchema.parse(value);
 }
