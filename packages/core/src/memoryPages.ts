@@ -68,6 +68,10 @@ function clonePage(page: MemoryPage): MemoryPage {
   };
 }
 
+function jsonSnapshot(value: unknown): JsonValue {
+  return JSON.parse(JSON.stringify(value)) as JsonValue;
+}
+
 function eventForPage(
   page: MemoryPage,
   type: MemoryPageEvent["type"],
@@ -145,12 +149,15 @@ export function editCandidateMemoryPage(
 
   const change = (
     field: string,
-    before: JsonValue,
-    after: JsonValue,
+    before: unknown,
+    after: unknown,
     apply: () => void,
   ): void => {
     if (JSON.stringify(before) === JSON.stringify(after)) return;
-    changes[field] = { from: before, to: after };
+    changes[field] = {
+      from: jsonSnapshot(before),
+      to: jsonSnapshot(after),
+    };
     apply();
   };
 
