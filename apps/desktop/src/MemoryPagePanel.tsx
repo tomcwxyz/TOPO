@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
 type MemoryPageStatus = "candidate" | "confirmed" | "rejected" | "superseded" | "expired";
@@ -65,6 +65,8 @@ const statusOrder: Record<MemoryPageStatus, number> = {
   rejected: 4,
 };
 
+const MAX_REVIEW_DURATION_MS = 4 * 60 * 60 * 1_000;
+
 function formFor(page: MemoryPage): PageEditForm {
   return {
     title: page.title,
@@ -96,6 +98,46 @@ export function MemoryPagePanel({
   const [editForm, setEditForm] = useState<PageEditForm | null>(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const reviewPointerInside = useRef(false);
+  const reviewFocusInside = useRef(false);
+  const reviewStartedAt = useRef<number | null>(null);
+  const reviewAccumulatedMs = useRef(0);
+
+  const pauseReviewTimer = useCallback(() => {
+    if (reviewStartedAt.current === null) return;
+    reviewAccumulatedMs.current += Math.max(0, performance.now() - reviewStartedAt.current);
+    reviewStartedAt.current = null;
+  }, []);
+
+  const syncReviewTimer = useCallback(() => {
+    const shouldRun =
+      document.visibilityState === "visible" &&
+      document.hasFocus() &&
+      (reviewPointerInside.current || reviewFocusInside.current);
+
+    if (shouldRun) {
+      if (reviewStartedAt.current === null) {
+        reviewStartedAt.current = performance.now();
+      }
+      return;
+    }
+
+    pauseReviewTimer();
+  }, [pauseReviewTimer]);
+
+  const snapshotReviewDuration = useCallback(() => {
+    pauseReviewTimer();
+    return Math.min(
+      MAX_REVIEW_DURATION_MS,
+      Math.max(0, Math.round(reviewAccumulatedMs.current)),
+    );
+  }, [pauseReviewTimer]);
+
+  const resetReviewDuration = useCallback(() => {
+    reviewAccumulatedMs.current = 0;
+    reviewStartedAt.current = null;
+    syncReviewTimer();
+  }, [syncReviewTimer]);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -124,6 +166,19 @@ export function MemoryPagePanel({
   useEffect(() => {
     void refresh();
   }, [refresh, refreshToken]);
+
+  useEffect(() => {
+    const handleActivityStateChange = () => syncReviewTimer();
+    document.addEventListener("visibilitychange", handleActivityStateChange);
+    window.addEventListener("focus", handleActivityStateChange);
+    window.addEventListener("blur", handleActivityStateChange);
+    return () => {
+      document.removeEventListener("visibilitychange", handleActivityStateChange);
+      window.removeEventListener("focus", handleActivityStateChange);
+      window.removeEventListener("blur", handleActivityStateChange);
+      pauseReviewTimer();
+    };
+  }, [pauseReviewTimer, syncReviewTimer]);
 
   const filteredPages = useMemo(() => {
     const normalisedQuery = query.trim().toLocaleLowerCase("en-GB");
@@ -178,11 +233,18 @@ export function MemoryPagePanel({
       return;
     }
 
+    const reviewDurationMs = snapshotReviewDuration();
+    let reviewPersisted = false;
     setBusy(true);
     onError(null);
     onMessage(null);
     try {
-      await invoke("review_memory_page", { id: page.id, decision });
+      await invoke("review_memory_page", {
+        id: page.id,
+        decision,
+        reviewDurationMs,
+      });
+      reviewPersisted = true;
       setSelectedIds((current) => current.filter((id) => id !== page.id));
       if (editingId === page.id) {
         setEditingId(null);
@@ -196,6 +258,8 @@ export function MemoryPagePanel({
       onError(String(cause));
     } finally {
       setBusy(false);
+      if (reviewPersisted) resetReviewDuration();
+      else syncReviewTimer();
     }
   };
 
@@ -215,11 +279,18 @@ export function MemoryPagePanel({
       return;
     }
 
+    const reviewDurationMs = snapshotReviewDuration();
+    let reviewPersisted = false;
     setBusy(true);
     onError(null);
     onMessage(null);
     try {
-      await invoke("review_memory_pages", { ids: selectedIds, decision });
+      await invoke("review_memory_pages", {
+        ids: selectedIds,
+        decision,
+        reviewDurationMs,
+      });
+      reviewPersisted = true;
       const count = selectedIds.length;
       setSelectedIds([]);
       onMessage(
@@ -230,6 +301,8 @@ export function MemoryPagePanel({
       onError(String(cause));
     } finally {
       setBusy(false);
+      if (reviewPersisted) resetReviewDuration();
+      else syncReviewTimer();
     }
   };
 
@@ -283,7 +356,28 @@ export function MemoryPagePanel({
   const disabled = busy || externallyBusy;
 
   return (
-    <section className="memory-page-panel" aria-label="Memory Pages">
+    <section
+      className="memory-page-panel"
+      aria-label="Memory Pages"
+      onMouseEnter={() => {
+        reviewPointerInside.current = true;
+        syncReviewTimer();
+      }}
+      onMouseLeave={() => {
+        reviewPointerInside.current = false;
+        syncReviewTimer();
+      }}
+      onFocusCapture={() => {
+        reviewFocusInside.current = true;
+        syncReviewTimer();
+      }}
+      onBlurCapture={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+          reviewFocusInside.current = false;
+          syncReviewTimer();
+        }
+      }}
+    >
       <div className="memory-toolbar">
         <div>
           <p className="kicker">{filter === "candidate" ? "Review inbox" : "Memory Pages"}</p>
@@ -291,6 +385,11 @@ export function MemoryPagePanel({
           <p className="memory-page-intro">
             Review the useful context as prose first. Structured claims remain available below for compatibility and deterministic annotations.
           </p>
+          {filter === "candidate" && (
+            <small className="muted">
+              TOPO records active review time locally on review decisions. Time while the app is hidden, unfocused or this panel is not being used is excluded.
+            </small>
+          )}
         </div>
         <div className="filters">
           <input
@@ -549,10 +648,12 @@ export function MemoryPagePanel({
                     <button className="secondary" type="button" disabled={disabled} onClick={() => startEditing(page)}>
                       Edit
                     </button>
-                    <button className="secondary" type="button" disabled={disabled} onClick={() => void reviewPage(page, "reject")}>
+                    <button className="secondary" type="button" disabled={disabled} onClick={() => void reviewPage(page, "reject")}
+                    >
                       Reject
                     </button>
-                    <button className="primary compact" type="button" disabled={disabled} onClick={() => void reviewPage(page, "confirm")}>
+                    <button className="primary compact" type="button" disabled={disabled} onClick={() => void reviewPage(page, "confirm")}
+                    >
                       Confirm
                     </button>
                   </div>
