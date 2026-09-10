@@ -1,0 +1,165 @@
+.memory-page-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.memory-page-intro {
+  max-width: 700px;
+  margin: 0;
+  color: #5f5d55;
+  font-size: .82rem;
+  line-height: 1.45;
+}
+
+.memory-page-list {
+  display: grid;
+  gap: 14px;
+}
+
+.memory-page-card {
+  display: grid;
+  align-content: start;
+  padding: 20px;
+  border: 1px solid #777368;
+  background: rgba(255,255,255,.23);
+}
+
+.memory-page-card .subject {
+  margin-top: 15px;
+}
+
+.memory-page-title {
+  margin: 14px 0 6px;
+  font-size: 1.28rem;
+  line-height: 1.2;
+  letter-spacing: -.018em;
+}
+
+.memory-page-summary {
+  margin: 0 0 12px;
+  color: #5f5d55;
+  font-size: .84rem;
+  line-height: 1.45;
+  font-weight: 650;
+}
+
+.memory-page-body {
+  max-width: 78ch;
+  margin: 0 0 16px;
+  white-space: pre-wrap;
+  font-size: .98rem;
+  line-height: 1.58;
+}
+
+.memory-horizon {
+  display: inline-block;
+  padding: 3px 6px;
+  border-bottom: 1px solid #777368;
+  color: #5f5d55;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-size: .62rem;
+  font-weight: 800;
+}
+
+.memory-page-edit {
+  display: grid;
+  gap: 12px;
+  margin-top: 15px;
+  padding-top: 15px;
+  border-top: 1px solid #aaa59a;
+}
+
+.memory-page-edit textarea {
+  min-height: 160px;
+}
+
+.legacy-tools,
+.legacy-claims {
+  border: 1px solid #aaa59a;
+  background: rgba(255,255,255,.1);
+}
+
+.legacy-tools > summary,
+.legacy-claims > summary {
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 13px 15px;
+  font-size: .78rem;
+  font-weight: 800;
+}
+
+.legacy-tools > summary::-webkit-details-marker,
+.legacy-claims > summary::-webkit-details-marker {
+  display: none;
+}
+
+.legacy-tools > summary::after,
+.legacy-claims > summary::after {
+  content: "+";
+  margin-left: auto;
+  font-size: 1rem;
+  font-weight: 500;
+}
+
+.legacy-tools[open] > summary::after,
+.legacy-claims[open] > summary::after {
+  content: "−";
+}
+
+.legacy-tools > summary span,
+.legacy-claims > summary small {
+  color: #656159;
+  font-size: .67rem;
+  font-weight: 500;
+}
+
+.legacy-tools .legacy-claim-form {
+  border: 0;
+  border-top: 1px solid #aaa59a;
+  background: transparent;
+}
+
+.legacy-claims {
+  margin-top: 28px;
+}
+
+.legacy-claims > summary {
+  padding: 15px 17px;
+  border-top: 1px solid transparent;
+}
+
+.legacy-claims > summary span {
+  font-size: .82rem;
+}
+
+.legacy-claims-content {
+  display: grid;
+  gap: 12px;
+  padding: 17px;
+  border-top: 1px solid #aaa59a;
+}
+
+.legacy-memory-toolbar {
+  margin-bottom: 0;
+}
+
+@media (max-width: 760px) {
+  .legacy-tools > summary,
+  .legacy-claims > summary {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .legacy-claims > summary small {
+    width: 100%;
+  }
+
+  .memory-page-card {
+    padding: 16px;
+  }
+}
