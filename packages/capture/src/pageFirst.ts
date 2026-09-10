@@ -101,16 +101,29 @@ function tokenSet(value: string): Set<string> {
   );
 }
 
+function sharedTokenCount(a: Set<string>, b: Set<string>): number {
+  let intersection = 0;
+  for (const token of a) {
+    if (b.has(token)) intersection += 1;
+  }
+  return intersection;
+}
+
 function jaccard(left: string, right: string): number {
   const a = tokenSet(left);
   const b = tokenSet(right);
   if (a.size === 0 && b.size === 0) return 1;
   if (a.size === 0 || b.size === 0) return 0;
-  let intersection = 0;
-  for (const token of a) {
-    if (b.has(token)) intersection += 1;
-  }
+  const intersection = sharedTokenCount(a, b);
   return intersection / (a.size + b.size - intersection);
+}
+
+function containmentOverlap(left: string, right: string): number {
+  const a = tokenSet(left);
+  const b = tokenSet(right);
+  if (a.size === 0 && b.size === 0) return 1;
+  if (a.size === 0 || b.size === 0) return 0;
+  return sharedTokenCount(a, b) / Math.min(a.size, b.size);
 }
 
 function tagOverlap(left: string[] | undefined, right: string[]): number {
@@ -155,15 +168,19 @@ export function compareMemoryPageProposal(
 
   const supporting = active.filter((page) => {
     const bodySimilarity = jaccard(page.body, proposal.body);
+    const bodyCoverage = containmentOverlap(page.body, proposal.body);
     const titleSimilarity = jaccard(page.title, proposal.title);
     const categoryMatches =
       proposal.category !== undefined &&
       page.category !== undefined &&
       normaliseText(proposal.category) === normaliseText(page.category);
+    const tagsMatch = tagOverlap(proposal.tags, page.tags);
     return (
       bodySimilarity >= 0.82 ||
+      (bodyCoverage >= 0.78 &&
+        (titleSimilarity >= 0.5 || categoryMatches || tagsMatch >= 0.5)) ||
       (titleSimilarity >= 0.75 && bodySimilarity >= 0.62) ||
-      (categoryMatches && tagOverlap(proposal.tags, page.tags) >= 0.75 && bodySimilarity >= 0.6)
+      (categoryMatches && tagsMatch >= 0.75 && bodySimilarity >= 0.6)
     );
   });
   if (supporting.length > 0) {
