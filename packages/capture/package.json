@@ -7,6 +7,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./page-first": {
+      "types": "./dist/pageFirst.d.ts",
+      "default": "./dist/pageFirst.js"
     }
   },
   "scripts": {

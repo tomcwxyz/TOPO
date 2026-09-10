@@ -12,6 +12,16 @@ See [Memory architecture](docs/MEMORY_ARCHITECTURE.md) and [ADR 0011](docs/adr/0
 
 Across every phase, personal context remains personal by default. TOPO uses the non-hierarchical **inside / between / beneath / around** model for reasoning about relationships and information movement. A Context Packet is a purpose-bound disclosure, not permission for secondary use, organisational analytics or individual monitoring.
 
+## Current migration status
+
+- **M1 — Canonical Memory Page contract:** implemented.
+- **M2 — Portable Markdown:** implemented and merged.
+- **M3 — Page-first capture and review:** implemented; now ready for dogfooding/hardening.
+- **M4 — Page-aware context resolution:** **next implementation milestone**.
+- **M5 — Small local semantic index:** only after deterministic M4 retrieval is measurable.
+
+The important remaining migration boundary is retrieval: the desktop and capture loop are now page-first, while the current Context Packet resolver is still Claim-backed for compatibility.
+
 ## Near-term product proof
 
 The next milestone is:
@@ -58,11 +68,11 @@ Do not broaden the transport until the Memory Page migration is stable.
 
 ## Iteration M1 — Canonical Memory Page contract
 
-**Priority:** now.
+**Status:** implemented.
 
 **Goal:** introduce the new durable memory representation without discarding the working alpha.
 
-Build:
+Implemented:
 
 - `MemoryPage` schema with body, title/summary, review state, sensitivity, horizon, temporal validity, source references, tags and version/supersession metadata;
 - runtime-neutral TypeScript + Rust interchange fixtures;
@@ -78,15 +88,17 @@ Rules:
 - structured annotations are optional;
 - existing Source IDs, events and provenance are preserved;
 - generated text cannot cite itself as evidence;
-- migration must be reversible during alpha.
+- migration remains reversible during alpha.
 
-**Exit:** TOPO can persist, inspect and round-trip a governed Memory Page alongside existing Claims.
+**Exit achieved:** TOPO can persist, inspect and round-trip a governed Memory Page alongside existing Claims.
 
 ## Iteration M2 — Portable Markdown as a first-class representation
 
+**Status:** implemented and merged.
+
 **Goal:** make portability a property of canonical memory, not merely an export feature.
 
-Build:
+Implemented:
 
 - deterministic Markdown rendering for Memory Pages;
 - documented frontmatter/governance metadata;
@@ -96,7 +108,7 @@ Build:
 - round-trip tests proving that meaning and governance survive export/import;
 - human-readable filesystem export suitable for Git and notes tools.
 
-Target portable shape:
+Portable shape:
 
 ```text
 topo/
@@ -109,50 +121,69 @@ topo/
 └── index.sqlite        # optional/disposable
 ```
 
-**Exit:** a TOPO memory export remains meaningfully usable without TOPO.
+**Exit achieved:** a TOPO memory export remains meaningfully usable without TOPO.
 
 ## Iteration M3 — Page-first capture and review
 
+**Status:** implemented; dogfooding/hardening next.
+
 **Goal:** stop optimising the product around atomic claim extraction.
 
-Change the capture question from:
-
-> Which facts can we extract?
-
-into:
+The capture question is now:
 
 > What small pieces of context would materially improve a future interaction?
 
-Build:
+Implemented:
 
-- extraction provider contract that proposes one or more coherent Memory Pages;
-- source/evidence citation for every proposed page;
-- optional annotation extraction only when structure adds value;
-- duplicate/supporting-evidence/change detection at page level;
-- Memory Inbox cards centred on coherent prose;
-- inline editing as the normal review action;
-- batch review only where it does not hide change/supersession decisions;
-- claim-based candidate review retained temporarily for compatibility.
+- shared TypeScript/Rust extraction contract proposing coherent Memory Pages;
+- local Ollama page-first extraction in the desktop path;
+- hard cap of four proposed pages per captured interaction, with prompts preferring fewer;
+- mandatory user-authored evidence and source citation for every proposed page;
+- optional structured annotation proposals only when structure adds value;
+- page-level duplicate, supporting-evidence and potential-change detection;
+- exact and same-batch duplicate suppression;
+- supporting restatements enrich an existing page's provenance instead of creating another review card;
+- potential changes remain explicit candidates and require individual confirmation before supersession;
+- Memory Inbox cards centred on coherent prose, evidence, horizon and sensitivity;
+- inline page editing;
+- guarded batch confirm/reject for straightforward candidates;
+- legacy Claim creation/review retained behind a compatibility/advanced surface.
 
-**Exit:** one normal captured conversation produces a small number of useful, readable memory candidates rather than a spray of atomised facts.
+**Exit achieved in implementation:** captured conversations now produce a small number of readable Memory Page candidates rather than a spray of atomised Claims.
+
+**Dogfooding questions before calling the product loop proven:**
+
+- are the proposed pages genuinely worth keeping after a normal day of use?;
+- is one to four still too many for common conversations?;
+- do supporting-evidence and potential-change thresholds behave sensibly across real writing styles?;
+- can a normal day's inbox be governed in a few minutes?;
+- do page edits preserve enough context without becoming mini-documents?
 
 ## Iteration M4 — Page-aware context resolution
+
+**Priority:** next.
 
 **Goal:** resolve useful context without requiring consumers to know TOPO's internal representation.
 
 Build:
 
 - authorised Memory Page filtering by review state, sensitivity, scope and temporal validity;
-- FTS over Memory Page body/title/tags;
+- deterministic FTS over Memory Page body/title/tags;
 - purpose/task-aware ranking;
 - context/token budgets;
 - compact rendered excerpts in Context Packets;
 - stable page/revision/source provenance;
-- explainable selection metadata.
+- explainable selection metadata;
+- Claim-based retrieval as a compatibility fallback rather than the default.
 
-Existing Claim-based retrieval remains a compatibility fallback during migration.
+Rules:
 
-**Exit:** the same purpose-bound Context Packet transport can be fulfilled from Memory Pages.
+- governance filters happen before relevance ranking;
+- relevance never widens access;
+- Context Packet consumers, including RACK, must not need to understand Memory Pages directly;
+- retrieval tests must be deterministic before embeddings are introduced.
+
+**Exit:** the same purpose-bound Context Packet transport can be fulfilled primarily from Memory Pages.
 
 ## Iteration M5 — Small local semantic index
 
@@ -177,11 +208,11 @@ Principle:
 
 # Capture-first product loop
 
-The existing capture implementation remains valuable and should now feed the Memory Page migration rather than be optimised indefinitely around Claims.
+The existing capture implementation now feeds Memory Pages rather than being optimised around Claims.
 
 ## Iteration 5A — Capture contract
 
-**Status:** implemented in the claim-based alpha; adapt during M3.
+**Status:** page-first adaptation implemented in M3.
 
 Implemented:
 
@@ -190,27 +221,30 @@ Implemented:
 - user-evidence requirement;
 - memory horizons: durable / project / temporary;
 - review-window source retention;
+- coherent Memory Page proposal contract;
 - duplicate/supporting-evidence/potential-change comparison;
-- conservative extraction prompt and tests.
+- conservative extraction prompt and tests;
+- incomplete-source restrictions that prevent weak inference from becoming memory.
 
 Next:
 
-- retain these evidence and source contracts;
-- change extraction output from claim-first to page-first;
-- ensure assistant statements do not silently become user memory.
+- dogfood proposal quality against real captured conversations;
+- tune thresholds from evidence rather than intuition;
+- extend evaluation from key extraction to memory utility, faithfulness and review burden.
 
 ## Iteration 5B — Desktop ingestion and extraction
 
-**Status:** core local path implemented.
+**Status:** page-first local path implemented.
 
-Captured interactions can enter TOPO, be extracted with local Ollama, compared with current memory and persisted for review.
+Captured interactions can enter TOPO, be extracted with local Ollama into Memory Pages, compared with current memory and persisted transactionally with Sources and provenance for review.
+
+Supporting restatements add provenance to the existing page rather than producing another candidate. Potential changes remain reviewable and do not supersede automatically.
 
 Next:
 
-- teach this path to persist proposed Memory Pages;
-- preserve transactional Source + memory persistence;
 - retain diagnostics, failure queues and provider disclosure/consent;
-- avoid parallel claim/page extraction where one page-first pass can serve both.
+- dogfood local model quality and latency;
+- keep one page-first extraction pass rather than parallel Claim/Page extraction.
 
 ## Iteration 5C — Ambient browser capture
 
@@ -232,22 +266,28 @@ Remaining hardening should be driven by real page-first dogfooding, not by addin
 
 ## Iteration 5D — Memory Inbox
 
-**Status:** claim-based inbox exists; redesign during M3.
+**Status:** first page-first desktop inbox implemented in M3.
 
-The inbox becomes a review surface for **memories**, not a queue of database atoms.
+Implemented:
 
-Build:
-
-- source-grouped proposed Memory Pages;
-- evidence preview;
-- inline prose edit;
+- proposed Memory Pages as the primary review surface;
+- source/evidence preview;
+- inline prose editing;
 - confirm/reject;
-- merge/extend/supersede flows;
-- optional structured annotations collapsed by default;
-- source and connection health;
-- review counts and time-to-govern metrics.
+- explicit potential-change/supersession warning;
+- batch review only for straightforward candidates;
+- search/status filtering;
+- legacy structured Claims collapsed into a compatibility section.
 
-**Exit:** a normal day's capture can be governed in a few minutes and leaves behind readable memories.
+Next:
+
+- explicit merge/extend interaction when two pages overlap but neither is simply supporting evidence;
+- optional structured annotation details collapsed within a page;
+- clearer source/connection health inside the review surface;
+- review counts and time-to-govern metrics;
+- dogfood whether grouping by source is useful once candidate volume is genuinely low.
+
+**Exit target:** a normal day's capture can be governed in a few minutes and leaves behind readable memories.
 
 ## Iteration 5E — Agent capture and memory pressure
 
@@ -286,7 +326,7 @@ All histories flow through the same page-first extraction, evidence, deduplicati
 
 ## Phase 4 — Purpose-aware context resolution
 
-The current lexical Claim resolver is a useful prototype. M4 migrates this capability to Memory Pages.
+The current lexical Claim resolver is a useful compatibility prototype. M4 migrates the primary capability to Memory Pages.
 
 Resolution order remains governance-first:
 

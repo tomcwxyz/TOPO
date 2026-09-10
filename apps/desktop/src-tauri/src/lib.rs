@@ -2,6 +2,7 @@ mod capture_extractor;
 mod capture_inbox;
 mod capture_processor;
 mod capture_setup;
+mod memory_pages;
 mod oos_local;
 
 use chrono::{DateTime, Utc};
@@ -79,6 +80,7 @@ fn open_store() -> Result<Connection, String> {
         )
         .map_err(error_text)?;
     migrate(&connection)?;
+    memory_pages::ensure_schema(&connection)?;
     Ok(connection)
 }
 
@@ -954,6 +956,10 @@ pub fn run() {
             edit_candidate_claim,
             review_candidate,
             review_candidates,
+            memory_pages::list_memory_pages,
+            memory_pages::edit_candidate_memory_page,
+            memory_pages::review_memory_page,
+            memory_pages::review_memory_pages,
             preview_context,
             capture_inbox::capture_inbox_status,
             capture_extractor::ollama_extractor_status,

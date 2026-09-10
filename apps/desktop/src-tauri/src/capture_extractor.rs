@@ -3,12 +3,14 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{collections::BTreeMap, time::Duration};
 use topo_contracts::{
-    CaptureFidelity, CaptureRole, CapturedInteraction, EpistemicType, ExtractedMemoryProposal,
+    CaptureFidelity, CaptureRole, CapturedInteraction, EpistemicType,
+    ExtractedMemoryPageProposal, ExtractedMemoryProposal,
 };
 
 const OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434";
 pub const RECOMMENDED_MODEL: &str = "qwen3:4b";
 const MAX_TRANSCRIPT_CHARS: usize = 60_000;
+pub const MAX_MEMORY_PAGE_PROPOSALS: usize = 4;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +47,12 @@ struct OllamaChatMessage {
 struct ProposalEnvelope {
     #[serde(default)]
     proposals: Vec<ExtractedMemoryProposal>,
+}
+
+#[derive(Debug, Deserialize)]
+struct PageProposalEnvelope {
+    #[serde(default)]
+    proposals: Vec<ExtractedMemoryPageProposal>,
 }
 
 #[tauri::command]
@@ -141,18 +149,17 @@ pub async fn install_recommended_ollama_model() -> Result<OllamaStatus, String> 
     Ok(ollama_extractor_status().await)
 }
 
-pub async fn extract_with_ollama(
+async fn call_ollama(
     interaction: &CapturedInteraction,
     model: &str,
-) -> Result<Vec<ExtractedMemoryProposal>, String> {
+    system: String,
+) -> Result<String, String> {
     let model = model.trim();
     if model.is_empty() {
         return Err("Choose an Ollama model before extracting capture.".to_owned());
     }
 
-    let system = extraction_prompt(&interaction.fidelity);
     let transcript = format_interaction(interaction);
-
     let client = Client::builder()
         .timeout(Duration::from_secs(120))
         .build()
@@ -164,18 +171,10 @@ pub async fn extract_with_ollama(
             "model": model,
             "stream": false,
             "format": "json",
-            "options": {
-                "temperature": 0.1
-            },
+            "options": { "temperature": 0.1 },
             "messages": [
-                {
-                    "role": "system",
-                    "content": system
-                },
-                {
-                    "role": "user",
-                    "content": transcript
-                }
+                { "role": "system", "content": system },
+                { "role": "user", "content": transcript }
             ]
         }))
         .send()
@@ -195,9 +194,98 @@ pub async fn extract_with_ollama(
         .json::<OllamaChatResponse>()
         .await
         .map_err(|error| format!("Ollama returned an unreadable response: {error}"))?;
+    Ok(payload.message.content)
+}
 
-    let proposals = parse_proposals(&payload.message.content)?;
+/// Legacy Claim extractor retained during the Memory Page migration.
+pub async fn extract_with_ollama(
+    interaction: &CapturedInteraction,
+    model: &str,
+) -> Result<Vec<ExtractedMemoryProposal>, String> {
+    let content = call_ollama(interaction, model, extraction_prompt(&interaction.fidelity)).await?;
+    let proposals = parse_proposals(&content)?;
     validate_proposals(interaction, proposals)
+}
+
+/// Primary M3 extractor. Produces a small number of coherent prose Memory Pages.
+pub async fn extract_pages_with_ollama(
+    interaction: &CapturedInteraction,
+    model: &str,
+) -> Result<Vec<ExtractedMemoryPageProposal>, String> {
+    let content = call_ollama(
+        interaction,
+        model,
+        page_extraction_prompt(&interaction.fidelity),
+    )
+    .await?;
+    let proposals = parse_page_proposals(&content)?;
+    validate_page_proposals(interaction, proposals)
+}
+
+pub fn page_extraction_prompt(fidelity: &CaptureFidelity) -> String {
+    let incomplete = matches!(
+        fidelity,
+        CaptureFidelity::TaskSummary | CaptureFidelity::PartialVisible
+    );
+
+    let mut rules = vec![
+        "You identify a small number of coherent pieces of user-owned context that may materially improve future AI interactions.",
+        "The primary memory object is a short prose Memory Page, not a collection of atomic facts.",
+        "Return candidate pages only. A human will review them before they become durable memory.",
+        "Return at most 4 Memory Pages and prefer fewer. One or two useful pages is better than a spray of facts.",
+        "Each page should capture one coherent thing worth remembering, such as a project decision, useful preference in context, working relationship, recurring pattern, current circumstance, or relevant background.",
+        "Write each body as concise natural prose that remains useful when copied into an ordinary Markdown note.",
+        "Do not split closely related context into separate pages merely because several facts are present.",
+        "Every page must cite at least one USER turn ID from the transcript.",
+        "Assistant, tool and system messages may provide context but are not evidence about the user.",
+        "Evidence must be a short verbatim excerpt from one of the cited USER turns.",
+        "Questions are weak evidence. Do not turn a question into a fact unless the user explicitly states that fact.",
+        "Use horizon durable for stable preferences/enduring context, project for active project context, temporary for short-lived circumstances.",
+        "Only include structured annotations when a machine-readable key/value materially helps deterministic filtering, temporal comparison or interoperability.",
+        "Do not create annotations merely to duplicate every sentence in the page.",
+        "Do not extract passwords, authentication tokens, API keys, financial credentials or other secrets.",
+        "Be conservative with sensitive personal data and set sensitivity when needed.",
+    ];
+
+    if incomplete {
+        rules.push("This capture is incomplete. Only propose pages directly supported by user-authored evidence.");
+        rules.push("Do not infer patterns, motivations or personal characteristics from this incomplete source.");
+        rules.push("Any structured annotations must use assertion or preference epistemic types only.");
+    }
+
+    format!(
+        "{}\n\nReturn JSON only using this object shape:\n{}",
+        rules
+            .into_iter()
+            .map(|rule| format!("- {rule}"))
+            .collect::<Vec<_>>()
+            .join("\n"),
+        r#"{
+  "proposals": [
+    {
+      "title": "Short useful title",
+      "summary": "Optional one-line summary",
+      "body": "Concise coherent prose memory.",
+      "category": "optional-category",
+      "tags": ["optional", "tags"],
+      "sensitivity": "ordinary",
+      "horizon": "project",
+      "evidenceTurnIds": ["u1"],
+      "evidence": "verbatim user excerpt",
+      "annotations": [
+        {
+          "key": "optional.machine.key",
+          "value": "machine-readable value",
+          "epistemicType": "preference",
+          "confidence": 0.98
+        }
+      ]
+    }
+  ]
+}
+
+Omit optional fields instead of returning null. Return {"proposals":[]} when nothing is genuinely worth remembering."#
+    )
 }
 
 pub fn extraction_prompt(fidelity: &CaptureFidelity) -> String {
@@ -246,8 +334,7 @@ pub fn extraction_prompt(fidelity: &CaptureFidelity) -> String {
       "sensitivity": "ordinary",
       "horizon": "durable",
       "evidenceTurnIds": ["u1"],
-      "evidence": "Please use British English.",
-      "validUntil": null
+      "evidence": "Please use British English."
     }
   ]
 }
@@ -287,6 +374,28 @@ pub fn format_interaction(interaction: &CapturedInteraction) -> String {
     output
 }
 
+pub fn parse_page_proposals(text: &str) -> Result<Vec<ExtractedMemoryPageProposal>, String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    if let Ok(envelope) = serde_json::from_str::<PageProposalEnvelope>(trimmed) {
+        return Ok(envelope.proposals);
+    }
+    if let Ok(items) = serde_json::from_str::<Vec<ExtractedMemoryPageProposal>>(trimmed) {
+        return Ok(items);
+    }
+
+    let candidate = extract_json_object(trimmed)
+        .ok_or_else(|| "Extractor response did not contain valid JSON.".to_owned())?;
+    if let Ok(envelope) = serde_json::from_str::<PageProposalEnvelope>(&candidate) {
+        return Ok(envelope.proposals);
+    }
+
+    Err("Extractor JSON did not match the TOPO Memory Page proposal contract.".to_owned())
+}
+
 pub fn parse_proposals(text: &str) -> Result<Vec<ExtractedMemoryProposal>, String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -296,14 +405,12 @@ pub fn parse_proposals(text: &str) -> Result<Vec<ExtractedMemoryProposal>, Strin
     if let Ok(envelope) = serde_json::from_str::<ProposalEnvelope>(trimmed) {
         return Ok(envelope.proposals);
     }
-
     if let Ok(items) = serde_json::from_str::<Vec<ExtractedMemoryProposal>>(trimmed) {
         return Ok(items);
     }
 
     let candidate = extract_json_object(trimmed)
         .ok_or_else(|| "Extractor response did not contain valid JSON.".to_owned())?;
-
     if let Ok(envelope) = serde_json::from_str::<ProposalEnvelope>(&candidate) {
         return Ok(envelope.proposals);
     }
@@ -315,6 +422,145 @@ fn extract_json_object(text: &str) -> Option<String> {
     let start = text.find('{')?;
     let end = text.rfind('}')?;
     (end > start).then(|| text[start..=end].to_owned())
+}
+
+fn normalise_evidence(value: &str) -> String {
+    value
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+pub fn validate_page_proposals(
+    interaction: &CapturedInteraction,
+    proposals: Vec<ExtractedMemoryPageProposal>,
+) -> Result<Vec<ExtractedMemoryPageProposal>, String> {
+    if proposals.len() > MAX_MEMORY_PAGE_PROPOSALS {
+        return Err(format!(
+            "Extractor returned {} Memory Pages; maximum is {}.",
+            proposals.len(), MAX_MEMORY_PAGE_PROPOSALS
+        ));
+    }
+
+    let turns = interaction
+        .turns
+        .iter()
+        .map(|turn| (turn.id.as_str(), turn))
+        .collect::<BTreeMap<_, _>>();
+    let incomplete = matches!(
+        interaction.fidelity,
+        CaptureFidelity::TaskSummary | CaptureFidelity::PartialVisible
+    );
+    let mut valid = Vec::with_capacity(proposals.len());
+
+    for mut proposal in proposals {
+        if proposal.title.trim().is_empty()
+            || proposal.body.trim().is_empty()
+            || proposal.evidence.trim().is_empty()
+        {
+            return Err("Extractor returned a Memory Page with an empty title, body or evidence.".to_owned());
+        }
+        if proposal.evidence_turn_ids.is_empty() {
+            return Err(format!(
+                "Extractor returned '{}' without evidence turn IDs.",
+                proposal.title
+            ));
+        }
+
+        let mut user_turns = Vec::new();
+        for turn_id in &proposal.evidence_turn_ids {
+            let turn = turns.get(turn_id.as_str()).ok_or_else(|| {
+                format!(
+                    "Extractor referenced unknown evidence turn {turn_id} for '{}'.",
+                    proposal.title
+                )
+            })?;
+            if matches!(turn.role, CaptureRole::User) {
+                user_turns.push(*turn);
+            }
+        }
+        if user_turns.is_empty() {
+            return Err(format!(
+                "Extractor Memory Page '{}' is not grounded in a user-authored turn.",
+                proposal.title
+            ));
+        }
+
+        let evidence = normalise_evidence(&proposal.evidence);
+        if !user_turns
+            .iter()
+            .any(|turn| normalise_evidence(&turn.content).contains(&evidence))
+        {
+            return Err(format!(
+                "Extractor Memory Page '{}' evidence is not present in its cited user turn.",
+                proposal.title
+            ));
+        }
+
+        let mut seen_tags = std::collections::BTreeSet::new();
+        if proposal
+            .tags
+            .as_ref()
+            .is_some_and(|tags| tags.iter().any(|tag| !seen_tags.insert(tag.trim().to_owned())))
+        {
+            return Err(format!("Extractor returned duplicate tags for '{}'.", proposal.title));
+        }
+
+        if let Some(annotations) = proposal.annotations.as_mut() {
+            if annotations.len() > 8 {
+                return Err(format!(
+                    "Extractor returned too many structured annotations for '{}'.",
+                    proposal.title
+                ));
+            }
+            annotations.retain(|annotation| !secret_like_key(&annotation.key));
+            for annotation in annotations.iter() {
+                if annotation.key.trim().is_empty()
+                    || !(0.0..=1.0).contains(&annotation.confidence)
+                    || !annotation.confidence.is_finite()
+                {
+                    return Err(format!(
+                        "Extractor returned an invalid annotation for '{}'.",
+                        proposal.title
+                    ));
+                }
+                if incomplete
+                    && !matches!(
+                        annotation.epistemic_type,
+                        EpistemicType::Assertion | EpistemicType::Preference
+                    )
+                {
+                    return Err(format!(
+                        "Incomplete capture cannot propose inferred annotation {}.",
+                        annotation.key
+                    ));
+                }
+            }
+        }
+
+        if let Some(valid_from) = &proposal.valid_from {
+            chrono::DateTime::parse_from_rfc3339(valid_from).map_err(|_| {
+                format!("Extractor returned invalid validFrom for '{}'.", proposal.title)
+            })?;
+        }
+        if let Some(valid_until) = &proposal.valid_until {
+            chrono::DateTime::parse_from_rfc3339(valid_until).map_err(|_| {
+                format!("Extractor returned invalid validUntil for '{}'.", proposal.title)
+            })?;
+        }
+        if let (Some(valid_from), Some(valid_until)) = (&proposal.valid_from, &proposal.valid_until) {
+            let from = chrono::DateTime::parse_from_rfc3339(valid_from).map_err(|e| e.to_string())?;
+            let until = chrono::DateTime::parse_from_rfc3339(valid_until).map_err(|e| e.to_string())?;
+            if until < from {
+                return Err(format!("validUntil cannot be before validFrom for '{}'.", proposal.title));
+            }
+        }
+
+        valid.push(proposal);
+    }
+
+    Ok(valid)
 }
 
 pub fn validate_proposals(
@@ -418,8 +664,8 @@ fn secret_like_key(key: &str) -> bool {
 mod tests {
     use super::*;
     use topo_contracts::{
-        CaptureClient, CaptureKind, CaptureMethod, CaptureMode, CaptureProduct, Sensitivity,
-        SourceRetention,
+        CaptureClient, CaptureKind, CaptureMethod, CaptureMode, CaptureProduct,
+        MemoryPageAnnotationProposal, MemoryHorizon, Sensitivity, SourceRetention,
     };
 
     fn interaction(fidelity: CaptureFidelity) -> CapturedInteraction {
@@ -441,7 +687,7 @@ mod tests {
                 topo_contracts::CapturedTurn {
                     id: "u1".to_owned(),
                     role: CaptureRole::User,
-                    content: "Please use British English.".to_owned(),
+                    content: "Please use British English. RACK uses Neon rather than Supabase.".to_owned(),
                     occurred_at: None,
                 },
                 topo_contracts::CapturedTurn {
@@ -472,6 +718,31 @@ mod tests {
         }
     }
 
+    fn page_proposal() -> ExtractedMemoryPageProposal {
+        ExtractedMemoryPageProposal {
+            title: "RACK architecture".to_owned(),
+            summary: None,
+            body: "RACK uses Neon rather than Supabase.".to_owned(),
+            category: Some("rack".to_owned()),
+            tags: Some(vec!["rack".to_owned()]),
+            sensitivity: Some(Sensitivity::Ordinary),
+            horizon: Some(MemoryHorizon::Project),
+            evidence_turn_ids: vec!["u1".to_owned()],
+            evidence: "RACK uses Neon rather than Supabase.".to_owned(),
+            valid_from: None,
+            valid_until: None,
+            annotations: Some(vec![MemoryPageAnnotationProposal {
+                key: "rack.database".to_owned(),
+                value: Value::String("Neon".to_owned()),
+                category: None,
+                tags: None,
+                epistemic_type: EpistemicType::Assertion,
+                confidence: 0.99,
+                sensitivity: Some(Sensitivity::Ordinary),
+            }]),
+        }
+    }
+
     #[test]
     fn parses_enveloped_json() {
         let proposals = parse_proposals(
@@ -480,6 +751,51 @@ mod tests {
         .unwrap();
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].key, "writing.locale");
+    }
+
+    #[test]
+    fn parses_page_first_enveloped_json() {
+        let proposals = parse_page_proposals(
+            r#"{"proposals":[{"title":"RACK architecture","body":"RACK uses Neon rather than Supabase.","evidenceTurnIds":["u1"],"evidence":"RACK uses Neon rather than Supabase."}]}"#,
+        )
+        .unwrap();
+        assert_eq!(proposals.len(), 1);
+        assert_eq!(proposals[0].title, "RACK architecture");
+    }
+
+    #[test]
+    fn page_first_validation_requires_user_evidence_excerpt() {
+        let proposal = page_proposal();
+        assert_eq!(
+            validate_page_proposals(
+                &interaction(CaptureFidelity::ConversationTurns),
+                vec![proposal]
+            )
+            .unwrap()
+            .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn page_first_validation_rejects_proposal_spray() {
+        let proposal = page_proposal();
+        assert!(validate_page_proposals(
+            &interaction(CaptureFidelity::ConversationTurns),
+            vec![proposal; MAX_MEMORY_PAGE_PROPOSALS + 1]
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn incomplete_page_capture_rejects_inferred_annotations() {
+        let mut proposal = page_proposal();
+        proposal.annotations.as_mut().unwrap()[0].epistemic_type = EpistemicType::Inference;
+        assert!(validate_page_proposals(
+            &interaction(CaptureFidelity::PartialVisible),
+            vec![proposal]
+        )
+        .is_err());
     }
 
     #[test]
@@ -525,6 +841,14 @@ mod tests {
         let prompt = extraction_prompt(&CaptureFidelity::TaskSummary);
         assert!(prompt.contains("This capture is incomplete"));
         assert!(prompt.contains("Do not propose observations, inferences or derived patterns"));
+    }
+
+    #[test]
+    fn page_prompt_centre_is_coherent_memory_not_atomic_claims() {
+        let prompt = page_extraction_prompt(&CaptureFidelity::ConversationTurns);
+        assert!(prompt.contains("primary memory object is a short prose Memory Page"));
+        assert!(prompt.contains("prefer fewer"));
+        assert!(prompt.contains("Do not split closely related context"));
     }
 
     #[test]

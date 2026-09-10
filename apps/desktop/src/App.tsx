@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { MemoryPagePanel, type MemoryPageCounts } from "./MemoryPagePanel";
 
 type ClaimStatus = "candidate" | "confirmed" | "rejected" | "superseded" | "expired";
 type EpistemicType = "assertion" | "observation" | "inference" | "preference" | "derived-pattern";
@@ -149,11 +150,12 @@ const toDraft = (form: typeof emptyForm): ClaimDraft => ({
 export function App() {
   const [status, setStatus] = useState<DesktopStatus | null>(null);
   const [claims, setClaims] = useState<MemoryClaim[]>([]);
-  const [filter, setFilter] = useState<"all" | ClaimStatus>("candidate");
-  const [query, setQuery] = useState("");
+  const [claimFilter, setClaimFilter] = useState<"all" | ClaimStatus>("candidate");
+  const [claimQuery, setClaimQuery] = useState("");
   const [form, setForm] = useState(emptyForm);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saveAsCandidate, setSaveAsCandidate] = useState(false);
+  const [legacyToolsOpen, setLegacyToolsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -161,8 +163,7 @@ export function App() {
   const [contextPurpose, setContextPurpose] = useState("");
   const [includeSensitive, setIncludeSensitive] = useState(false);
   const [contextPreview, setContextPreview] = useState<ContextPreview | null>(null);
-  const [localSharing, setLocalSharing] =
-    useState<LocalContextSharingStatus | null>(null);
+  const [localSharing, setLocalSharing] = useState<LocalContextSharingStatus | null>(null);
   const [sharingBusy, setSharingBusy] = useState(false);
   const [captureInbox, setCaptureInbox] = useState<CaptureInboxStatus | null>(null);
   const [ollama, setOllama] = useState<OllamaStatus | null>(null);
@@ -173,14 +174,20 @@ export function App() {
   const [captureSetup, setCaptureSetup] = useState<BrowserCaptureSetupStatus | null>(null);
   const [captureSetupBusy, setCaptureSetupBusy] = useState(false);
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
+  const [memoryPageRefreshToken, setMemoryPageRefreshToken] = useState(0);
+  const [memoryPageCounts, setMemoryPageCounts] = useState<MemoryPageCounts>({
+    total: 0,
+    candidates: 0,
+    confirmed: 0,
+  });
 
   const refresh = useCallback(async () => {
     try {
       const [nextStatus, nextClaims, nextCaptureInbox] = await Promise.all([
         invoke<DesktopStatus>("desktop_status"),
         invoke<MemoryClaim[]>("list_claims", {
-          status: filter === "all" ? null : filter,
-          query: query.trim() || null,
+          status: claimFilter === "all" ? null : claimFilter,
+          query: claimQuery.trim() || null,
         }),
         invoke<CaptureInboxStatus>("capture_inbox_status"),
       ]);
@@ -195,7 +202,7 @@ export function App() {
     } catch (cause) {
       setError(String(cause));
     }
-  }, [filter, query]);
+  }, [claimFilter, claimQuery]);
 
   useEffect(() => {
     void refresh();
@@ -219,9 +226,7 @@ export function App() {
         setOllama(next);
         if (next.available && next.models.length > 0) {
           setExtractorModel((current) => {
-            const selected = current && next.models.includes(current)
-              ? current
-              : next.models[0];
+            const selected = current && next.models.includes(current) ? current : next.models[0];
             if (selected) window.localStorage.setItem("topo.ollamaModel", selected);
             return selected ?? "";
           });
@@ -229,6 +234,34 @@ export function App() {
       })
       .catch((cause) => setOllama({ available: false, models: [], error: String(cause) }));
   }, []);
+
+  const visibleSubjects = useMemo(
+    () => [...new Set(claims.map((claim) => claim.subject))].sort(),
+    [claims],
+  );
+
+  const visibleCandidateIds = useMemo(
+    () => claims.filter((claim) => claim.status === "candidate").map((claim) => claim.id),
+    [claims],
+  );
+
+  const sourceCandidateCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const claim of claims) {
+      if (claim.status !== "candidate" || !claim.provenance.sourceId) continue;
+      counts.set(claim.provenance.sourceId, (counts.get(claim.provenance.sourceId) ?? 0) + 1);
+    }
+    return counts;
+  }, [claims]);
+
+  const displayedClaims = useMemo(() => {
+    if (claimFilter !== "candidate") return claims;
+    return [...claims].sort((left, right) => {
+      const leftSource = left.provenance.sourceId ?? left.id;
+      const rightSource = right.provenance.sourceId ?? right.id;
+      return leftSource.localeCompare(rightSource) || right.updatedAt.localeCompare(left.updatedAt);
+    });
+  }, [claims, claimFilter]);
 
   const prepareBrowserCapture = async () => {
     setCaptureSetupBusy(true);
@@ -252,169 +285,15 @@ export function App() {
     }
   };
 
-  const candidateCount = status?.candidates ?? 0;
-  const visibleSubjects = useMemo(
-    () => [...new Set(claims.map((claim) => claim.subject))].sort(),
-    [claims],
-  );
-  const visibleCandidateIds = useMemo(
-    () => claims.filter((claim) => claim.status === "candidate").map((claim) => claim.id),
-    [claims],
-  );
-  const sourceCandidateCounts = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const claim of claims) {
-      if (claim.status !== "candidate" || !claim.provenance.sourceId) continue;
-      counts.set(claim.provenance.sourceId, (counts.get(claim.provenance.sourceId) ?? 0) + 1);
-    }
-    return counts;
-  }, [claims]);
-  const displayedClaims = useMemo(() => {
-    if (filter !== "candidate") return claims;
-    return [...claims].sort((left, right) => {
-      const leftSource = left.provenance.sourceId ?? left.id;
-      const rightSource = right.provenance.sourceId ?? right.id;
-      return leftSource.localeCompare(rightSource) || right.updatedAt.localeCompare(left.updatedAt);
-    });
-  }, [claims, filter]);
-
-  const resetForm = () => {
-    setForm(emptyForm);
-    setEditingId(null);
-    setSaveAsCandidate(false);
-  };
-
-  const submitClaim = async (event: FormEvent) => {
-    event.preventDefault();
-    setBusy(true);
-    setError(null);
-    setMessage(null);
-    try {
-      const input = toDraft(form);
-      if (!input.subject || !input.key) {
-        throw new Error("Subject and key are required.");
-      }
-      if (!Number.isFinite(input.confidence) || input.confidence < 0 || input.confidence > 1) {
-        throw new Error("Confidence must be between 0 and 1.");
-      }
-
-      if (editingId) {
-        await invoke("edit_candidate_claim", { id: editingId, input });
-        setMessage("Candidate updated.");
-      } else {
-        await invoke("create_claim", { input, candidate: saveAsCandidate });
-        setMessage(saveAsCandidate ? "Candidate saved for review." : "Memory confirmed.");
-      }
-      resetForm();
-      await refresh();
-    } catch (cause) {
-      setError(String(cause));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const startEditing = (claim: MemoryClaim) => {
-    setEditingId(claim.id);
-    setSaveAsCandidate(true);
-    setForm({
-      subject: claim.subject,
-      key: claim.key,
-      value: displayValue(claim.value),
-      category: claim.category ?? "",
-      tags: claim.tags.join(", "),
-      epistemicType: claim.epistemicType,
-      confidence: String(claim.confidence),
-      sensitivity: claim.sensitivity,
-    });
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  };
-
-  const review = async (id: string, decision: "confirm" | "reject") => {
-    setBusy(true);
-    setError(null);
-    try {
-      await invoke("review_candidate", { id, decision });
-      setSelectedCandidateIds((current) => current.filter((candidateId) => candidateId !== id));
-      setMessage(decision === "confirm" ? "Candidate confirmed." : "Candidate rejected.");
-      if (editingId === id) resetForm();
-      await refresh();
-    } catch (cause) {
-      setError(String(cause));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const toggleCandidateSelection = (id: string) => {
-    setSelectedCandidateIds((current) =>
-      current.includes(id)
-        ? current.filter((candidateId) => candidateId !== id)
-        : [...current, id],
-    );
-  };
-
-  const selectStraightforwardCandidates = () => {
-    setSelectedCandidateIds(
-      claims
-        .filter((claim) => claim.status === "candidate" && claim.supersedes.length === 0)
-        .map((claim) => claim.id),
-    );
-  };
-
-  const reviewSelected = async (decision: "confirm" | "reject") => {
-    if (selectedCandidateIds.length === 0) return;
-    const selectedClaims = claims.filter((claim) => selectedCandidateIds.includes(claim.id));
-    if (
-      decision === "confirm" &&
-      selectedClaims.some((claim) => claim.supersedes.length > 0)
-    ) {
-      setError(
-        "Potential changes need individual confirmation so existing memory is not superseded in bulk.",
-      );
-      return;
-    }
-
-    const label = decision === "confirm" ? "confirm" : "reject";
-    if (
-      selectedCandidateIds.length > 1 &&
-      !window.confirm(
-        `${label[0].toUpperCase() + label.slice(1)} ${selectedCandidateIds.length} selected candidates?`,
-      )
-    ) {
-      return;
-    }
-
-    setBusy(true);
-    setError(null);
-    setMessage(null);
-    try {
-      await invoke("review_candidates", { ids: selectedCandidateIds, decision });
-      const count = selectedCandidateIds.length;
-      setSelectedCandidateIds([]);
-      setMessage(
-        `${count} candidate${count === 1 ? "" : "s"} ${decision === "confirm" ? "confirmed" : "rejected"}.`,
-      );
-      await refresh();
-    } catch (cause) {
-      setError(String(cause));
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const setLocalSharingEnabled = async (enabled: boolean) => {
     setSharingBusy(true);
     setError(null);
     try {
-      const next = await invoke<LocalContextSharingStatus>(
-        "set_local_context_sharing",
-        { enabled },
-      );
+      const next = await invoke<LocalContextSharingStatus>("set_local_context_sharing", { enabled });
       setLocalSharing(next);
       setMessage(
         enabled
-          ? "Local tools can use approved TOPO context for this session. Rack will connect automatically."
+          ? "Local tools can use approved TOPO context for this session. RACK will connect automatically."
           : "Local tool access stopped.",
       );
     } catch (cause) {
@@ -428,10 +307,7 @@ export function App() {
     setSharingBusy(true);
     setError(null);
     try {
-      const next = await invoke<LocalContextSharingStatus>(
-        "set_local_capture",
-        { enabled },
-      );
+      const next = await invoke<LocalContextSharingStatus>("set_local_capture", { enabled });
       setLocalSharing(next);
       setMessage(
         enabled
@@ -450,10 +326,7 @@ export function App() {
     setSharingBusy(true);
     setError(null);
     try {
-      const next = await invoke<LocalContextSharingStatus>(
-        "set_local_contributions",
-        { enabled },
-      );
+      const next = await invoke<LocalContextSharingStatus>("set_local_contributions", { enabled });
       setLocalSharing(next);
       setMessage(
         enabled
@@ -495,21 +368,135 @@ export function App() {
       }
 
       const candidates = results.reduce((sum, result) => sum + result.candidatesCreated, 0);
-      const evidence = results.reduce(
-        (sum, result) => sum + result.supportingEvidenceAdded,
-        0,
-      );
+      const evidence = results.reduce((sum, result) => sum + result.supportingEvidenceAdded, 0);
       const changes = results.reduce((sum, result) => sum + result.potentialChanges, 0);
       setMessage(
-        `Capture processed locally: ${candidates} candidate${candidates === 1 ? "" : "s"}, ` +
+        `Capture processed locally: ${candidates} Memory Page candidate${candidates === 1 ? "" : "s"}, ` +
           `${evidence} supporting evidence update${evidence === 1 ? "" : "s"}` +
           (changes > 0 ? `, ${changes} potential change${changes === 1 ? "" : "s"} flagged.` : "."),
       );
+      setMemoryPageRefreshToken((value) => value + 1);
       await refresh();
     } catch (cause) {
       setError(String(cause));
     } finally {
       setCaptureBusy(false);
+    }
+  };
+
+  const resetForm = () => {
+    setForm(emptyForm);
+    setEditingId(null);
+    setSaveAsCandidate(false);
+  };
+
+  const submitClaim = async (event: FormEvent) => {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      const input = toDraft(form);
+      if (!input.subject || !input.key) throw new Error("Subject and key are required.");
+      if (!Number.isFinite(input.confidence) || input.confidence < 0 || input.confidence > 1) {
+        throw new Error("Confidence must be between 0 and 1.");
+      }
+
+      if (editingId) {
+        await invoke("edit_candidate_claim", { id: editingId, input });
+        setMessage("Structured Claim candidate updated.");
+      } else {
+        await invoke("create_claim", { input, candidate: saveAsCandidate });
+        setMessage(
+          saveAsCandidate
+            ? "Structured Claim saved for review."
+            : "Structured Claim confirmed.",
+        );
+      }
+      resetForm();
+      await refresh();
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const startEditing = (claim: MemoryClaim) => {
+    setLegacyToolsOpen(true);
+    setEditingId(claim.id);
+    setSaveAsCandidate(true);
+    setForm({
+      subject: claim.subject,
+      key: claim.key,
+      value: displayValue(claim.value),
+      category: claim.category ?? "",
+      tags: claim.tags.join(", "),
+      epistemicType: claim.epistemicType,
+      confidence: String(claim.confidence),
+      sensitivity: claim.sensitivity,
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const reviewClaim = async (id: string, decision: "confirm" | "reject") => {
+    setBusy(true);
+    setError(null);
+    try {
+      await invoke("review_candidate", { id, decision });
+      setSelectedCandidateIds((current) => current.filter((candidateId) => candidateId !== id));
+      setMessage(
+        decision === "confirm" ? "Structured Claim confirmed." : "Structured Claim rejected.",
+      );
+      if (editingId === id) resetForm();
+      await refresh();
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const selectStraightforwardClaims = () => {
+    setSelectedCandidateIds(
+      claims
+        .filter((claim) => claim.status === "candidate" && claim.supersedes.length === 0)
+        .map((claim) => claim.id),
+    );
+  };
+
+  const reviewSelectedClaims = async (decision: "confirm" | "reject") => {
+    if (selectedCandidateIds.length === 0) return;
+    const selectedClaims = claims.filter((claim) => selectedCandidateIds.includes(claim.id));
+    if (decision === "confirm" && selectedClaims.some((claim) => claim.supersedes.length > 0)) {
+      setError("Potential Claim changes need individual confirmation.");
+      return;
+    }
+
+    if (
+      selectedCandidateIds.length > 1 &&
+      !window.confirm(
+        `${decision === "confirm" ? "Confirm" : "Reject"} ${selectedCandidateIds.length} selected structured Claims?`,
+      )
+    ) {
+      return;
+    }
+
+    setBusy(true);
+    setError(null);
+    setMessage(null);
+    try {
+      await invoke("review_candidates", { ids: selectedCandidateIds, decision });
+      const count = selectedCandidateIds.length;
+      setSelectedCandidateIds([]);
+      setMessage(
+        `${count} structured Claim${count === 1 ? "" : "s"} ${decision === "confirm" ? "confirmed" : "rejected"}.`,
+      );
+      await refresh();
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -540,8 +527,9 @@ export function App() {
           <h1>Keep the useful context. Know why it is there.</h1>
         </div>
         <div className="store-status" aria-label="Local store status">
-          <span>{status?.total ?? "—"} memories</span>
-          <span>{candidateCount} awaiting review</span>
+          <span>{memoryPageCounts.total} Memory Pages</span>
+          <span>{memoryPageCounts.candidates} awaiting page review</span>
+          <span>{status?.total ?? "—"} structured Claims</span>
           <span>{captureInbox?.pending ?? "—"} captured interactions waiting</span>
           <code title={status?.storePath}>{status?.storePath ?? "~/.topo/topo.sqlite"}</code>
         </div>
@@ -557,13 +545,12 @@ export function App() {
         <aside className="editor-panel">
           <div className="section-heading">
             <div>
-              <p className="kicker">{editingId ? "Review" : "Add memory"}</p>
-              <h2>{editingId ? "Edit candidate" : "Record something worth keeping"}</h2>
+              <p className="kicker">Capture & connections</p>
+              <h2>Bring useful context into TOPO</h2>
             </div>
-            {editingId && <button className="quiet" onClick={resetForm}>Cancel</button>}
           </div>
 
-          <form onSubmit={submitClaim} className="claim-form">
+          <div className="claim-form">
             <div className="capture-inbox-control">
               <div className="capture-inbox-heading">
                 <div>
@@ -582,8 +569,9 @@ export function App() {
               </div>
               <p>
                 ChatGPT, Claude and Gemini browser capture can queue locally even when TOPO is closed.
-                Captured interactions remain source material until TOPO extracts candidates and you review them.
+                TOPO now turns worthwhile interaction context into a small number of prose Memory Pages for review.
               </p>
+
               <div className="local-permission-row">
                 <div>
                   <strong>Browser companion</strong>
@@ -606,6 +594,7 @@ export function App() {
                       : "Prepare browser capture"}
                 </button>
               </div>
+
               {captureSetup?.prepared && captureSetup.extensionDirectory && (
                 <div className="capture-inbox-item">
                   <span>Chrome / Edge extension · fixed alpha ID {captureSetup.extensionId}</span>
@@ -620,9 +609,10 @@ export function App() {
                   </button>
                 </div>
               )}
+
               <div className="capture-extractor">
                 <div>
-                  <strong>Local extractor</strong>
+                  <strong>Local Memory Page extractor</strong>
                   <span>
                     {ollama === null
                       ? "Checking Ollama…"
@@ -642,9 +632,7 @@ export function App() {
                     ))}
                   </select>
                 ) : (
-                  <small>
-                    {ollama?.error ?? "Install/start Ollama to extract captures locally."}
-                  </small>
+                  <small>{ollama?.error ?? "Install/start Ollama to extract captures locally."}</small>
                 )}
                 <button
                   className="secondary"
@@ -658,11 +646,10 @@ export function App() {
                   }
                   onClick={() => void processCapturedInteractions()}
                 >
-                  {captureBusy
-                    ? "Extracting locally…"
-                    : `Extract ${captureInbox?.pending ?? 0} waiting`}
+                  {captureBusy ? "Extracting locally…" : `Extract ${captureInbox?.pending ?? 0} waiting`}
                 </button>
               </div>
+
               {captureInbox && captureInbox.items.length > 0 && (
                 <div className="capture-inbox-list">
                   {captureInbox.items.slice(0, 4).map((item) => (
@@ -688,7 +675,7 @@ export function App() {
               <div className="local-sharing-heading">
                 <div>
                   <strong>Local connections</strong>
-                  <span>Separate authority for reading context and suggesting memory</span>
+                  <span>Read, capture and contribution authority remain separate</span>
                 </div>
               </div>
 
@@ -705,15 +692,9 @@ export function App() {
                   className={localSharing?.enabled ? "quiet" : "secondary"}
                   type="button"
                   disabled={sharingBusy || localSharing === null}
-                  onClick={() =>
-                    void setLocalSharingEnabled(!localSharing?.enabled)
-                  }
+                  onClick={() => void setLocalSharingEnabled(!localSharing?.enabled)}
                 >
-                  {sharingBusy
-                    ? "Updating…"
-                    : localSharing?.enabled
-                      ? "Stop sharing"
-                      : "Allow context"}
+                  {sharingBusy ? "Updating…" : localSharing?.enabled ? "Stop sharing" : "Allow context"}
                 </button>
               </div>
 
@@ -730,15 +711,9 @@ export function App() {
                   className={localSharing?.captureEnabled ? "quiet" : "secondary"}
                   type="button"
                   disabled={sharingBusy || localSharing === null}
-                  onClick={() =>
-                    void setLocalCaptureEnabled(!localSharing?.captureEnabled)
-                  }
+                  onClick={() => void setLocalCaptureEnabled(!localSharing?.captureEnabled)}
                 >
-                  {sharingBusy
-                    ? "Updating…"
-                    : localSharing?.captureEnabled
-                      ? "Stop capture"
-                      : "Allow capture"}
+                  {sharingBusy ? "Updating…" : localSharing?.captureEnabled ? "Stop capture" : "Allow capture"}
                 </button>
               </div>
 
@@ -755,11 +730,7 @@ export function App() {
                   className={localSharing?.contributionsEnabled ? "quiet" : "secondary"}
                   type="button"
                   disabled={sharingBusy || localSharing === null}
-                  onClick={() =>
-                    void setLocalContributionsEnabled(
-                      !localSharing?.contributionsEnabled,
-                    )
-                  }
+                  onClick={() => void setLocalContributionsEnabled(!localSharing?.contributionsEnabled)}
                 >
                   {sharingBusy
                     ? "Updating…"
@@ -770,133 +741,134 @@ export function App() {
               </div>
 
               <p>
-                RACK, Claude Desktop and other compatible local tools only receive
-                the authority you enable here. Sharing context never implies write
-                authority. Agent capture stores source interactions for TOPO to
-                extract later; contributions can create candidates only. Confirmation
-                and rejection stay in TOPO. All permissions reset when TOPO restarts.
+                Compatible local tools only receive the authority you enable here. Sharing context never implies write authority. Confirmation and rejection stay in TOPO, and session permissions reset when TOPO restarts.
               </p>
             </div>
+          </div>
 
-            <label>
-              Subject
-              <input
-                value={form.subject}
-                onChange={(event) => setForm({ ...form, subject: event.target.value })}
-                placeholder="project:rack, organisation:example, me"
-                list="known-subjects"
-                required
-              />
-            </label>
-            <datalist id="known-subjects">
-              {visibleSubjects.map((subject) => <option key={subject} value={subject} />)}
-            </datalist>
-
-            <label>
-              Key
-              <input
-                value={form.key}
-                onChange={(event) => setForm({ ...form, key: event.target.value })}
-                placeholder="writing.locale"
-                required
-              />
-            </label>
-
-            <label>
-              Value
-              <textarea
-                value={form.value}
-                onChange={(event) => setForm({ ...form, value: event.target.value })}
-                placeholder="A string, number, JSON object or list"
-                rows={5}
-              />
-            </label>
-
-            <div className="form-grid">
+          <details
+            className="legacy-tools"
+            open={legacyToolsOpen}
+            onToggle={(event) => setLegacyToolsOpen(event.currentTarget.open)}
+          >
+            <summary>Structured Claim tools <span>compatibility / advanced</span></summary>
+            <form onSubmit={submitClaim} className="claim-form legacy-claim-form">
+              <p className="muted">
+                Claims are no longer the primary memory representation. Keep using them where a deterministic key/value annotation is genuinely useful.
+              </p>
               <label>
-                Type
-                <select
-                  value={form.epistemicType}
-                  onChange={(event) =>
-                    setForm({ ...form, epistemicType: event.target.value as EpistemicType })
-                  }
-                >
-                  <option value="assertion">Assertion</option>
-                  <option value="observation">Observation</option>
-                  <option value="preference">Preference</option>
-                  <option value="inference">Inference</option>
-                  <option value="derived-pattern">Derived pattern</option>
-                </select>
-              </label>
-
-              <label>
-                Sensitivity
-                <select
-                  value={form.sensitivity}
-                  onChange={(event) =>
-                    setForm({ ...form, sensitivity: event.target.value as Sensitivity })
-                  }
-                >
-                  <option value="ordinary">Ordinary</option>
-                  <option value="personal">Personal</option>
-                  <option value="sensitive">Sensitive</option>
-                  <option value="restricted">Restricted</option>
-                </select>
-              </label>
-            </div>
-
-            <div className="form-grid">
-              <label>
-                Category
+                Subject
                 <input
-                  value={form.category}
-                  onChange={(event) => setForm({ ...form, category: event.target.value })}
-                  placeholder="Optional"
+                  value={form.subject}
+                  onChange={(event) => setForm({ ...form, subject: event.target.value })}
+                  placeholder="project:rack, organisation:example, me"
+                  list="known-subjects"
+                  required
+                />
+              </label>
+              <datalist id="known-subjects">
+                {visibleSubjects.map((subject) => <option key={subject} value={subject} />)}
+              </datalist>
+              <label>
+                Key
+                <input
+                  value={form.key}
+                  onChange={(event) => setForm({ ...form, key: event.target.value })}
+                  placeholder="writing.locale"
+                  required
                 />
               </label>
               <label>
-                Confidence
-                <input
-                  type="number"
-                  min="0"
-                  max="1"
-                  step="0.05"
-                  value={form.confidence}
-                  onChange={(event) => setForm({ ...form, confidence: event.target.value })}
+                Value
+                <textarea
+                  value={form.value}
+                  onChange={(event) => setForm({ ...form, value: event.target.value })}
+                  placeholder="A string, number, JSON object or list"
+                  rows={5}
                 />
               </label>
-            </div>
-
-            <label>
-              Tags
-              <input
-                value={form.tags}
-                onChange={(event) => setForm({ ...form, tags: event.target.value })}
-                placeholder="writing, project, preference"
-              />
-            </label>
-
-            {!editingId && (
-              <label className="checkbox-row">
+              <div className="form-grid">
+                <label>
+                  Type
+                  <select
+                    value={form.epistemicType}
+                    onChange={(event) => setForm({ ...form, epistemicType: event.target.value as EpistemicType })}
+                  >
+                    <option value="assertion">Assertion</option>
+                    <option value="observation">Observation</option>
+                    <option value="preference">Preference</option>
+                    <option value="inference">Inference</option>
+                    <option value="derived-pattern">Derived pattern</option>
+                  </select>
+                </label>
+                <label>
+                  Sensitivity
+                  <select
+                    value={form.sensitivity}
+                    onChange={(event) => setForm({ ...form, sensitivity: event.target.value as Sensitivity })}
+                  >
+                    <option value="ordinary">Ordinary</option>
+                    <option value="personal">Personal</option>
+                    <option value="sensitive">Sensitive</option>
+                    <option value="restricted">Restricted</option>
+                  </select>
+                </label>
+              </div>
+              <div className="form-grid">
+                <label>
+                  Category
+                  <input
+                    value={form.category}
+                    onChange={(event) => setForm({ ...form, category: event.target.value })}
+                    placeholder="Optional"
+                  />
+                </label>
+                <label>
+                  Confidence
+                  <input
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.05"
+                    value={form.confidence}
+                    onChange={(event) => setForm({ ...form, confidence: event.target.value })}
+                  />
+                </label>
+              </div>
+              <label>
+                Tags
                 <input
-                  type="checkbox"
-                  checked={saveAsCandidate}
-                  onChange={(event) => setSaveAsCandidate(event.target.checked)}
+                  value={form.tags}
+                  onChange={(event) => setForm({ ...form, tags: event.target.value })}
+                  placeholder="writing, project, preference"
                 />
-                Save as a candidate for review instead of confirming now
               </label>
-            )}
-
-            <button className="primary" disabled={busy}>
-              {editingId ? "Save candidate" : saveAsCandidate ? "Save candidate" : "Confirm memory"}
-            </button>
-          </form>
+              {!editingId && (
+                <label className="checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={saveAsCandidate}
+                    onChange={(event) => setSaveAsCandidate(event.target.checked)}
+                  />
+                  Save as a candidate for review instead of confirming now
+                </label>
+              )}
+              <div className="candidate-actions">
+                {editingId && (
+                  <button className="quiet" type="button" onClick={resetForm}>Cancel edit</button>
+                )}
+                <button className="primary compact" disabled={busy}>
+                  {editingId ? "Save Claim candidate" : saveAsCandidate ? "Save Claim candidate" : "Confirm structured Claim"}
+                </button>
+              </div>
+            </form>
+          </details>
 
           <div className="context-panel">
             <p className="kicker">Context preview</p>
             <h2>What would TOPO share?</h2>
             <p className="muted">
-              Preview the purpose-bound Context Packet used by RACK and other compatible tools.
+              The current resolver remains Claim-backed during M3. Memory Page retrieval becomes primary in the next migration step; governance rules remain unchanged.
             </p>
             <label>
               Subject
@@ -933,7 +905,7 @@ export function App() {
             </button>
             {contextPreview && (
               <div className="context-result">
-                <strong>{contextPreview.selectedClaimIds.length} items selected</strong>
+                <strong>{contextPreview.selectedClaimIds.length} structured annotations selected</strong>
                 <pre>{JSON.stringify(contextPreview.packet, null, 2)}</pre>
               </div>
             )}
@@ -941,175 +913,178 @@ export function App() {
         </aside>
 
         <section className="memory-panel">
-          <div className="memory-toolbar">
-            <div>
-              <p className="kicker">{filter === "candidate" ? "Review inbox" : "Memory"}</p>
-              <h2>{filter === "candidate" ? "What is worth keeping?" : "Current context"}</h2>
-            </div>
-            <div className="filters">
-              <input
-                aria-label="Search memory"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Search subject, key or value"
-              />
-              <select
-                aria-label="Filter by status"
-                value={filter}
-                onChange={(event) => setFilter(event.target.value as "all" | ClaimStatus)}
-              >
-                <option value="all">All</option>
-                <option value="confirmed">Confirmed</option>
-                <option value="candidate">Candidates</option>
-                <option value="rejected">Rejected</option>
-                <option value="expired">Expired</option>
-                <option value="superseded">Superseded</option>
-              </select>
-            </div>
-          </div>
+          <MemoryPagePanel
+            refreshToken={memoryPageRefreshToken}
+            externallyBusy={captureBusy}
+            onMessage={setMessage}
+            onError={setError}
+            onCounts={setMemoryPageCounts}
+          />
 
-          {visibleCandidateIds.length > 0 && (
-            <div className="batch-review-bar" aria-label="Bulk candidate review">
-              <div>
-                <strong>{selectedCandidateIds.length} selected</strong>
-                <span>
-                  Bulk confirmation is for straightforward candidates. Potential changes stay
-                  individual so TOPO never supersedes existing memory by accident.
-                </span>
+          <details className="legacy-claims">
+            <summary>
+              <span>Structured Claims</span>
+              <small>{status?.total ?? 0} compatibility / annotation records</small>
+            </summary>
+            <div className="legacy-claims-content">
+              <div className="memory-toolbar legacy-memory-toolbar">
+                <div>
+                  <p className="kicker">Compatibility layer</p>
+                  <h2>Structured Claims</h2>
+                  <p className="memory-page-intro">
+                    Useful for deterministic fields and older integrations. New ambient capture now proposes Memory Pages instead.
+                  </p>
+                </div>
+                <div className="filters">
+                  <input
+                    aria-label="Search structured Claims"
+                    value={claimQuery}
+                    onChange={(event) => setClaimQuery(event.target.value)}
+                    placeholder="Search subject, key or value"
+                  />
+                  <select
+                    aria-label="Filter structured Claims by status"
+                    value={claimFilter}
+                    onChange={(event) => setClaimFilter(event.target.value as "all" | ClaimStatus)}
+                  >
+                    <option value="all">All</option>
+                    <option value="confirmed">Confirmed</option>
+                    <option value="candidate">Candidates</option>
+                    <option value="rejected">Rejected</option>
+                    <option value="expired">Expired</option>
+                    <option value="superseded">Superseded</option>
+                  </select>
+                </div>
               </div>
-              <div className="batch-review-actions">
-                <button
-                  className="quiet"
-                  type="button"
-                  disabled={busy}
-                  onClick={selectStraightforwardCandidates}
-                >
-                  Select straightforward
-                </button>
-                <button
-                  className="quiet"
-                  type="button"
-                  disabled={busy || selectedCandidateIds.length === 0}
-                  onClick={() => setSelectedCandidateIds([])}
-                >
-                  Clear
-                </button>
-                <button
-                  className="secondary"
-                  type="button"
-                  disabled={busy || selectedCandidateIds.length === 0}
-                  onClick={() => void reviewSelected("reject")}
-                >
-                  Reject selected
-                </button>
-                <button
-                  className="primary compact"
-                  type="button"
-                  disabled={busy || selectedCandidateIds.length === 0}
-                  onClick={() => void reviewSelected("confirm")}
-                >
-                  Confirm selected
-                </button>
-              </div>
-            </div>
-          )}
 
-          <div className="claim-list">
-            {claims.length === 0 ? (
-              <div className="empty-state">
-                <strong>No memory matches this view.</strong>
-                <span>Add a claim or change the filters.</span>
-              </div>
-            ) : (
-              displayedClaims.map((claim) => (
-                <article className="claim-card" key={claim.id}>
-                  <div className="claim-topline">
-                    <div>
-                      <span className={"status-pill " + claim.status}>{claim.status}</span>
-                      <span className={"sensitivity " + claim.sensitivity}>{claim.sensitivity}</span>
-                      {claim.supersedes.length > 0 && (
-                        <span className="change-pill">potential change</span>
+              {visibleCandidateIds.length > 0 && (
+                <div className="batch-review-bar" aria-label="Bulk structured Claim review">
+                  <div>
+                    <strong>{selectedCandidateIds.length} selected</strong>
+                    <span>Potential changes still require individual confirmation.</span>
+                  </div>
+                  <div className="batch-review-actions">
+                    <button className="quiet" type="button" disabled={busy} onClick={selectStraightforwardClaims}>
+                      Select straightforward
+                    </button>
+                    <button
+                      className="quiet"
+                      type="button"
+                      disabled={busy || selectedCandidateIds.length === 0}
+                      onClick={() => setSelectedCandidateIds([])}
+                    >
+                      Clear
+                    </button>
+                    <button
+                      className="secondary"
+                      type="button"
+                      disabled={busy || selectedCandidateIds.length === 0}
+                      onClick={() => void reviewSelectedClaims("reject")}
+                    >
+                      Reject selected
+                    </button>
+                    <button
+                      className="primary compact"
+                      type="button"
+                      disabled={busy || selectedCandidateIds.length === 0}
+                      onClick={() => void reviewSelectedClaims("confirm")}
+                    >
+                      Confirm selected
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="claim-list">
+                {claims.length === 0 ? (
+                  <div className="empty-state">
+                    <strong>No structured Claims match this view.</strong>
+                    <span>This is expected for new page-first capture.</span>
+                  </div>
+                ) : (
+                  displayedClaims.map((claim) => (
+                    <article className="claim-card" key={claim.id}>
+                      <div className="claim-topline">
+                        <div>
+                          <span className={"status-pill " + claim.status}>{claim.status}</span>
+                          <span className={"sensitivity " + claim.sensitivity}>{claim.sensitivity}</span>
+                          {claim.supersedes.length > 0 && <span className="change-pill">potential change</span>}
+                        </div>
+                        <time dateTime={claim.updatedAt}>{new Date(claim.updatedAt).toLocaleDateString()}</time>
+                      </div>
+                      <p className="subject">{claim.subject}</p>
+                      {claim.status === "candidate" && claim.provenance.sourceId && (
+                        <div className="source-group-note" title={claim.provenance.sourceId}>
+                          <span>Captured source</span>
+                          <strong>
+                            {sourceCandidateCounts.get(claim.provenance.sourceId) ?? 1} Claim candidate
+                            {(sourceCandidateCounts.get(claim.provenance.sourceId) ?? 1) === 1 ? "" : "s"} from this interaction
+                          </strong>
+                        </div>
                       )}
-                    </div>
-                    <time dateTime={claim.updatedAt}>
-                      {new Date(claim.updatedAt).toLocaleDateString()}
-                    </time>
-                  </div>
-                  <p className="subject">{claim.subject}</p>
-                  {claim.status === "candidate" && claim.provenance.sourceId && (
-                    <div className="source-group-note" title={claim.provenance.sourceId}>
-                      <span>Captured source</span>
-                      <strong>
-                        {sourceCandidateCounts.get(claim.provenance.sourceId) ?? 1} candidate
-                        {(sourceCandidateCounts.get(claim.provenance.sourceId) ?? 1) === 1 ? "" : "s"}
-                        {" "}from this interaction
-                      </strong>
-                    </div>
-                  )}
-                  <h3>{claim.key}</h3>
-                  <pre className="claim-value">{displayValue(claim.value)}</pre>
-                  {claim.provenance.evidence && (
-                    <div className="claim-evidence">
-                      <span>Evidence</span>
-                      <p>“{claim.provenance.evidence}”</p>
-                      <small>
-                        {claim.provenance.provider
-                          ? `${claim.provenance.provider} · `
-                          : ""}
-                        {new Date(claim.provenance.capturedAt).toLocaleString()}
-                      </small>
-                    </div>
-                  )}
-                  {claim.supersedes.length > 0 && (
-                    <div className="change-note">
-                      Confirming this will supersede {claim.supersedes.length} existing confirmed
-                      memor{claim.supersedes.length === 1 ? "y" : "ies"}.
-                    </div>
-                  )}
-                  <div className="claim-meta">
-                    <span>{claim.epistemicType}</span>
-                    <span>{Math.round(claim.confidence * 100)}% confidence</span>
-                    <span>source: {claim.provenance.sourceType}</span>
-                    {claim.provenance.provider && <span>{claim.provenance.provider}</span>}
-                  </div>
-                  {claim.tags.filter((tag) => !tag.startsWith("topo:")).length > 0 && (
-                    <div className="tags">
-                      {claim.tags
-                        .filter((tag) => !tag.startsWith("topo:"))
-                        .map((tag) => <span key={tag}>{tag}</span>)}
-                    </div>
-                  )}
-                  {claim.status === "candidate" && (
-                    <div className="candidate-actions">
-                      <label className="candidate-select">
-                        <input
-                          type="checkbox"
-                          checked={selectedCandidateIds.includes(claim.id)}
-                          onChange={() => toggleCandidateSelection(claim.id)}
-                        />
-                        Select
-                      </label>
-                      <button className="secondary" disabled={busy} onClick={() => startEditing(claim)}>
-                        Edit
-                      </button>
-                      <button className="secondary" disabled={busy} onClick={() => void review(claim.id, "reject")}>
-                        Reject
-                      </button>
-                      <button className="primary compact" disabled={busy} onClick={() => void review(claim.id, "confirm")}>
-                        Confirm
-                      </button>
-                    </div>
-                  )}
-                </article>
-              ))
-            )}
-          </div>
+                      <h3>{claim.key}</h3>
+                      <pre className="claim-value">{displayValue(claim.value)}</pre>
+                      {claim.provenance.evidence && (
+                        <div className="claim-evidence">
+                          <span>Evidence</span>
+                          <p>“{claim.provenance.evidence}”</p>
+                          <small>
+                            {claim.provenance.provider ? `${claim.provenance.provider} · ` : ""}
+                            {new Date(claim.provenance.capturedAt).toLocaleString()}
+                          </small>
+                        </div>
+                      )}
+                      {claim.supersedes.length > 0 && (
+                        <div className="change-note">
+                          Confirming this will supersede {claim.supersedes.length} existing confirmed Claim{claim.supersedes.length === 1 ? "" : "s"}.
+                        </div>
+                      )}
+                      <div className="claim-meta">
+                        <span>{claim.epistemicType}</span>
+                        <span>{Math.round(claim.confidence * 100)}% confidence</span>
+                        <span>source: {claim.provenance.sourceType}</span>
+                        {claim.provenance.provider && <span>{claim.provenance.provider}</span>}
+                      </div>
+                      {claim.tags.filter((tag) => !tag.startsWith("topo:")).length > 0 && (
+                        <div className="tags">
+                          {claim.tags
+                            .filter((tag) => !tag.startsWith("topo:"))
+                            .map((tag) => <span key={tag}>{tag}</span>)}
+                        </div>
+                      )}
+                      {claim.status === "candidate" && (
+                        <div className="candidate-actions">
+                          <label className="candidate-select">
+                            <input
+                              type="checkbox"
+                              checked={selectedCandidateIds.includes(claim.id)}
+                              onChange={() =>
+                                setSelectedCandidateIds((current) =>
+                                  current.includes(claim.id)
+                                    ? current.filter((id) => id !== claim.id)
+                                    : [...current, claim.id],
+                                )
+                              }
+                            />
+                            Select
+                          </label>
+                          <button className="secondary" disabled={busy} onClick={() => startEditing(claim)}>Edit</button>
+                          <button className="secondary" disabled={busy} onClick={() => void reviewClaim(claim.id, "reject")}>Reject</button>
+                          <button className="primary compact" disabled={busy} onClick={() => void reviewClaim(claim.id, "confirm")}>Confirm</button>
+                        </div>
+                      )}
+                    </article>
+                  ))
+                )}
+              </div>
+            </div>
+          </details>
         </section>
       </section>
 
       <footer>
         <span>Domain contract v{status?.contractVersion ?? "0.1"}</span>
-        <span>Local-first. No account required.</span>
+        <span>Memory Pages first · local-first · no account required.</span>
       </footer>
     </main>
   );
