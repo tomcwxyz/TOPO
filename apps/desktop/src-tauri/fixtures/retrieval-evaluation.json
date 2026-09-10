@@ -1,0 +1,186 @@
+{
+  "version": "0.1",
+  "cases": [
+    {
+      "id": "architecture-relevance",
+      "subject": "project:rack",
+      "purpose": "prepare implementation",
+      "query": "integration tests for the context boundary",
+      "maxItems": 1,
+      "semanticChallenge": false,
+      "expectedIds": ["architecture-testing"],
+      "forbiddenIds": [],
+      "pages": [
+        {
+          "id": "architecture-testing",
+          "title": "Testing the TOPO boundary",
+          "body": "RACK should use integration tests around the TOPO context boundary so changes to the hand-off are exercised end to end.",
+          "category": "architecture",
+          "tags": ["rack", "testing", "integration"],
+          "sensitivity": "ordinary",
+          "updatedAt": "2026-08-20T12:00:00Z"
+        },
+        {
+          "id": "newer-writing",
+          "title": "Writing preference",
+          "body": "Use British English for public-facing copy.",
+          "category": "writing",
+          "tags": ["writing"],
+          "sensitivity": "ordinary",
+          "updatedAt": "2026-09-09T12:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "sensitivity-before-ranking",
+      "subject": "project:rack",
+      "purpose": "prepare deployment",
+      "query": "deployment credential architecture",
+      "maxItems": 1,
+      "semanticChallenge": false,
+      "expectedIds": ["public-deployment"],
+      "forbiddenIds": ["restricted-credential"],
+      "pages": [
+        {
+          "id": "restricted-credential",
+          "title": "Deployment credential architecture",
+          "body": "Restricted deployment credential architecture details live here.",
+          "category": "architecture",
+          "tags": ["deployment", "credential", "architecture"],
+          "sensitivity": "restricted",
+          "updatedAt": "2026-09-09T13:00:00Z"
+        },
+        {
+          "id": "public-deployment",
+          "title": "Deployment architecture overview",
+          "body": "The public deployment architecture keeps local and managed responsibilities clearly separated.",
+          "category": "architecture",
+          "tags": ["deployment", "architecture"],
+          "sensitivity": "ordinary",
+          "updatedAt": "2026-09-08T12:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "temporal-expiry",
+      "subject": "project:rack",
+      "purpose": "prepare release",
+      "query": "temporary release constraint",
+      "maxItems": 2,
+      "semanticChallenge": false,
+      "expectedIds": ["current-release"],
+      "forbiddenIds": ["expired-release"],
+      "pages": [
+        {
+          "id": "expired-release",
+          "title": "Temporary release constraint",
+          "body": "This old release constraint should no longer be used.",
+          "category": "release",
+          "tags": ["release", "constraint"],
+          "sensitivity": "ordinary",
+          "validUntil": "2026-01-01T00:00:00Z",
+          "updatedAt": "2025-12-20T12:00:00Z"
+        },
+        {
+          "id": "current-release",
+          "title": "Current release approach",
+          "body": "Current releases should pass the desktop and installer smoke gates before merging.",
+          "category": "release",
+          "tags": ["release"],
+          "sensitivity": "ordinary",
+          "updatedAt": "2026-09-09T12:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "porter-word-form",
+      "subject": "project:rack",
+      "purpose": "testing",
+      "query": "testing",
+      "maxItems": 1,
+      "semanticChallenge": false,
+      "expectedIds": ["test-practice"],
+      "forbiddenIds": [],
+      "pages": [
+        {
+          "id": "test-practice",
+          "title": "Release quality",
+          "body": "Integration tests exercise changed boundaries before release.",
+          "category": "quality",
+          "tags": ["quality"],
+          "sensitivity": "ordinary",
+          "updatedAt": "2026-08-20T12:00:00Z"
+        },
+        {
+          "id": "newer-unrelated",
+          "title": "Documentation style",
+          "body": "Keep setup instructions concise and practical.",
+          "category": "documentation",
+          "tags": ["docs"],
+          "sensitivity": "ordinary",
+          "updatedAt": "2026-09-09T12:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "purpose-disambiguation",
+      "subject": "project:rack",
+      "purpose": "design authentication for managed workspaces",
+      "query": "managed workspace authentication",
+      "maxItems": 1,
+      "semanticChallenge": false,
+      "expectedIds": ["managed-auth"],
+      "forbiddenIds": [],
+      "pages": [
+        {
+          "id": "managed-auth",
+          "title": "Managed workspace authentication",
+          "body": "Managed workspaces use account-based authentication while local projects remain usable without an account.",
+          "category": "architecture",
+          "tags": ["managed", "workspace", "authentication"],
+          "sensitivity": "ordinary",
+          "updatedAt": "2026-08-20T12:00:00Z"
+        },
+        {
+          "id": "workspace-writing",
+          "title": "Workspace writing guidance",
+          "body": "Workspace guidance should explain choices in plain language for people using the product.",
+          "category": "writing",
+          "tags": ["workspace", "guidance"],
+          "sensitivity": "ordinary",
+          "updatedAt": "2026-09-09T12:00:00Z"
+        }
+      ]
+    },
+    {
+      "id": "semantic-offline-challenge",
+      "subject": "project:rack",
+      "purpose": "support offline-first operation",
+      "query": "offline-first operation",
+      "maxItems": 1,
+      "semanticChallenge": true,
+      "expectedIds": ["network-independence"],
+      "forbiddenIds": [],
+      "pages": [
+        {
+          "id": "network-independence",
+          "title": "Local project availability",
+          "body": "Local projects should keep working without a network connection and keep their project files on the device.",
+          "category": "architecture",
+          "tags": ["local", "availability"],
+          "sensitivity": "ordinary",
+          "updatedAt": "2026-08-20T12:00:00Z"
+        },
+        {
+          "id": "recent-copy-note",
+          "title": "Product copy note",
+          "body": "Use short labels in the desktop interface and explain advanced terms only when needed.",
+          "category": "writing",
+          "tags": ["copy"],
+          "sensitivity": "ordinary",
+          "updatedAt": "2026-09-09T12:00:00Z"
+        }
+      ]
+    }
+  ]
+}
