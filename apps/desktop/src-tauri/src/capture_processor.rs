@@ -1,6 +1,4 @@
-use crate::{
-    all_claims, append_event, enum_text, error_text, open_store, write_claim,
-};
+use crate::{append_event, enum_text, error_text, open_store};
 use chrono::Utc;
 use rusqlite::{params, Connection};
 use serde::Serialize;
@@ -8,11 +6,10 @@ use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use topo_contracts::{
-    Actor, ActorType, CaptureKind, CapturedInteraction, ClaimProvenance, ClaimStatus,
-    EpistemicType, EventEntityType, EventType, ExtractedMemoryPageProposal,
-    ExtractedMemoryProposal, MemoryClaim, MemoryEvent, MemoryHorizon, MemoryPage,
-    MemoryPageEvent, MemoryPageEventType, MemoryPageOrigin, MemoryPageSourceRef,
-    MemoryPageStatus, MemorySource, Sensitivity, SourceRetention, SourceType,
+    Actor, ActorType, CaptureKind, CapturedInteraction, EventEntityType, EventType,
+    ExtractedMemoryPageProposal, MemoryEvent, MemoryHorizon, MemoryPage, MemoryPageEvent,
+    MemoryPageEventType, MemoryPageOrigin, MemoryPageSourceRef, MemoryPageStatus, MemorySource,
+    Sensitivity, SourceRetention, SourceType,
 };
 use uuid::Uuid;
 
@@ -42,7 +39,6 @@ pub struct CaptureProcessResult {
 #[derive(Debug)]
 struct PersistResult {
     candidates_created: usize,
-    supporting_evidence_added: usize,
     potential_changes: usize,
     duplicate_pages_suppressed: usize,
     supporting_evidence_candidates: usize,
@@ -108,7 +104,7 @@ pub async fn process_capture_with_ollama(
         duplicate_snapshot: false,
         proposals_extracted: proposal_count,
         candidates_created: persisted.candidates_created,
-        supporting_evidence_added: persisted.supporting_evidence_added,
+        supporting_evidence_added: 0,
         potential_changes: persisted.potential_changes,
         duplicate_pages_suppressed: persisted.duplicate_pages_suppressed,
         supporting_evidence_candidates: persisted.supporting_evidence_candidates,
@@ -313,7 +309,6 @@ fn persist_page_proposals(
         tx.rollback().map_err(error_text)?;
         return Ok(PersistResult {
             candidates_created: 0,
-            supporting_evidence_added: 0,
             potential_changes: 0,
             duplicate_pages_suppressed: 0,
             supporting_evidence_candidates: 0,
@@ -326,7 +321,6 @@ fn persist_page_proposals(
         tx.commit().map_err(error_text)?;
         return Ok(PersistResult {
             candidates_created: 0,
-            supporting_evidence_added: 0,
             potential_changes: 0,
             duplicate_pages_suppressed: 0,
             supporting_evidence_candidates: 0,
@@ -334,9 +328,10 @@ fn persist_page_proposals(
         });
     }
 
+    let proposal_count = proposals.len();
     let now = Utc::now().to_rfc3339();
     let source = upsert_page_capture_source(&tx, interaction, &proposals, &now)?;
-    append_page_source_event(&tx, interaction, &source, proposals.len(), &now)?;
+    append_page_source_event(&tx, interaction, &source, proposal_count, &now)?;
     let existing = all_memory_pages(&tx)?;
 
     let mut candidates_created = 0usize;
@@ -357,7 +352,8 @@ fn persist_page_proposals(
                 .iter()
                 .filter(|id| {
                     existing.iter().any(|page| {
-                        page.id == ***id && page.status == MemoryPageStatus::Confirmed
+                        page.id.as_str() == id.as_str()
+                            && page.status == MemoryPageStatus::Confirmed
                     })
                 })
                 .cloned()
@@ -380,7 +376,7 @@ fn persist_page_proposals(
             &proposal,
             supersedes,
             &now,
-        )?;
+        );
         write_memory_page(&tx, &page)?;
         append_page_candidate_event(
             &tx,
@@ -399,13 +395,12 @@ fn persist_page_proposals(
         digest,
         extractor,
         Some(&source.id),
-        candidates_created + duplicate_pages_suppressed,
+        proposal_count,
     )?;
     tx.commit().map_err(error_text)?;
 
     Ok(PersistResult {
         candidates_created,
-        supporting_evidence_added: 0,
         potential_changes,
         duplicate_pages_suppressed,
         supporting_evidence_candidates,
@@ -419,12 +414,12 @@ fn page_candidate_from_proposal(
     proposal: &ExtractedMemoryPageProposal,
     supersedes: Vec<String>,
     now: &str,
-) -> Result<MemoryPage, String> {
+) -> MemoryPage {
     let mut tags = proposal.tags.clone().unwrap_or_default();
     tags.sort();
     tags.dedup();
 
-    Ok(MemoryPage {
+    MemoryPage {
         id: format!("memory-{}", Uuid::new_v4()),
         subject: interaction.subject.clone(),
         title: proposal.title.trim().to_owned(),
@@ -454,7 +449,7 @@ fn page_candidate_from_proposal(
         revision: 1,
         created_at: now.to_owned(),
         updated_at: now.to_owned(),
-    })
+    }
 }
 
 fn append_page_candidate_event(
@@ -568,13 +563,6 @@ fn source_type(interaction: &CapturedInteraction) -> SourceType {
     }
 }
 
-fn page_evidence_ids(proposals: &[ExtractedMemoryPageProposal]) -> BTreeSet<String> {
-    proposals
-        .iter()
-        .flat_map(|proposal| proposal.evidence_turn_ids.iter().cloned())
-        .collect()
-}
-
 fn maximum_page_sensitivity(proposals: &[ExtractedMemoryPageProposal]) -> Sensitivity {
     let mut values = proposals
         .iter()
@@ -592,48 +580,19 @@ fn maximum_page_sensitivity(proposals: &[ExtractedMemoryPageProposal]) -> Sensit
         .unwrap_or(Sensitivity::Ordinary)
 }
 
+fn sensitivity_rank(value: &Sensitivity) -> u8 {
+    match value {
+        Sensitivity::Ordinary => 0,
+        Sensitivity::Personal => 1,
+        Sensitivity::Sensitive => 2,
+        Sensitivity::Restricted => 3,
+    }
+}
+
 fn upsert_page_capture_source(
     connection: &Connection,
     interaction: &CapturedInteraction,
     proposals: &[ExtractedMemoryPageProposal],
-    now: &str,
-) -> Result<MemorySource, String> {
-    upsert_capture_source_with(
-        connection,
-        interaction,
-        page_evidence_ids(proposals),
-        maximum_page_sensitivity(proposals),
-        "memory-page",
-        now,
-    )
-}
-
-fn upsert_capture_source(
-    connection: &Connection,
-    interaction: &CapturedInteraction,
-    proposals: &[ExtractedMemoryProposal],
-    now: &str,
-) -> Result<MemorySource, String> {
-    let evidence_ids = proposals
-        .iter()
-        .flat_map(|proposal| proposal.evidence_turn_ids.iter().cloned())
-        .collect::<BTreeSet<_>>();
-    upsert_capture_source_with(
-        connection,
-        interaction,
-        evidence_ids,
-        maximum_sensitivity(proposals),
-        "claim",
-        now,
-    )
-}
-
-fn upsert_capture_source_with(
-    connection: &Connection,
-    interaction: &CapturedInteraction,
-    evidence_ids: BTreeSet<String>,
-    sensitivity: Sensitivity,
-    representation: &str,
     now: &str,
 ) -> Result<MemorySource, String> {
     let product = enum_text(&interaction.product)?;
@@ -642,7 +601,6 @@ fn upsert_capture_source_with(
         .clone()
         .unwrap_or_else(|| interaction.id.clone());
     let external_id = format!("{product}:{provider_external_id}");
-
     let existing: Option<(String, String)> = connection
         .query_row(
             "SELECT id, created_at FROM sources
@@ -667,22 +625,16 @@ fn upsert_capture_source_with(
         created_at: existing
             .map(|(_, created_at)| created_at)
             .unwrap_or_else(|| now.to_owned()),
-        sensitivity,
-        metadata: Some(source_metadata_from_evidence(
-            interaction,
-            &evidence_ids,
-            representation,
-        )?),
+        sensitivity: maximum_page_sensitivity(proposals),
+        metadata: Some(page_source_metadata(interaction, proposals)?),
     };
-
     write_source(connection, &source)?;
     Ok(source)
 }
 
-fn source_metadata_from_evidence(
+fn page_source_metadata(
     interaction: &CapturedInteraction,
-    evidence_ids: &BTreeSet<String>,
-    representation: &str,
+    proposals: &[ExtractedMemoryPageProposal],
 ) -> Result<BTreeMap<String, Value>, String> {
     let mut metadata = BTreeMap::from([
         (
@@ -719,7 +671,7 @@ fn source_metadata_from_evidence(
         ),
         (
             "topo.capture.representation".to_owned(),
-            Value::String(representation.to_owned()),
+            Value::String("memory-page".to_owned()),
         ),
     ]);
 
@@ -742,6 +694,10 @@ fn source_metadata_from_evidence(
         );
     }
 
+    let evidence_ids = proposals
+        .iter()
+        .flat_map(|proposal| proposal.evidence_turn_ids.iter().cloned())
+        .collect::<BTreeSet<_>>();
     let evidence_turns = interaction
         .turns
         .iter()
@@ -760,25 +716,7 @@ fn source_metadata_from_evidence(
             serde_json::to_value(&interaction.turns).map_err(error_text)?,
         );
     }
-
     Ok(metadata)
-}
-
-fn maximum_sensitivity(proposals: &[ExtractedMemoryProposal]) -> Sensitivity {
-    proposals
-        .iter()
-        .filter_map(|proposal| proposal.sensitivity.clone())
-        .max_by_key(sensitivity_rank)
-        .unwrap_or(Sensitivity::Ordinary)
-}
-
-fn sensitivity_rank(value: &Sensitivity) -> u8 {
-    match value {
-        Sensitivity::Ordinary => 0,
-        Sensitivity::Personal => 1,
-        Sensitivity::Sensitive => 2,
-        Sensitivity::Restricted => 3,
-    }
 }
 
 fn write_source(connection: &Connection, source: &MemorySource) -> Result<(), String> {
@@ -824,11 +762,6 @@ fn append_page_source_event(
     proposal_count: usize,
     now: &str,
 ) -> Result<(), String> {
-    let mut data = source_event_data(interaction, proposal_count)?;
-    data.insert(
-        "representation".to_owned(),
-        Value::String("memory-page".to_owned()),
-    );
     append_event(
         connection,
         &MemoryEvent {
@@ -841,286 +774,24 @@ fn append_page_source_event(
                 actor_type: ActorType::Agent,
                 id: Some("topo-capture-processor".to_owned()),
             },
-            data: Some(data),
-        },
-    )
-}
-
-fn append_source_event(
-    connection: &Connection,
-    interaction: &CapturedInteraction,
-    source: &MemorySource,
-    proposal_count: usize,
-    now: &str,
-) -> Result<(), String> {
-    append_event(
-        connection,
-        &MemoryEvent {
-            id: format!("event-{}", Uuid::new_v4()),
-            event_type: EventType::SourceCaptured,
-            entity_type: EventEntityType::Source,
-            entity_id: source.id.clone(),
-            occurred_at: now.to_owned(),
-            actor: Actor {
-                actor_type: ActorType::Agent,
-                id: Some("topo-capture-processor".to_owned()),
-            },
-            data: Some(source_event_data(interaction, proposal_count)?),
-        },
-    )
-}
-
-fn source_event_data(
-    interaction: &CapturedInteraction,
-    proposal_count: usize,
-) -> Result<BTreeMap<String, Value>, String> {
-    Ok(BTreeMap::from([
-        (
-            "captureProduct".to_owned(),
-            Value::String(enum_text(&interaction.product)?),
-        ),
-        (
-            "captureClient".to_owned(),
-            Value::String(enum_text(&interaction.client)?),
-        ),
-        (
-            "captureMode".to_owned(),
-            Value::String(enum_text(&interaction.mode)?),
-        ),
-        ("proposalCount".to_owned(), json!(proposal_count)),
-    ]))
-}
-
-// --- Legacy Claim persistence retained during M3 migration. ---
-
-fn persist_proposals(
-    connection: &Connection,
-    interaction: &CapturedInteraction,
-    proposals: Vec<ExtractedMemoryProposal>,
-    digest: &str,
-    extractor: &str,
-) -> Result<PersistResult, String> {
-    let tx = connection.unchecked_transaction().map_err(error_text)?;
-
-    if snapshot_processed(&tx, &interaction.id, digest)? {
-        tx.rollback().map_err(error_text)?;
-        return Ok(PersistResult {
-            candidates_created: 0,
-            supporting_evidence_added: 0,
-            potential_changes: 0,
-            duplicate_pages_suppressed: 0,
-            supporting_evidence_candidates: 0,
-            source_id: None,
-        });
-    }
-
-    if proposals.is_empty() {
-        mark_snapshot(&tx, interaction, digest, extractor, None, 0)?;
-        tx.commit().map_err(error_text)?;
-        return Ok(PersistResult {
-            candidates_created: 0,
-            supporting_evidence_added: 0,
-            potential_changes: 0,
-            duplicate_pages_suppressed: 0,
-            supporting_evidence_candidates: 0,
-            source_id: None,
-        });
-    }
-
-    let now = Utc::now().to_rfc3339();
-    let source = upsert_capture_source(&tx, interaction, &proposals, &now)?;
-    append_source_event(&tx, interaction, &source, proposals.len(), &now)?;
-
-    let existing = all_claims(&tx)?;
-    let mut candidates_created = 0usize;
-    let mut supporting_evidence_added = 0usize;
-    let mut potential_changes = 0usize;
-
-    for proposal in proposals {
-        let same_key = existing
-            .iter()
-            .filter(|claim| {
-                claim.subject == interaction.subject
-                    && claim.key == proposal.key
-                    && (claim.status == ClaimStatus::Confirmed
-                        || claim.status == ClaimStatus::Candidate)
-            })
-            .collect::<Vec<_>>();
-
-        if let Some(exact) = same_key
-            .iter()
-            .find(|claim| claim.value == proposal.value)
-            .copied()
-        {
-            append_supporting_evidence(
-                &tx,
-                exact,
-                &source,
-                &proposal,
-                extractor,
-                &now,
-            )?;
-            supporting_evidence_added += 1;
-            continue;
-        }
-
-        let supersedes = same_key
-            .iter()
-            .filter(|claim| claim.status == ClaimStatus::Confirmed)
-            .map(|claim| claim.id.clone())
-            .collect::<Vec<_>>();
-        let change = !supersedes.is_empty();
-        if change {
-            potential_changes += 1;
-        }
-
-        let claim = candidate_from_proposal(interaction, &source, proposal, supersedes, &now)?;
-        write_claim(&tx, &claim)?;
-        append_candidate_event(&tx, &claim, extractor, change, &now)?;
-        candidates_created += 1;
-    }
-
-    mark_snapshot(
-        &tx,
-        interaction,
-        digest,
-        extractor,
-        Some(&source.id),
-        candidates_created + supporting_evidence_added,
-    )?;
-    tx.commit().map_err(error_text)?;
-
-    Ok(PersistResult {
-        candidates_created,
-        supporting_evidence_added,
-        potential_changes,
-        duplicate_pages_suppressed: 0,
-        supporting_evidence_candidates: 0,
-        source_id: Some(source.id),
-    })
-}
-
-fn append_supporting_evidence(
-    connection: &Connection,
-    claim: &MemoryClaim,
-    source: &MemorySource,
-    proposal: &ExtractedMemoryProposal,
-    extractor: &str,
-    now: &str,
-) -> Result<(), String> {
-    append_event(
-        connection,
-        &MemoryEvent {
-            id: format!("event-{}", Uuid::new_v4()),
-            event_type: EventType::ClaimEvidenceAdded,
-            entity_type: EventEntityType::Claim,
-            entity_id: claim.id.clone(),
-            occurred_at: now.to_owned(),
-            actor: Actor {
-                actor_type: ActorType::Agent,
-                id: Some("topo-capture-extractor".to_owned()),
-            },
-            data: Some(BTreeMap::from([
-                ("sourceId".to_owned(), Value::String(source.id.clone())),
-                (
-                    "sourceType".to_owned(),
-                    Value::String(enum_text(&source.source_type)?),
-                ),
-                (
-                    "provider".to_owned(),
-                    Value::String(source.provider.clone().unwrap_or_default()),
-                ),
-                (
-                    "capturedAt".to_owned(),
-                    Value::String(source.captured_at.clone()),
-                ),
-                (
-                    "evidence".to_owned(),
-                    Value::String(proposal.evidence.clone()),
-                ),
-                (
-                    "extractor".to_owned(),
-                    Value::String(extractor.to_owned()),
-                ),
-            ])),
-        },
-    )
-}
-
-fn candidate_from_proposal(
-    interaction: &CapturedInteraction,
-    source: &MemorySource,
-    proposal: ExtractedMemoryProposal,
-    supersedes: Vec<String>,
-    now: &str,
-) -> Result<MemoryClaim, String> {
-    let mut tags = proposal.tags.unwrap_or_default();
-    if let Some(horizon) = proposal.horizon {
-        tags.push(format!("topo:horizon:{}", enum_text(&horizon)?));
-    }
-    if !supersedes.is_empty() {
-        tags.push("topo:potential-change".to_owned());
-    }
-    tags.sort();
-    tags.dedup();
-
-    Ok(MemoryClaim {
-        id: format!("claim-{}", Uuid::new_v4()),
-        subject: interaction.subject.clone(),
-        key: proposal.key.trim().to_owned(),
-        value: proposal.value,
-        category: proposal
-            .category
-            .and_then(|value| (!value.trim().is_empty()).then(|| value.trim().to_owned())),
-        tags,
-        epistemic_type: proposal.epistemic_type,
-        confidence: proposal.confidence,
-        provenance: ClaimProvenance {
-            source_type: source.source_type.clone(),
-            provider: source.provider.clone(),
-            source_id: Some(source.id.clone()),
-            evidence: Some(proposal.evidence.trim().to_owned()),
-            captured_at: interaction.captured_at.clone(),
-        },
-        status: ClaimStatus::Candidate,
-        sensitivity: proposal.sensitivity.unwrap_or(Sensitivity::Ordinary),
-        valid_from: None,
-        valid_until: proposal.valid_until,
-        supersedes,
-        created_at: now.to_owned(),
-        updated_at: now.to_owned(),
-    })
-}
-
-fn append_candidate_event(
-    connection: &Connection,
-    claim: &MemoryClaim,
-    extractor: &str,
-    potential_change: bool,
-    now: &str,
-) -> Result<(), String> {
-    append_event(
-        connection,
-        &MemoryEvent {
-            id: format!("event-{}", Uuid::new_v4()),
-            event_type: EventType::ClaimProposed,
-            entity_type: EventEntityType::Claim,
-            entity_id: claim.id.clone(),
-            occurred_at: now.to_owned(),
-            actor: Actor {
-                actor_type: ActorType::Agent,
-                id: Some("topo-capture-extractor".to_owned()),
-            },
             data: Some(BTreeMap::from([
                 (
-                    "origin".to_owned(),
-                    Value::String("ambient-capture".to_owned()),
+                    "captureProduct".to_owned(),
+                    Value::String(enum_text(&interaction.product)?),
                 ),
                 (
-                    "extractor".to_owned(),
-                    Value::String(extractor.to_owned()),
+                    "captureClient".to_owned(),
+                    Value::String(enum_text(&interaction.client)?),
                 ),
-                ("potentialChange".to_owned(), Value::Bool(potential_change)),
+                (
+                    "captureMode".to_owned(),
+                    Value::String(enum_text(&interaction.mode)?),
+                ),
+                ("proposalCount".to_owned(), json!(proposal_count)),
+                (
+                    "representation".to_owned(),
+                    Value::String("memory-page".to_owned()),
+                ),
             ])),
         },
     )
@@ -1145,7 +816,7 @@ mod tests {
     use super::*;
     use topo_contracts::{
         CaptureClient, CaptureFidelity, CaptureMethod, CaptureMode, CaptureProduct, CaptureRole,
-        CapturedTurn, MemoryPageAnnotationProposal,
+        CapturedTurn, EpistemicType, MemoryPageAnnotationProposal,
     };
 
     fn interaction() -> CapturedInteraction {
@@ -1167,7 +838,7 @@ mod tests {
                 CapturedTurn {
                     id: "u1".to_owned(),
                     role: CaptureRole::User,
-                    content: "Please use British English. RACK uses Neon rather than Supabase.".to_owned(),
+                    content: "RACK uses Neon rather than Supabase. Keep local projects account-free.".to_owned(),
                     occurred_at: None,
                 },
                 CapturedTurn {
@@ -1182,27 +853,11 @@ mod tests {
         }
     }
 
-    fn proposal() -> ExtractedMemoryProposal {
-        ExtractedMemoryProposal {
-            key: "writing.locale".to_owned(),
-            value: Value::String("en-GB".to_owned()),
-            category: Some("writing".to_owned()),
-            tags: Some(vec!["writing".to_owned()]),
-            epistemic_type: EpistemicType::Preference,
-            confidence: 0.99,
-            sensitivity: Some(Sensitivity::Ordinary),
-            horizon: Some(MemoryHorizon::Durable),
-            evidence_turn_ids: vec!["u1".to_owned()],
-            evidence: "Please use British English.".to_owned(),
-            valid_until: None,
-        }
-    }
-
     fn page_proposal() -> ExtractedMemoryPageProposal {
         ExtractedMemoryPageProposal {
             title: "RACK architecture decisions".to_owned(),
             summary: Some("Keep the database choice deliberate.".to_owned()),
-            body: "RACK uses Neon rather than Supabase.".to_owned(),
+            body: "RACK uses Neon rather than Supabase. Local projects remain account-free.".to_owned(),
             category: Some("rack".to_owned()),
             tags: Some(vec!["rack".to_owned(), "architecture".to_owned()]),
             sensitivity: Some(Sensitivity::Ordinary),
@@ -1231,7 +886,7 @@ mod tests {
     }
 
     #[test]
-    fn page_first_capture_creates_candidate_and_source() {
+    fn page_first_capture_creates_candidate_source_and_annotation_draft() {
         let connection = connection();
         let result = persist_page_proposals(
             &connection,
@@ -1248,7 +903,7 @@ mod tests {
         let pages = all_memory_pages(&connection).unwrap();
         assert_eq!(pages.len(), 1);
         assert_eq!(pages[0].status, MemoryPageStatus::Candidate);
-        assert_eq!(pages[0].annotation_ids.len(), 0);
+        assert!(pages[0].annotation_ids.is_empty());
 
         let data: String = connection
             .query_row(
@@ -1272,8 +927,6 @@ mod tests {
             "test:page-extractor",
         )
         .unwrap();
-        let page_id = all_memory_pages(&connection).unwrap()[0].id.clone();
-        crate::memory_pages::review_memory_page(page_id, "confirm".to_owned()).err();
 
         let result = persist_page_proposals(
             &connection,
@@ -1286,6 +939,33 @@ mod tests {
         assert_eq!(result.candidates_created, 0);
         assert_eq!(result.duplicate_pages_suppressed, 1);
         assert_eq!(all_memory_pages(&connection).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn concise_restatement_is_supporting_evidence_candidate() {
+        let connection = connection();
+        persist_page_proposals(
+            &connection,
+            &interaction(),
+            vec![page_proposal()],
+            "page-digest-base",
+            "test:page-extractor",
+        )
+        .unwrap();
+
+        let mut supporting = page_proposal();
+        supporting.title = "RACK architecture".to_owned();
+        supporting.body = "RACK uses Neon and local projects remain account-free.".to_owned();
+        let result = persist_page_proposals(
+            &connection,
+            &interaction(),
+            vec![supporting],
+            "page-digest-support",
+            "test:page-extractor",
+        )
+        .unwrap();
+        assert_eq!(result.supporting_evidence_candidates, 1);
+        assert_eq!(result.candidates_created, 1);
     }
 
     #[test]
@@ -1306,7 +986,6 @@ mod tests {
 
         let mut changed = page_proposal();
         changed.body = "RACK should move managed data away from Neon while preserving the local-first boundary.".to_owned();
-        changed.evidence = "RACK uses Neon rather than Supabase.".to_owned();
         let result = persist_page_proposals(
             &connection,
             &interaction(),
@@ -1325,68 +1004,6 @@ mod tests {
         assert_eq!(candidate.supersedes, vec![first.id.clone()]);
         let previous = pages.iter().find(|page| page.id == first.id).unwrap();
         assert_eq!(previous.status, MemoryPageStatus::Confirmed);
-    }
-
-    #[test]
-    fn first_legacy_capture_still_creates_claim_candidate() {
-        let connection = connection();
-        let result = persist_proposals(
-            &connection,
-            &interaction(),
-            vec![proposal()],
-            "digest-1",
-            "test:extractor",
-        )
-        .unwrap();
-
-        assert_eq!(result.candidates_created, 1);
-        assert_eq!(result.supporting_evidence_added, 0);
-        assert!(result.source_id.is_some());
-        let claims = all_claims(&connection).unwrap();
-        assert_eq!(claims.len(), 1);
-        assert_eq!(claims[0].status, ClaimStatus::Candidate);
-        assert!(claims[0].tags.contains(&"topo:horizon:durable".to_owned()));
-    }
-
-    #[test]
-    fn exact_confirmed_legacy_repeat_adds_evidence_not_duplicate() {
-        let connection = connection();
-        let first = persist_proposals(
-            &connection,
-            &interaction(),
-            vec![proposal()],
-            "digest-1",
-            "test:extractor",
-        )
-        .unwrap();
-        let claim_id = all_claims(&connection).unwrap()[0].id.clone();
-        crate::review_candidate_in(&connection, &claim_id, "confirm").unwrap();
-
-        let mut newer = interaction();
-        newer.captured_at = "2026-08-31T21:00:00Z".to_owned();
-        newer.turns.push(CapturedTurn {
-            id: "u2".to_owned(),
-            role: CaptureRole::User,
-            content: "Still use British English.".to_owned(),
-            occurred_at: None,
-        });
-        let mut repeated = proposal();
-        repeated.evidence_turn_ids = vec!["u2".to_owned()];
-        repeated.evidence = "Still use British English.".to_owned();
-
-        let second = persist_proposals(
-            &connection,
-            &newer,
-            vec![repeated],
-            "digest-2",
-            "test:extractor",
-        )
-        .unwrap();
-
-        assert_eq!(first.candidates_created, 1);
-        assert_eq!(second.candidates_created, 0);
-        assert_eq!(second.supporting_evidence_added, 1);
-        assert_eq!(all_claims(&connection).unwrap().len(), 1);
     }
 
     #[test]
