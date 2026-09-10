@@ -1,6 +1,6 @@
 use rusqlite::{params, Connection, Row};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 use topo_contracts::{
     MemoryHorizon, MemoryPage, MemoryPageOrigin, MemoryPageSourceRef, MemoryPageStatus, Sensitivity,
 };
