@@ -65,6 +65,8 @@ const statusOrder: Record<MemoryPageStatus, number> = {
   rejected: 4,
 };
 
+const MAX_REVIEW_DURATION_MS = 4 * 60 * 60 * 1_000;
+
 function formFor(page: MemoryPage): PageEditForm {
   return {
     title: page.title,
@@ -110,6 +112,7 @@ export function MemoryPagePanel({
   const syncReviewTimer = useCallback(() => {
     const shouldRun =
       document.visibilityState === "visible" &&
+      document.hasFocus() &&
       (reviewPointerInside.current || reviewFocusInside.current);
 
     if (shouldRun) {
@@ -124,7 +127,10 @@ export function MemoryPagePanel({
 
   const snapshotReviewDuration = useCallback(() => {
     pauseReviewTimer();
-    return Math.max(0, Math.round(reviewAccumulatedMs.current));
+    return Math.min(
+      MAX_REVIEW_DURATION_MS,
+      Math.max(0, Math.round(reviewAccumulatedMs.current)),
+    );
   }, [pauseReviewTimer]);
 
   const resetReviewDuration = useCallback(() => {
@@ -162,10 +168,14 @@ export function MemoryPagePanel({
   }, [refresh, refreshToken]);
 
   useEffect(() => {
-    const handleVisibilityChange = () => syncReviewTimer();
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const handleActivityStateChange = () => syncReviewTimer();
+    document.addEventListener("visibilitychange", handleActivityStateChange);
+    window.addEventListener("focus", handleActivityStateChange);
+    window.addEventListener("blur", handleActivityStateChange);
     return () => {
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener("visibilitychange", handleActivityStateChange);
+      window.removeEventListener("focus", handleActivityStateChange);
+      window.removeEventListener("blur", handleActivityStateChange);
       pauseReviewTimer();
     };
   }, [pauseReviewTimer, syncReviewTimer]);
@@ -373,7 +383,7 @@ export function MemoryPagePanel({
           </p>
           {filter === "candidate" && (
             <small className="muted">
-              TOPO records active review time locally on review decisions. Time while the app is hidden or this panel is not being used is excluded.
+              TOPO records active review time locally on review decisions. Time while the app is hidden, unfocused or this panel is not being used is excluded.
             </small>
           )}
         </div>
@@ -637,7 +647,8 @@ export function MemoryPagePanel({
                     <button className="secondary" type="button" disabled={disabled} onClick={() => void reviewPage(page, "reject")}>
                       Reject
                     </button>
-                    <button className="primary compact" type="button" disabled={disabled} onClick={() => void reviewPage(page, "confirm")}>
+                    <button className="primary compact" type="button" disabled={disabled} onClick={() => void reviewPage(page, "confirm")}
+                    >
                       Confirm
                     </button>
                   </div>
