@@ -17,10 +17,12 @@ Across every phase, personal context remains personal by default. TOPO uses the 
 - **M1 — Canonical Memory Page contract:** implemented.
 - **M2 — Portable Markdown:** implemented and merged.
 - **M3 — Page-first capture and review:** implemented; now ready for dogfooding/hardening.
-- **M4 — Page-aware context resolution:** **next implementation milestone**.
-- **M5 — Small local semantic index:** only after deterministic M4 retrieval is measurable.
+- **M4 — Page-aware context resolution:** implemented; deterministic retrieval evaluation is now active.
+- **M5 — Small local semantic index:** **deferred/conditional**. Build only if real retrieval misses justify it.
 
-The important remaining migration boundary is retrieval: the desktop and capture loop are now page-first, while the current Context Packet resolver is still Claim-backed for compatibility.
+The main representation migration is now implemented across capture, review, portable memory and local retrieval. `/v0/context` and `/v0/search` are Memory Page first, with SQLite FTS5 as a disposable ranking projection over canonical pages.
+
+The important remaining boundary is **product proof rather than another architecture migration**: use TOPO normally, govern a small useful inbox, retrieve the right context in another tool, and turn real misses into labelled evaluation cases. See [Retrieval evaluation](docs/RETRIEVAL_EVALUATION.md).
 
 ## Near-term product proof
 
@@ -161,48 +163,58 @@ Implemented:
 
 ## Iteration M4 — Page-aware context resolution
 
-**Priority:** next.
+**Status:** implemented; retrieval-quality dogfooding next.
 
 **Goal:** resolve useful context without requiring consumers to know TOPO's internal representation.
 
-Build:
+Implemented:
 
-- authorised Memory Page filtering by review state, sensitivity, scope and temporal validity;
-- deterministic FTS over Memory Page body/title/tags;
+- authorised Memory Page filtering by review state, sensitivity, subject and temporal validity;
+- deterministic SQLite FTS5 over Memory Page body/title/tags alongside lexical relevance;
 - purpose/task-aware ranking;
-- context/token budgets;
-- compact rendered excerpts in Context Packets;
+- bounded context composition and compact page excerpts;
 - stable page/revision/source provenance;
 - explainable selection metadata;
-- Claim-based retrieval as a compatibility fallback rather than the default.
+- Claim-based Context Packet retrieval only as a compatibility fallback when a subject has no current confirmed Memory Pages;
+- Memory Page-first `/v0/search` with no Claim search fallback;
+- a disposable FTS projection that can be dropped and rebuilt from canonical Memory Pages;
+- labelled retrieval evaluation using the shipping resolver.
 
 Rules:
 
 - governance filters happen before relevance ranking;
 - relevance never widens access;
 - Context Packet consumers, including RACK, must not need to understand Memory Pages directly;
-- retrieval tests must be deterministic before embeddings are introduced.
+- retrieval tests remain deterministic before any embeddings are introduced.
 
-**Exit:** the same purpose-bound Context Packet transport can be fulfilled primarily from Memory Pages.
+**Initial synthetic baseline:** 5/6 required pages recalled (`0.833`), `1.000` recall across ordinary lexical/FTS cases, `0.000` on the deliberately unmatched semantic vocabulary case, MRR `0.833`, zero forbidden disclosures and roughly `236` average context characters. See [Retrieval evaluation](docs/RETRIEVAL_EVALUATION.md).
+
+**Exit achieved:** the same purpose-bound Context Packet transport is now fulfilled primarily from governed Memory Pages, and deterministic retrieval has an explicit measurable baseline.
 
 ## Iteration M5 — Small local semantic index
 
-**Goal:** improve retrieval quality without turning TOPO into vector infrastructure.
+**Status:** deferred/conditional.
 
-Build only after M4 has deterministic tests:
+**Goal:** improve retrieval quality without turning TOPO into vector infrastructure — **only if real use shows the deterministic resolver is insufficient**.
+
+Do not start M5 from the synthetic semantic miss alone. Start an M5 experiment only after repeated dogfood misses have been preserved as labelled cases and cannot be solved cleanly through Memory Page quality, titles/tags, stemming, purpose wording or deterministic ranking.
+
+If justified, experiment with:
 
 - optional local embeddings for Memory Pages;
-- small SQLite/sidecar index;
+- a small SQLite/sidecar index;
 - hybrid FTS + semantic ranking;
 - complete index rebuild from canonical Memory Pages;
 - no vector index data required for portable restore;
 - local-model-first embedding path where practical.
 
+A candidate semantic approach must measurably improve the labelled misses while preserving zero forbidden disclosures and acceptable context efficiency.
+
 Principle:
 
 > The index is disposable. The memory is not.
 
-**Exit:** semantic retrieval measurably improves real recall while deletion/rebuild of the index changes no canonical memory.
+**Exit, if M5 is ever entered:** semantic retrieval measurably improves real recall while deletion/rebuild of the index changes no canonical memory.
 
 ---
 
@@ -326,7 +338,7 @@ All histories flow through the same page-first extraction, evidence, deduplicati
 
 ## Phase 4 — Purpose-aware context resolution
 
-The current lexical Claim resolver is a useful compatibility prototype. M4 migrates the primary capability to Memory Pages.
+The Memory Page resolver is now the primary local retrieval path. TOPO applies governance before deterministic lexical/FTS relevance, then composes bounded Context Packets with page/revision/source provenance. Legacy Claim resolution remains only as a compatibility fallback for subjects that have no current confirmed Memory Pages; `/v0/search` is page-first without Claim fallback.
 
 Resolution order remains governance-first:
 
@@ -465,6 +477,8 @@ Track:
 - cross-tool recall success;
 - portability/round-trip integrity;
 - token cost of resolved context.
+
+Capture quality is defined in [Capture evaluation](docs/CAPTURE_EVALUATION.md). Retrieval quality and the entry condition for any semantic index are defined separately in [Retrieval evaluation](docs/RETRIEVAL_EVALUATION.md).
 
 A clean interaction where nothing should be remembered is still a successful result when TOPO proposes nothing.
 
