@@ -53,6 +53,21 @@ The scorer should report or make it possible to assess:
 
 A clean interaction where nothing should be remembered is a successful result when TOPO proposes nothing.
 
+## Review-time measurement
+
+The desktop alpha records review effort on the Memory Page confirm/reject event rather than as a separate analytics stream.
+
+`reviewDurationMs` is measured with method `desktop-active-panel-v1`:
+
+- timing accrues only while the Memory Page panel is hovered or keyboard-focused;
+- timing pauses when the app becomes hidden or focus/pointer activity leaves the panel;
+- editing a candidate counts as review effort because it is part of governing the proposed memory;
+- backend write/refresh time is excluded;
+- the accumulated duration resets only after a successful review decision, so a failed local write does not discard the measurement;
+- bulk review apportions the active duration across the reviewed pages so review-event data can be aggregated.
+
+This is deliberately local product instrumentation, not telemetry. It stays in TOPO's local event history and is intended to test the product claim that a normal day's inbox can be governed in a few minutes.
+
 ## Qualitative scoring
 
 Some page-first qualities are not well represented by key matching alone. Labelled fixtures should therefore include small human judgements, for example:
