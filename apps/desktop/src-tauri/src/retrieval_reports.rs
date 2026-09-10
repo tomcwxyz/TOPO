@@ -1,5 +1,5 @@
 use crate::{context_packet_from_store, default_store_path, error_text};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -74,6 +74,22 @@ fn page_is_allowed_by_preview(page: &MemoryPage, include_sensitive: bool) -> boo
     matches!(page.sensitivity, Sensitivity::Ordinary | Sensitivity::Personal) || include_sensitive
 }
 
+fn page_is_current(page: &MemoryPage, now: &DateTime<Utc>) -> bool {
+    let valid_from_ok = page
+        .valid_from
+        .as_ref()
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&Utc) <= *now)
+        .unwrap_or(true);
+    let valid_until_ok = page
+        .valid_until
+        .as_ref()
+        .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&Utc) >= *now)
+        .unwrap_or(true);
+    valid_from_ok && valid_until_ok
+}
+
 fn build_report(
     connection: &Connection,
     input: &RetrievalReportInput,
@@ -92,6 +108,7 @@ fn build_report(
         );
     }
 
+    let now = Utc::now();
     let page_ids = pages.iter().map(|page| page.id.as_str()).collect::<BTreeSet<_>>();
     for expected_id in &input.expected_ids {
         if !page_ids.contains(expected_id.as_str()) {
@@ -103,6 +120,11 @@ fn build_report(
             .iter()
             .find(|page| page.id == *expected_id)
             .expect("validated expected page should exist");
+        if !page_is_current(page, &now) {
+            return Err(format!(
+                "Expected Memory Page {expected_id} is outside the temporal scope of this preview."
+            ));
+        }
         if !page_is_allowed_by_preview(page, input.include_sensitive) {
             return Err(format!(
                 "Expected Memory Page {expected_id} is outside the sensitivity scope of this preview."
@@ -224,9 +246,7 @@ mod tests {
     use super::*;
     use crate::memory_pages::{ensure_schema, write_memory_page};
     use rusqlite::params;
-    use topo_contracts::{
-        MemoryHorizon, MemoryPageOrigin, MemoryPageSourceRef, MemorySource, SourceType,
-    };
+    use topo_contracts::{MemoryHorizon, MemoryPageOrigin, MemoryPageSourceRef};
 
     fn setup() -> Connection {
         let connection = Connection::open_in_memory().unwrap();
@@ -389,5 +409,35 @@ mod tests {
         )
         .unwrap_err();
         assert!(error.contains("outside the sensitivity scope"));
+    }
+
+    #[test]
+    fn report_rejects_an_expected_page_outside_preview_temporal_scope() {
+        let connection = setup();
+        let mut expired = page(
+            "memory-expired",
+            "Old architecture note",
+            "This decision no longer applies.",
+            Sensitivity::Ordinary,
+        );
+        expired.valid_until = Some("2020-01-01T00:00:00Z".to_owned());
+        persist_page(&connection, &expired);
+
+        let input = RetrievalReportInput {
+            subject: "project:rack".to_owned(),
+            purpose: "review architecture".to_owned(),
+            include_sensitive: false,
+            max_items: 2,
+            expected_ids: vec![expired.id.clone()],
+            note: String::new(),
+        };
+        let error = build_report(
+            &connection,
+            &input,
+            "dogfood-test",
+            "2026-09-10T13:00:00Z",
+        )
+        .unwrap_err();
+        assert!(error.contains("outside the temporal scope"));
     }
 }
