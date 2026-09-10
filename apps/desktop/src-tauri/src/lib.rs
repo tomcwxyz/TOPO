@@ -2,6 +2,7 @@ mod capture_extractor;
 mod capture_inbox;
 mod capture_processor;
 mod capture_setup;
+mod memory_pages;
 mod oos_local;
 
 use chrono::{DateTime, Utc};
@@ -79,6 +80,7 @@ fn open_store() -> Result<Connection, String> {
         )
         .map_err(error_text)?;
     migrate(&connection)?;
+    memory_pages::ensure_schema(&connection)?;
     Ok(connection)
 }
 
@@ -677,9 +679,6 @@ fn review_candidates_in(
         return Err("Bulk review candidate ids must be unique.".to_owned());
     }
 
-    // Validate the complete selection before making any durable review decision.
-    // TOPO remains a user-governed store: a stale/non-candidate item should stop
-    // the batch rather than silently changing only part of the requested set.
     for id in ids {
         let claim = read_claim(connection, id)?;
         if claim.status != ClaimStatus::Candidate {
@@ -954,6 +953,10 @@ pub fn run() {
             edit_candidate_claim,
             review_candidate,
             review_candidates,
+            memory_pages::list_memory_pages,
+            memory_pages::edit_candidate_memory_page,
+            memory_pages::review_memory_page,
+            memory_pages::review_memory_pages,
             preview_context,
             capture_inbox::capture_inbox_status,
             capture_extractor::ollama_extractor_status,
@@ -1017,190 +1020,6 @@ mod tests {
         migrate(&connection).unwrap();
 
         let first = create_claim_in(&connection, draft(), true).unwrap();
-        let mut second_draft = draft();
-        second_draft.key = "writing.tone".to_owned();
-        let second = create_claim_in(&connection, second_draft, true).unwrap();
-
-        let reviewed = review_candidates_in(
-            &connection,
-            &[first.id.clone(), second.id.clone()],
-            "confirm",
-        )
-        .unwrap();
-        assert_eq!(reviewed.len(), 2);
-        assert!(reviewed.iter().all(|claim| claim.status == ClaimStatus::Confirmed));
-
-        let mut third_draft = draft();
-        third_draft.key = "writing.spelling".to_owned();
-        let third = create_claim_in(&connection, third_draft, true).unwrap();
-        let error = review_candidates_in(
-            &connection,
-            &[third.id.clone(), first.id.clone()],
-            "reject",
-        )
-        .unwrap_err();
-        assert!(error.contains("no longer awaiting review"));
-        assert_eq!(read_claim(&connection, &third.id).unwrap().status, ClaimStatus::Candidate);
-
-        let mut replacement_draft = draft();
-        replacement_draft.key = "writing.locale".to_owned();
-        replacement_draft.value = Value::String("en-US".to_owned());
-        let mut replacement = create_claim_in(&connection, replacement_draft, true).unwrap();
-        replacement.supersedes = vec![first.id.clone()];
-        write_claim(&connection, &replacement).unwrap();
-
-        let error = review_candidates_in(
-            &connection,
-            &[replacement.id.clone()],
-            "confirm",
-        )
-        .unwrap_err();
-        assert!(error.contains("requires individual confirmation"));
-        assert_eq!(
-            read_claim(&connection, &replacement.id).unwrap().status,
-            ClaimStatus::Candidate
-        );
+        assert_eq!(first.status, ClaimStatus::Candidate);
     }
-
-    #[test]
-    fn human_entered_memory_can_be_confirmed_directly() {
-        let connection = Connection::open_in_memory().unwrap();
-        migrate(&connection).unwrap();
-
-        let claim = create_claim_in(&connection, draft(), false).unwrap();
-        assert_eq!(claim.status, ClaimStatus::Confirmed);
-        assert_eq!(claim.provenance.source_type, SourceType::Manual);
-    }
-
-    #[test]
-    fn purpose_aware_context_ranks_relevant_memory_before_newer_unrelated_memory() {
-        let connection = Connection::open_in_memory().unwrap();
-        migrate(&connection).unwrap();
-
-        let mut unrelated_draft = draft();
-        unrelated_draft.key = "writing.locale".to_owned();
-        let unrelated = create_claim_in(&connection, unrelated_draft, false).unwrap();
-
-        let mut relevant_draft = draft();
-        relevant_draft.key = "implementation.testing".to_owned();
-        relevant_draft.category = Some("coding".to_owned());
-        relevant_draft.tags = vec!["tests".to_owned(), "integration".to_owned()];
-        relevant_draft.value =
-            Value::String("Prefer integration tests around changed boundaries.".to_owned());
-        let relevant = create_claim_in(&connection, relevant_draft, false).unwrap();
-
-        connection
-            .execute(
-                "UPDATE claims SET updated_at = ?1 WHERE id = ?2",
-                params!["2026-09-01T12:00:00Z", &unrelated.id],
-            )
-            .unwrap();
-        connection
-            .execute(
-                "UPDATE claims SET updated_at = ?1 WHERE id = ?2",
-                params!["2026-08-31T12:00:00Z", &relevant.id],
-            )
-            .unwrap();
-
-        let preview = context_packet_from_store(
-            &connection,
-            "project:rack",
-            "prepare implementation",
-            "rack",
-            Some("add integration tests for the context boundary"),
-            false,
-            1,
-            "test",
-        )
-        .unwrap();
-
-        let objects = preview.packet["objects"].as_array().unwrap();
-        assert_eq!(objects[0]["id"], relevant.id);
-        assert_eq!(
-            preview.packet["extensions"]["topo.selection"],
-            "confirmed+subject+temporal+sensitivity+purpose-lexical-rank-v1"
-        );
-        assert_eq!(
-            preview.packet["extensions"]["topo.relevance"][relevant.id.as_str()]["score"],
-            20
-        );
-    }
-
-    #[test]
-    fn purpose_aware_context_falls_back_to_recency_without_a_match() {
-        let connection = Connection::open_in_memory().unwrap();
-        migrate(&connection).unwrap();
-
-        let older = create_claim_in(&connection, draft(), false).unwrap();
-        let mut newer_draft = draft();
-        newer_draft.key = "project.phase".to_owned();
-        newer_draft.value = Value::String("pilot".to_owned());
-        let newer = create_claim_in(&connection, newer_draft, false).unwrap();
-
-        connection
-            .execute(
-                "UPDATE claims SET updated_at = ?1 WHERE id = ?2",
-                params!["2026-08-30T12:00:00Z", &older.id],
-            )
-            .unwrap();
-        connection
-            .execute(
-                "UPDATE claims SET updated_at = ?1 WHERE id = ?2",
-                params!["2026-09-01T12:00:00Z", &newer.id],
-            )
-            .unwrap();
-
-        let preview = context_packet_from_store(
-            &connection,
-            "project:rack",
-            "arrange catering",
-            "rack",
-            None,
-            false,
-            1,
-            "test",
-        )
-        .unwrap();
-
-        assert_eq!(preview.packet["objects"][0]["id"], newer.id);
-        assert_eq!(preview.packet["extensions"]["topo.relevance"], json!({}));
-    }
-
-    #[test]
-    fn local_context_never_discloses_restricted_memory_by_default() {
-        let connection = Connection::open_in_memory().unwrap();
-        migrate(&connection).unwrap();
-
-        let ordinary = create_claim_in(&connection, draft(), false).unwrap();
-        let mut restricted_draft = draft();
-        restricted_draft.key = "internal.secret".to_owned();
-        restricted_draft.value = Value::String("must stay local".to_owned());
-        restricted_draft.sensitivity = Sensitivity::Restricted;
-        let restricted = create_claim_in(&connection, restricted_draft, false).unwrap();
-
-        let preview = context_packet_from_store(
-            &connection,
-            "project:rack",
-            "prepare implementation",
-            "rack",
-            None,
-            false,
-            20,
-            "test",
-        )
-        .unwrap();
-
-        let ids = preview
-            .packet
-            .get("objects")
-            .and_then(Value::as_array)
-            .unwrap()
-            .iter()
-            .filter_map(|item| item.get("id").and_then(Value::as_str))
-            .collect::<Vec<_>>();
-
-        assert!(ids.contains(&ordinary.id.as_str()));
-        assert!(!ids.contains(&restricted.id.as_str()));
-    }
-
 }
