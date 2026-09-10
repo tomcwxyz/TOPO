@@ -23,6 +23,9 @@ use topo_contracts::{
 };
 use uuid::Uuid;
 
+#[path = "memory_page_search.rs"]
+mod memory_page_search;
+
 const PROTOCOL: &str = "oos-local/0.1";
 const MAX_BODY_BYTES: usize = 128 * 1024;
 const MAX_PROPOSALS: usize = 50;
@@ -596,92 +599,13 @@ fn local_search(input: SearchRequest) -> Result<Value, String> {
     }
 
     let connection = super::open_store()?;
-    let now = Utc::now();
-    let needle = input.query.trim().to_lowercase();
-    let mut results = super::all_claims(&connection)?
-        .into_iter()
-        .filter(|claim| claim.status == ClaimStatus::Confirmed)
-        .filter(|claim| matches!(claim.sensitivity, Sensitivity::Ordinary | Sensitivity::Personal))
-        .filter(|claim| super::is_current(claim, &now))
-        .filter(|claim| {
-            input
-                .category
-                .as_ref()
-                .map(|category| claim.category.as_deref() == Some(category.as_str()))
-                .unwrap_or(true)
-        })
-        .filter_map(|claim| {
-            let score = lexical_score(&claim, &needle);
-            (score > 0).then_some((claim, score))
-        })
-        .collect::<Vec<_>>();
-
-    results.sort_by(|(left, left_score), (right, right_score)| {
-        right_score
-            .cmp(left_score)
-            .then_with(|| right.updated_at.cmp(&left.updated_at))
-            .then_with(|| left.id.cmp(&right.id))
-    });
-    results.truncate(limit);
-
-    Ok(json!({
-        "requestedBy": input.requested_by,
-        "query": input.query,
-        "results": results.into_iter().map(|(claim, score)| json!({
-            "claim": claim,
-            "score": score
-        })).collect::<Vec<_>>()
-    }))
-}
-
-fn lexical_score(claim: &MemoryClaim, needle: &str) -> i64 {
-    let key = claim.key.to_lowercase();
-    let category = claim.category.clone().unwrap_or_default().to_lowercase();
-    let tags = claim
-        .tags
-        .iter()
-        .map(|tag| tag.to_lowercase())
-        .collect::<Vec<_>>();
-    let value = serde_json::to_string(&claim.value)
-        .unwrap_or_default()
-        .to_lowercase();
-
-    let mut score = 0i64;
-    if key == needle {
-        score += 100;
-    } else if key.contains(needle) {
-        score += 45;
-    }
-    if category == needle {
-        score += 35;
-    } else if category.contains(needle) {
-        score += 15;
-    }
-    if value.contains(needle) {
-        score += 30;
-    }
-    for tag in &tags {
-        if tag == needle {
-            score += 25;
-        } else if tag.contains(needle) {
-            score += 10;
-        }
-    }
-    for token in needle.split_whitespace() {
-        if key.contains(token) {
-            score += 8;
-        }
-        if category.contains(token) {
-            score += 4;
-        }
-        if value.contains(token) {
-            score += 5;
-        }
-        if tags.iter().any(|tag| tag.contains(token)) {
-            score += 4;
-        }
-    }
-    score
+    memory_page_search::search_memory_pages(
+        &connection,
+        &input.query,
+        &input.requested_by,
+        input.category.as_deref(),
+        limit,
+    )
 }
 
 fn create_local_proposals(input: ProposalRequest) -> Result<Value, String> {
