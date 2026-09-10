@@ -25,13 +25,18 @@ jobs:
         with:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install dependencies
-        run: npm install
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Require current Rust lockfiles
+        shell: pwsh
+        run: |
+          cargo metadata --locked --format-version 1 --manifest-path crates/topo-native-host/Cargo.toml | Out-Null
+          cargo metadata --locked --format-version 1 --manifest-path apps/desktop/src-tauri/Cargo.toml | Out-Null
       - name: Prepare packaged browser capture companion
         shell: pwsh
         run: |
           npm run test:extension-build
-          cargo build --release --target-dir target --manifest-path crates/topo-native-host/Cargo.toml
+          cargo build --locked --release --target-dir target --manifest-path crates/topo-native-host/Cargo.toml
           $resources = "apps/desktop/src-tauri/resources"
           Remove-Item -Recurse -Force $resources -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force "$resources/capture-extension" | Out-Null
@@ -39,28 +44,49 @@ jobs:
           Copy-Item "target/release/topo-native-host.exe" "$resources/topo-native-host.exe" -Force
       - name: Build unsigned Windows NSIS installer
         run: npm run tauri --workspace @topo/desktop -- build --bundles nsis --config src-tauri/test.windows.json
-      - name: Scan installer with Microsoft Defender when available
+      - name: Scan Windows binaries and installer with Microsoft Defender
         shell: pwsh
         run: |
+          $nativeHost = Get-Item "target/release/topo-native-host.exe"
+          $desktop = Get-Item "apps/desktop/src-tauri/target/release/topo.exe"
           $installers = @(Get-ChildItem "apps/desktop/src-tauri/target/release/bundle/nsis/*.exe")
           if ($installers.Count -eq 0) { throw "No Windows NSIS installer was produced." }
+          $files = @($nativeHost, $desktop) + $installers
+
           $status = Get-MpComputerStatus -ErrorAction SilentlyContinue
-          if ($status -and $status.AntivirusEnabled) {
-            foreach ($installer in $installers) {
-              Start-MpScan -ScanPath $installer.FullName -ScanType CustomScan
-            }
+          if (-not $status -or -not $status.AntivirusEnabled) {
+            throw "Microsoft Defender Antivirus is not enabled on the Windows alpha runner; do not publish an unchecked Windows test artefact."
+          }
+
+          Write-Host "Defender signature version: $($status.AntivirusSignatureVersion)"
+          Write-Host "Defender signature updated: $($status.AntivirusSignatureLastUpdated)"
+          try { Update-MpSignature -ErrorAction Stop | Out-Null } catch { Write-Warning "Could not refresh Defender signatures: $($_.Exception.Message)" }
+
+          foreach ($file in $files) {
+            Write-Host "Scanning $($file.FullName)..."
+            Start-MpScan -ScanPath $file.FullName -ScanType CustomScan
             $detections = @(Get-MpThreatDetection -ErrorAction SilentlyContinue)
-            foreach ($installer in $installers) {
-              $escaped = [Regex]::Escape($installer.FullName)
-              $hits = @($detections | Where-Object { ($_.Resources -join "`n") -match $escaped })
-              if ($hits.Count -gt 0) { throw "Microsoft Defender reported the TOPO installer as a threat." }
+            $escaped = [Regex]::Escape($file.FullName)
+            $hits = @($detections | Where-Object { ($_.Resources -join "`n") -match $escaped })
+            if ($hits.Count -gt 0) {
+              $ids = ($hits | ForEach-Object { $_.ThreatID }) -join ", "
+              throw "Microsoft Defender reported $($file.Name) as a threat. Threat IDs: $ids"
             }
+          }
+
+          $hashFile = "TOPO_windows_SHA256SUMS.txt"
+          Remove-Item $hashFile -ErrorAction SilentlyContinue
+          foreach ($file in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 $file.FullName).Hash.ToLowerInvariant()
+            "$hash  $($file.Name)" | Tee-Object -FilePath $hashFile -Append
           }
       - name: Upload Windows unsigned alpha
         uses: actions/upload-artifact@v4
         with:
-          name: TOPO_0.1.1-alpha.1_UNSIGNED_TEST_windows_x64
-          path: apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+          name: TOPO_UNSIGNED_TEST_windows_x64
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+            TOPO_windows_SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 14
 
@@ -78,14 +104,18 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      - name: Install dependencies
-        run: npm install
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Require current Rust lockfiles
+        run: |
+          cargo metadata --locked --format-version 1 --manifest-path crates/topo-native-host/Cargo.toml > /dev/null
+          cargo metadata --locked --format-version 1 --manifest-path apps/desktop/src-tauri/Cargo.toml > /dev/null
       - name: Prepare packaged browser companion and verified local-engine installer
         shell: bash
         run: |
           set -euo pipefail
           npm run test:extension-build
-          cargo build --release --target-dir target --manifest-path crates/topo-native-host/Cargo.toml
+          cargo build --locked --release --target-dir target --manifest-path crates/topo-native-host/Cargo.toml
           resources="apps/desktop/src-tauri/resources"
           rm -rf "$resources"
           mkdir -p "$resources/capture-extension"
@@ -107,7 +137,7 @@ jobs:
       - name: Upload Linux unsigned alpha
         uses: actions/upload-artifact@v4
         with:
-          name: TOPO_0.1.1-alpha.1_UNSIGNED_TEST_linux_x64
+          name: TOPO_UNSIGNED_TEST_linux_x64
           path: |
             apps/desktop/src-tauri/target/release/bundle/deb/*.deb
             apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
@@ -124,14 +154,18 @@ jobs:
         with:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install dependencies
-        run: npm install
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Require current Rust lockfiles
+        run: |
+          cargo metadata --locked --format-version 1 --manifest-path crates/topo-native-host/Cargo.toml > /dev/null
+          cargo metadata --locked --format-version 1 --manifest-path apps/desktop/src-tauri/Cargo.toml > /dev/null
       - name: Prepare packaged browser capture companion
         shell: bash
         run: |
           set -euo pipefail
           npm run test:extension-build
-          cargo build --release --target-dir target --manifest-path crates/topo-native-host/Cargo.toml
+          cargo build --locked --release --target-dir target --manifest-path crates/topo-native-host/Cargo.toml
           resources="apps/desktop/src-tauri/resources"
           rm -rf "$resources"
           mkdir -p "$resources/capture-extension"
@@ -174,7 +208,7 @@ jobs:
       - name: Upload macOS unsigned alpha
         uses: actions/upload-artifact@v4
         with:
-          name: TOPO_0.1.1-alpha.1_UNSIGNED_TEST_macos
+          name: TOPO_UNSIGNED_TEST_macos
           path: apps/desktop/src-tauri/target/release/bundle/dmg/*.dmg
           if-no-files-found: error
           retention-days: 14
