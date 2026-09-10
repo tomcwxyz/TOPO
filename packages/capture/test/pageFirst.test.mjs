@@ -204,6 +204,37 @@ test("comparison distinguishes duplicates, supporting evidence, changes and new 
   );
 });
 
+test("supporting evidence enriches an existing page without creating another review candidate", () => {
+  let sequence = 0;
+  const supporting = {
+    ...rackProposal,
+    title: "RACK architecture",
+    body: "RACK uses Neon rather than Supabase, and local projects remain account-free.",
+  };
+  const batch = preparePageFirstCaptureBatch(
+    interaction,
+    [supporting],
+    [existingPage()],
+    {
+      now: "2026-09-10T05:31:00.000Z",
+      actor: { type: "agent", id: "capture-extractor" },
+      extractor: "ollama:qwen3:4b",
+      createId: (prefix) => `${prefix}-${++sequence}`,
+    },
+  );
+
+  assert.equal(batch.pageTransitions.length, 0);
+  assert.equal(batch.supportingEvidenceTransitions.length, 1);
+  assert.equal(batch.supportingEvidenceApplied, 1);
+  const transition = batch.supportingEvidenceTransitions[0];
+  assert.equal(transition.page.id, "memory-existing");
+  assert.equal(transition.page.status, "confirmed");
+  assert.equal(transition.page.revision, 2);
+  assert.equal(transition.page.sourceRefs.length, 2);
+  assert.equal(transition.event.type, "memory.edited");
+  assert.equal(transition.event.data.changeKind, "supporting-evidence");
+});
+
 test("batch suppresses exact duplicates but keeps reviewable changes and annotation drafts", () => {
   let sequence = 0;
   const changed = {
@@ -223,6 +254,7 @@ test("batch suppresses exact duplicates but keeps reviewable changes and annotat
   );
 
   assert.equal(batch.duplicateProposalsSuppressed, 1);
+  assert.equal(batch.supportingEvidenceApplied, 0);
   assert.equal(batch.pageTransitions.length, 1);
   const transition = batch.pageTransitions[0];
   assert.equal(transition.page.status, "candidate");
