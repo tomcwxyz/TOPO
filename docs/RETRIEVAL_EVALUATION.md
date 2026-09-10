@@ -31,6 +31,14 @@ The scorer runs the actual Memory Page Context resolver and reports:
 - forbidden disclosures;
 - average resolved context characters.
 
+Run the visible baseline locally with:
+
+```bash
+npm run test:retrieval-eval
+```
+
+The Linux desktop smoke workflow runs the same command with uncaptured output so the baseline remains inspectable in CI.
+
 ## Hard invariants
 
 These are not optimisation metrics:
@@ -52,6 +60,23 @@ The first synthetic fixture set requires:
 - average context below the resolver's `12,000` character ceiling.
 
 The set intentionally includes a vocabulary-gap example: a page that says a local project works **without a network connection** is requested using the phrase **offline-first**. This is useful because it gives semantic retrieval something real to improve rather than designing a benchmark that FTS already aces.
+
+### Initial fixture baseline — 10 September 2026
+
+The six-case deterministic fixture baseline is:
+
+| Metric | Baseline |
+| --- | ---: |
+| Required-page recall | `0.833` (5/6) |
+| Non-semantic recall | `1.000` (5/5) |
+| Semantic-challenge recall | `0.000` (0/1) |
+| Mean reciprocal rank | `0.833` |
+| Forbidden disclosures | `0` |
+| Average context characters | `236` |
+
+The result is intentionally imperfect. All ordinary lexical/FTS cases pass, including stemming, purpose disambiguation, temporal expiry and sensitivity-before-ranking. The one miss is the designed vocabulary gap: **offline-first** does not lexically match **without a network connection**, so recency wins when the item budget is one.
+
+This is evidence that deterministic retrieval has a known semantic limitation, not evidence that TOPO needs embeddings now. One synthetic vocabulary miss is not enough to earn another retrieval mechanism. Real dogfooding should determine whether this failure mode is frequent and important.
 
 These thresholds are regression guards, not product claims. The fixture set should grow from dogfooding.
 
