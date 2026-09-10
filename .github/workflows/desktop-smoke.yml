@@ -46,6 +46,8 @@ jobs:
       - run: npm run build --workspace @topo/desktop
       - run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
       - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
+      - name: Report deterministic retrieval baseline
+        run: npm run test:retrieval-eval
 
   windows:
     name: Desktop smoke (Windows)
