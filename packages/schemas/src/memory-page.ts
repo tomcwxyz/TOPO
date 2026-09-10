@@ -127,7 +127,6 @@ export const memoryPageEventTypeSchema = z.enum([
   "memory.proposed",
   "memory.confirmed",
   "memory.edited",
-  "memory.evidence_added",
   "memory.rejected",
   "memory.superseded",
   "memory.expired",
