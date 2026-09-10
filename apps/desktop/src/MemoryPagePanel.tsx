@@ -234,6 +234,7 @@ export function MemoryPagePanel({
     }
 
     const reviewDurationMs = snapshotReviewDuration();
+    let reviewPersisted = false;
     setBusy(true);
     onError(null);
     onMessage(null);
@@ -243,7 +244,7 @@ export function MemoryPagePanel({
         decision,
         reviewDurationMs,
       });
-      resetReviewDuration();
+      reviewPersisted = true;
       setSelectedIds((current) => current.filter((id) => id !== page.id));
       if (editingId === page.id) {
         setEditingId(null);
@@ -257,7 +258,8 @@ export function MemoryPagePanel({
       onError(String(cause));
     } finally {
       setBusy(false);
-      syncReviewTimer();
+      if (reviewPersisted) resetReviewDuration();
+      else syncReviewTimer();
     }
   };
 
@@ -278,6 +280,7 @@ export function MemoryPagePanel({
     }
 
     const reviewDurationMs = snapshotReviewDuration();
+    let reviewPersisted = false;
     setBusy(true);
     onError(null);
     onMessage(null);
@@ -287,7 +290,7 @@ export function MemoryPagePanel({
         decision,
         reviewDurationMs,
       });
-      resetReviewDuration();
+      reviewPersisted = true;
       const count = selectedIds.length;
       setSelectedIds([]);
       onMessage(
@@ -298,7 +301,8 @@ export function MemoryPagePanel({
       onError(String(cause));
     } finally {
       setBusy(false);
-      syncReviewTimer();
+      if (reviewPersisted) resetReviewDuration();
+      else syncReviewTimer();
     }
   };
 
@@ -644,7 +648,8 @@ export function MemoryPagePanel({
                     <button className="secondary" type="button" disabled={disabled} onClick={() => startEditing(page)}>
                       Edit
                     </button>
-                    <button className="secondary" type="button" disabled={disabled} onClick={() => void reviewPage(page, "reject")}>
+                    <button className="secondary" type="button" disabled={disabled} onClick={() => void reviewPage(page, "reject")}
+                    >
                       Reject
                     </button>
                     <button className="primary compact" type="button" disabled={disabled} onClick={() => void reviewPage(page, "confirm")}
