@@ -14,9 +14,10 @@ import {
   type ExtractedMemoryPageProposal,
   type MemoryPageAnnotationProposal,
 } from "@topo/schemas/memory-page-capture";
-import type {
-  MemoryPage,
-  MemoryPageTransition,
+import {
+  validateMemoryPage,
+  type MemoryPage,
+  type MemoryPageTransition,
 } from "@topo/schemas/memory-page";
 import {
   normaliseCapturedInteraction,
@@ -58,13 +59,14 @@ export interface PreparedPageFirstCaptureBatch {
   source: MemorySource;
   sourceEvent: MemoryEvent;
   pageTransitions: MemoryPageTransition[];
+  supportingEvidenceTransitions: MemoryPageTransition[];
   comparisons: Array<{
     memoryId: string;
     comparison: MemoryPageProposalComparison;
     relatedMemoryIds: string[];
   }>;
   duplicateProposalsSuppressed: number;
-  supportingEvidenceProposalsSuppressed: number;
+  supportingEvidenceApplied: number;
 }
 
 const sensitivityRank: Record<Sensitivity, number> = {
@@ -366,6 +368,61 @@ function annotationData(
   return jsonSnapshot(annotations);
 }
 
+function supportingEvidenceTransition(
+  page: MemoryPage,
+  proposal: ExtractedMemoryPageProposal,
+  source: MemorySource,
+  context: PageFirstCapturePreparationContext,
+): MemoryPageTransition | null {
+  if (page.sourceRefs.some((reference) => reference.sourceId === source.id)) {
+    return null;
+  }
+
+  const sourceRef = {
+    sourceId: source.id,
+    evidence: proposal.evidence.trim(),
+    turnIds: [...proposal.evidenceTurnIds],
+  };
+  const next: MemoryPage = {
+    ...page,
+    tags: [...page.tags],
+    sourceRefs: [
+      ...page.sourceRefs.map((reference) => ({
+        ...reference,
+        ...(reference.turnIds === undefined
+          ? {}
+          : { turnIds: [...reference.turnIds] }),
+      })),
+      sourceRef,
+    ],
+    annotationIds: [...page.annotationIds],
+    supersedes: [...page.supersedes],
+    revision: page.revision + 1,
+    updatedAt: context.now,
+  };
+  validateMemoryPage(next);
+
+  return {
+    page: next,
+    event: {
+      id: context.createId("event"),
+      type: "memory.edited",
+      entityType: "memory",
+      entityId: next.id,
+      occurredAt: context.now,
+      actor: { ...context.actor },
+      data: {
+        changeKind: "supporting-evidence",
+        sourceId: source.id,
+        evidence: proposal.evidence.trim(),
+        turnIds: jsonSnapshot(proposal.evidenceTurnIds),
+        revision: next.revision,
+        ...(context.extractor === undefined ? {} : { extractor: context.extractor }),
+      },
+    },
+  };
+}
+
 export function preparePageFirstCaptureBatch(
   rawInteraction: CapturedInteractionInput,
   rawProposals: ExtractedMemoryPageProposal[],
@@ -420,9 +477,10 @@ export function preparePageFirstCaptureBatch(
   };
 
   const pageTransitions: MemoryPageTransition[] = [];
+  const supportingEvidenceTransitions: MemoryPageTransition[] = [];
   const comparisons: PreparedPageFirstCaptureBatch["comparisons"] = [];
   let duplicateProposalsSuppressed = 0;
-  let supportingEvidenceProposalsSuppressed = 0;
+  let supportingEvidenceApplied = 0;
 
   for (const proposal of proposals) {
     const comparison = compareMemoryPageProposal(
@@ -435,7 +493,22 @@ export function preparePageFirstCaptureBatch(
       continue;
     }
     if (comparison.comparison === "supporting-evidence") {
-      supportingEvidenceProposalsSuppressed += 1;
+      const related = comparison.relatedMemoryIds
+        .map((id) => existingPages.find((page) => page.id === id))
+        .filter((page): page is MemoryPage => page !== undefined);
+      const target = related.find((page) => page.status === "confirmed") ?? related[0];
+      if (target !== undefined) {
+        const transition = supportingEvidenceTransition(target, proposal, source, context);
+        if (transition !== null) {
+          supportingEvidenceTransitions.push(transition);
+          supportingEvidenceApplied += 1;
+          comparisons.push({
+            memoryId: target.id,
+            comparison: comparison.comparison,
+            relatedMemoryIds: [...comparison.relatedMemoryIds],
+          });
+        }
+      }
       continue;
     }
 
@@ -509,9 +582,10 @@ export function preparePageFirstCaptureBatch(
     source,
     sourceEvent,
     pageTransitions,
+    supportingEvidenceTransitions,
     comparisons,
     duplicateProposalsSuppressed,
-    supportingEvidenceProposalsSuppressed,
+    supportingEvidenceApplied,
   };
 }
 
