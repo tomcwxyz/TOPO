@@ -64,6 +64,7 @@ export interface PreparedPageFirstCaptureBatch {
     relatedMemoryIds: string[];
   }>;
   duplicateProposalsSuppressed: number;
+  supportingEvidenceProposalsSuppressed: number;
 }
 
 const sensitivityRank: Record<Sensitivity, number> = {
@@ -421,6 +422,7 @@ export function preparePageFirstCaptureBatch(
   const pageTransitions: MemoryPageTransition[] = [];
   const comparisons: PreparedPageFirstCaptureBatch["comparisons"] = [];
   let duplicateProposalsSuppressed = 0;
+  let supportingEvidenceProposalsSuppressed = 0;
 
   for (const proposal of proposals) {
     const comparison = compareMemoryPageProposal(
@@ -430,6 +432,10 @@ export function preparePageFirstCaptureBatch(
     );
     if (comparison.comparison === "duplicate") {
       duplicateProposalsSuppressed += 1;
+      continue;
+    }
+    if (comparison.comparison === "supporting-evidence") {
+      supportingEvidenceProposalsSuppressed += 1;
       continue;
     }
 
@@ -505,6 +511,7 @@ export function preparePageFirstCaptureBatch(
     pageTransitions,
     comparisons,
     duplicateProposalsSuppressed,
+    supportingEvidenceProposalsSuppressed,
   };
 }
 
