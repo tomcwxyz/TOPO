@@ -133,22 +133,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn summary_aggregates_review_decisions_and_active_duration() {
+    fn review_summary_aggregates_decisions_and_active_duration() {
         let connection = Connection::open_in_memory().unwrap();
-        crate::migrate(&connection).unwrap();
-        crate::memory_pages::ensure_schema(&connection).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE memory_page_events (
+                    id TEXT PRIMARY KEY,
+                    type TEXT NOT NULL,
+                    entity_id TEXT NOT NULL,
+                    occurred_at TEXT NOT NULL,
+                    actor_type TEXT NOT NULL,
+                    actor_id TEXT,
+                    data_json TEXT
+                ) STRICT;",
+            )
+            .unwrap();
         connection
             .execute(
                 "INSERT INTO memory_page_events (
                     id, type, entity_id, occurred_at, actor_type, data_json
                  ) VALUES
                     ('e1', 'memory.confirmed', 'm1', '2026-09-10T10:00:00Z', 'user', ?1),
-                    ('e2', 'memory.rejected', 'm2', '2026-09-10T11:00:00Z', 'user', ?2)",
+                    ('e2', 'memory.rejected', 'm2', '2026-09-10T11:00:00Z', 'user', ?2),
+                    ('e3', 'memory.confirmed', 'm3', '2026-09-09T08:00:00Z', 'user', ?3)",
                 params![
                     r#"{"reviewDurationMs":12000}"#,
                     r#"{"reviewDurationMs":8000}"#,
+                    r#"{"reviewDurationMs":5000}"#,
                 ],
             )
-            .unwrap_err();
+            .unwrap();
+
+        let (confirmed, rejected, duration) =
+            review_summary(&connection, "2026-09-10T00:00:00Z").unwrap();
+        assert_eq!(confirmed, 1);
+        assert_eq!(rejected, 1);
+        assert_eq!(duration, 20_000);
     }
 }
