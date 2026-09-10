@@ -12,6 +12,10 @@
       "types": "./dist/memory-page.d.ts",
       "default": "./dist/memory-page.js"
     },
+    "./memory-page-capture": {
+      "types": "./dist/memory-page-capture.d.ts",
+      "default": "./dist/memory-page-capture.js"
+    },
     "./portable-bundle": {
       "types": "./dist/portable-bundle.d.ts",
       "default": "./dist/portable-bundle.js"
