@@ -11,6 +11,8 @@ use topo_contracts::{
 use uuid::Uuid;
 
 const MEMORY_PAGE_SCHEMA_VERSION: i64 = 1;
+const MAX_REVIEW_DURATION_MS: u64 = 4 * 60 * 60 * 1_000;
+const REVIEW_MEASUREMENT: &str = "desktop-active-panel-v1";
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -296,6 +298,13 @@ fn validate_draft(input: &MemoryPageDraftInput) -> Result<(), String> {
     Ok(())
 }
 
+fn validate_review_duration(review_duration_ms: Option<u64>) -> Result<(), String> {
+    if review_duration_ms.is_some_and(|value| value > MAX_REVIEW_DURATION_MS) {
+        return Err("Review duration exceeded the four-hour active-session ceiling.".to_owned());
+    }
+    Ok(())
+}
+
 fn user_actor() -> Actor {
     Actor {
         actor_type: ActorType::User,
@@ -318,6 +327,26 @@ fn page_event(
         actor: user_actor(),
         data,
     }
+}
+
+fn review_event_data(
+    to_status: &str,
+    revision: u64,
+    review_duration_ms: Option<u64>,
+) -> BTreeMap<String, Value> {
+    let mut data = BTreeMap::from([
+        ("fromStatus".to_owned(), Value::String("candidate".to_owned())),
+        ("toStatus".to_owned(), Value::String(to_status.to_owned())),
+        ("revision".to_owned(), json!(revision)),
+    ]);
+    if let Some(duration) = review_duration_ms {
+        data.insert("reviewDurationMs".to_owned(), json!(duration));
+        data.insert(
+            "reviewMeasurement".to_owned(),
+            Value::String(REVIEW_MEASUREMENT.to_owned()),
+        );
+    }
+    data
 }
 
 #[tauri::command(rename_all = "camelCase")]
@@ -393,6 +422,7 @@ fn review_page_in(
     id: &str,
     decision: &str,
     allow_superseding: bool,
+    review_duration_ms: Option<u64>,
 ) -> Result<MemoryPage, String> {
     let mut page = read_memory_page(connection, id)?;
     if page.status != MemoryPageStatus::Candidate {
@@ -417,11 +447,7 @@ fn review_page_in(
                 &page,
                 MemoryPageEventType::Confirmed,
                 &now,
-                Some(BTreeMap::from([
-                    ("fromStatus".to_owned(), Value::String("candidate".to_owned())),
-                    ("toStatus".to_owned(), Value::String("confirmed".to_owned())),
-                    ("revision".to_owned(), json!(page.revision)),
-                ])),
+                Some(review_event_data("confirmed", page.revision, review_duration_ms)),
             ),
         )?;
 
@@ -460,11 +486,7 @@ fn review_page_in(
                 &page,
                 MemoryPageEventType::Rejected,
                 &now,
-                Some(BTreeMap::from([
-                    ("fromStatus".to_owned(), Value::String("candidate".to_owned())),
-                    ("toStatus".to_owned(), Value::String("rejected".to_owned())),
-                    ("revision".to_owned(), json!(page.revision)),
-                ])),
+                Some(review_event_data("rejected", page.revision, review_duration_ms)),
             ),
         )?;
     }
@@ -472,24 +494,41 @@ fn review_page_in(
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn review_memory_page(id: String, decision: String) -> Result<MemoryPage, String> {
+pub fn review_memory_page(
+    id: String,
+    decision: String,
+    review_duration_ms: Option<u64>,
+) -> Result<MemoryPage, String> {
+    validate_review_duration(review_duration_ms)?;
     let connection = open_store()?;
     let tx = connection.unchecked_transaction().map_err(error_text)?;
-    let page = review_page_in(&tx, &id, &decision, true)?;
+    let page = review_page_in(&tx, &id, &decision, true, review_duration_ms)?;
     tx.commit().map_err(error_text)?;
     Ok(page)
 }
 
 #[tauri::command(rename_all = "camelCase")]
-pub fn review_memory_pages(ids: Vec<String>, decision: String) -> Result<Vec<MemoryPage>, String> {
+pub fn review_memory_pages(
+    ids: Vec<String>,
+    decision: String,
+    review_duration_ms: Option<u64>,
+) -> Result<Vec<MemoryPage>, String> {
     if ids.is_empty() {
         return Ok(Vec::new());
     }
+    validate_review_duration(review_duration_ms)?;
+    let per_page_duration = review_duration_ms.map(|duration| duration / ids.len() as u64);
     let connection = open_store()?;
     let tx = connection.unchecked_transaction().map_err(error_text)?;
     let mut reviewed = Vec::with_capacity(ids.len());
     for id in ids {
-        reviewed.push(review_page_in(&tx, &id, &decision, false)?);
+        reviewed.push(review_page_in(
+            &tx,
+            &id,
+            &decision,
+            false,
+            per_page_duration,
+        )?);
     }
     tx.commit().map_err(error_text)?;
     Ok(reviewed)
@@ -498,7 +537,7 @@ pub fn review_memory_pages(ids: Vec<String>, decision: String) -> Result<Vec<Mem
 #[cfg(test)]
 mod tests {
     use super::*;
-    use topo_contracts::{MemoryPageOrigin, MemoryPageSourceRef, SourceType, MemorySource};
+    use topo_contracts::{MemoryPageOrigin, MemoryPageSourceRef, MemorySource, SourceType};
 
     fn source() -> MemorySource {
         MemorySource {
@@ -543,34 +582,78 @@ mod tests {
     }
 
     fn write_test_source(connection: &Connection, source: &MemorySource) {
-        connection.execute_batch(
-            "CREATE TABLE IF NOT EXISTS sources (
-                id TEXT PRIMARY KEY,
-                type TEXT NOT NULL,
-                title TEXT,
-                provider TEXT,
-                external_id TEXT,
-                captured_at TEXT NOT NULL,
-                created_at TEXT NOT NULL,
-                sensitivity TEXT NOT NULL,
-                metadata_json TEXT
-            ) STRICT;",
-        ).unwrap();
-        connection.execute(
-            "INSERT INTO sources (id, type, provider, captured_at, created_at, sensitivity)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![source.id, "conversation", source.provider, source.captured_at, source.created_at, "ordinary"],
-        ).unwrap();
+        connection
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS sources (
+                    id TEXT PRIMARY KEY,
+                    type TEXT NOT NULL,
+                    title TEXT,
+                    provider TEXT,
+                    external_id TEXT,
+                    captured_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    sensitivity TEXT NOT NULL,
+                    metadata_json TEXT
+                ) STRICT;",
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO sources (id, type, provider, captured_at, created_at, sensitivity)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![
+                    source.id,
+                    "conversation",
+                    source.provider,
+                    source.captured_at,
+                    source.created_at,
+                    "ordinary"
+                ],
+            )
+            .unwrap();
+    }
+
+    fn test_connection() -> Connection {
+        let connection = Connection::open_in_memory().unwrap();
+        write_test_source(&connection, &source());
+        ensure_schema(&connection).unwrap();
+        connection
     }
 
     #[test]
     fn native_memory_page_store_round_trips() {
-        let connection = Connection::open_in_memory().unwrap();
-        write_test_source(&connection, &source());
-        ensure_schema(&connection).unwrap();
+        let connection = test_connection();
         write_memory_page(&connection, &page()).unwrap();
         let stored = read_memory_page(&connection, "memory-1").unwrap();
         assert_eq!(stored.title, "Test memory");
         assert_eq!(stored.status, MemoryPageStatus::Candidate);
+    }
+
+    #[test]
+    fn review_event_records_active_review_duration() {
+        let connection = test_connection();
+        write_memory_page(&connection, &page()).unwrap();
+
+        let reviewed = review_page_in(&connection, "memory-1", "confirm", true, Some(12_345))
+            .unwrap();
+        assert_eq!(reviewed.status, MemoryPageStatus::Confirmed);
+
+        let data_json: String = connection
+            .query_row(
+                "SELECT data_json FROM memory_page_events
+                 WHERE entity_id = 'memory-1' AND type = 'memory.confirmed'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let data: Value = serde_json::from_str(&data_json).unwrap();
+        assert_eq!(data["reviewDurationMs"], json!(12_345));
+        assert_eq!(data["reviewMeasurement"], json!(REVIEW_MEASUREMENT));
+    }
+
+    #[test]
+    fn review_duration_has_a_bounded_active_session_ceiling() {
+        assert!(validate_review_duration(Some(MAX_REVIEW_DURATION_MS)).is_ok());
+        assert!(validate_review_duration(Some(MAX_REVIEW_DURATION_MS + 1)).is_err());
     }
 }
