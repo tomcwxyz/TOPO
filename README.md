@@ -9,7 +9,7 @@ It is designed around a simple distinction:
 - **TOPO** — what AI can know about you and your context.
 - **RACK** — how AI should work.
 
-TOPO now takes a **prose-first memory** approach. The primary durable memory object is a **Memory Page**: a short, coherent, human-readable piece of context with governance metadata and traceable evidence. Structured Claims remain available as optional annotations where structure genuinely helps, but TOPO should not atomise all memory into database facts by default.
+TOPO takes a **prose-first memory** approach. The primary durable memory object is a **Memory Page**: a short, coherent, human-readable piece of context with governance metadata and traceable evidence. Structured Claims remain available as optional annotations where structure genuinely helps, but TOPO does not need to atomise all memory into database facts by default.
 
 See [Memory architecture](docs/MEMORY_ARCHITECTURE.md) and [ADR 0011](docs/adr/0011-memory-pages-are-the-primary-durable-memory-unit.md).
 
@@ -30,19 +30,21 @@ See [Memory architecture](docs/MEMORY_ARCHITECTURE.md) and [ADR 0011](docs/adr/0
 
 TOPO is in **local alpha**, with the desktop application as the primary product surface.
 
-The existing claim-based alpha has already proved a useful governed foundation: Sources, Claims and Events; local SQLite persistence; proposal-first MCP; Tauri desktop management; browser capture for ChatGPT, Claude and Gemini; local extraction; source-aware review; and purpose-bound context sharing to RACK/Hermes/OpenClaw-style consumers.
+The earlier claim-based alpha proved the governed foundation: Sources, Claims and Events; local SQLite persistence; proposal-first MCP; Tauri desktop management; browser capture for ChatGPT, Claude and Gemini; local extraction; source-aware review; and purpose-bound context sharing to RACK/Hermes/OpenClaw-style consumers.
 
-The architecture is now reorienting from **Claim-as-memory** to **Memory Page-as-memory** while preserving that working foundation. Claims become optional structured annotations rather than the required carrier of all meaning.
+The primary path has now been reoriented from **Claim-as-memory** to **Memory Page-as-memory** while preserving that foundation:
 
-The immediate priority is the migration described in [ROADMAP.md](ROADMAP.md):
+1. the canonical Memory Page contract is implemented;
+2. portable Markdown Memory Pages are implemented;
+3. capture and review are page-first;
+4. local context resolution and `/v0/search` are Memory Page first;
+5. deterministic SQLite FTS5 retrieval is measured against a labelled evaluation set.
 
-1. canonical Memory Page contract;
-2. first-class portable Markdown;
-3. page-first capture/review;
-4. page-aware Context Packets;
-5. optional small local semantic index.
+Claims remain useful as optional structured annotations and compatibility records rather than the required carrier of all meaning.
 
-The practical product proof becomes:
+The immediate priority is now **dogfooding the complete loop**, not adding more retrieval infrastructure. The first deterministic retrieval fixture baseline recalls all ordinary lexical/FTS cases and deliberately misses one unmatched semantic-vocabulary case. See [ROADMAP.md](ROADMAP.md) and [retrieval evaluation](docs/RETRIEVAL_EVALUATION.md). A semantic/embedding index remains optional and should only be built if repeated real misses demonstrate that it earns its complexity.
+
+The practical product proof is:
 
 > Use AI normally for a day, review a small number of coherent memories worth keeping, then see the right context surface in another AI/tool — while the memories still make sense when opened outside TOPO.
 
@@ -50,10 +52,10 @@ The practical product proof becomes:
 
 TOPO remains a local context node for RACK and the draft Organisational OS.
 
-The important boundary is now stronger:
+The important boundary is:
 
 ```text
-TOPO memory
+TOPO Memory Pages
     ↓
 TOPO resolver
     ↓
@@ -62,11 +64,11 @@ purpose-bound Context Packet
 RACK ContextSource
 ```
 
-RACK should not need to know whether TOPO internally used Memory Pages, legacy Claims or a future representation. RACK receives authorised context for the stated purpose and combines it with its separate governed practice sources.
+RACK does not need to know whether TOPO internally used Memory Pages, legacy Claims or a future representation. RACK receives authorised context for the stated purpose and combines it with its separate governed practice sources.
 
 TOPO may suggest a RACK practice change. It cannot establish practice automatically.
 
-See [Product/architecture plan](PLAN.md), [roadmap](ROADMAP.md), [memory architecture](docs/MEMORY_ARCHITECTURE.md), [capture architecture](docs/CAPTURE.md), [capture evaluation](docs/CAPTURE_EVALUATION.md), [agent integrations](docs/AGENT_INTEGRATIONS.md), [Organisational OS adapter](docs/OOS_ADAPTER.md), [local alpha releases](docs/RELEASE.md) and [ADRs](docs/adr/README.md).
+See [Product/architecture plan](PLAN.md), [roadmap](ROADMAP.md), [memory architecture](docs/MEMORY_ARCHITECTURE.md), [capture architecture](docs/CAPTURE.md), [capture evaluation](docs/CAPTURE_EVALUATION.md), [retrieval evaluation](docs/RETRIEVAL_EVALUATION.md), [agent integrations](docs/AGENT_INTEGRATIONS.md), [Organisational OS adapter](docs/OOS_ADAPTER.md), [local alpha releases](docs/RELEASE.md) and [ADRs](docs/adr/README.md).
 
 ## Install and first run
 
@@ -88,7 +90,7 @@ See [docs/RELEASE.md](docs/RELEASE.md) for the exact release/trust contract.
 
 ## Repository shape
 
-- `packages/schemas` — canonical runtime/interchange schemas; Memory Page migration starts here.
+- `packages/schemas` — canonical runtime/interchange schemas, including Memory Pages.
 - `packages/core` — lifecycle, authority and governance policy.
 - `packages/capture` — captured interaction contracts, evidence policy and candidate preparation.
 - `packages/store` — runtime-neutral persistence interfaces.
@@ -99,13 +101,13 @@ See [docs/RELEASE.md](docs/RELEASE.md) for the exact release/trust contract.
 - `packages/mcp` — proposal-first MCP service and tool policy.
 - `apps/mcp` — local stdio MCP server over the same governed local store.
 - `apps/cli` — advanced command-line workflows for development/integrations.
-- `apps/desktop` — Tauri + React desktop application and primary user surface.
+- `apps/desktop` — Tauri + React desktop application and primary user surface, including the local Memory Page resolver and disposable FTS projection.
 - `apps/extension` — packaged Chromium capture companion.
 - `test-fixtures/domain` — contract fixtures shared by TypeScript and Rust.
 
-## Portable direction
+## Portable memory
 
-TOPO's next portable format makes Markdown memories first-class:
+TOPO's portable format makes Markdown Memory Pages first-class:
 
 ```text
 topo/
@@ -118,9 +120,23 @@ topo/
 └── index.sqlite        # optional / rebuildable
 ```
 
-The exact format is versioned and will be introduced additively alongside the existing alpha bundle.
+The format is versioned independently of the internal SQLite layout. The retrieval index is optional infrastructure: canonical Memory Pages, source evidence and governance metadata must remain sufficient to rebuild it.
 
 A TOPO export should be usable from a filesystem, Git repository, notes tool, local agent, cloud AI or another future context system.
+
+## Retrieval evaluation
+
+The current deterministic resolver applies governance before relevance, then combines lexical relevance with a local SQLite FTS5 projection and bounded context composition.
+
+Run the labelled retrieval baseline with:
+
+```bash
+npm run test:retrieval-eval
+```
+
+The initial six-case synthetic baseline is intentionally imperfect: required-page recall `0.833`, non-semantic recall `1.000`, semantic-challenge recall `0.000`, MRR `0.833`, zero forbidden disclosures, and roughly `236` average context characters. The miss is a deliberate vocabulary mismatch between **offline-first** and **without a network connection**.
+
+That miss is a benchmark, not a mandate for embeddings. Real dogfooding must show repeated semantic misses before TOPO adds an optional semantic index.
 
 ## Advanced interfaces
 
