@@ -54,6 +54,22 @@ type ContextPreview = {
   packet: Record<string, unknown>;
 };
 
+type ContextMemoryPage = {
+  id: string;
+  subject: string;
+  title: string;
+  status: "candidate" | "confirmed" | "rejected" | "superseded" | "expired";
+  sensitivity: Sensitivity;
+};
+
+type RetrievalReportResult = {
+  id: string;
+  path: string;
+  actualIds: string[];
+  expectedIds: string[];
+  benchmarkCompatible: boolean;
+};
+
 type LocalContextSharingStatus = {
   enabled: boolean;
   contributionsEnabled: boolean;
@@ -162,6 +178,10 @@ export function App() {
   const [contextPurpose, setContextPurpose] = useState("");
   const [includeSensitive, setIncludeSensitive] = useState(false);
   const [contextPreview, setContextPreview] = useState<ContextPreview | null>(null);
+  const [retrievalReportOpen, setRetrievalReportOpen] = useState(false);
+  const [retrievalExpectedIds, setRetrievalExpectedIds] = useState<string[]>([]);
+  const [retrievalReportNote, setRetrievalReportNote] = useState("");
+  const [retrievalReportBusy, setRetrievalReportBusy] = useState(false);
   const [localSharing, setLocalSharing] = useState<LocalContextSharingStatus | null>(null);
   const [sharingBusy, setSharingBusy] = useState(false);
   const [captureInbox, setCaptureInbox] = useState<CaptureInboxStatus | null>(null);
@@ -175,6 +195,7 @@ export function App() {
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
   const [memoryPageRefreshToken, setMemoryPageRefreshToken] = useState(0);
   const [memoryPageSubjects, setMemoryPageSubjects] = useState<string[]>([]);
+  const [contextMemoryPages, setContextMemoryPages] = useState<ContextMemoryPage[]>([]);
   const [memoryPageCounts, setMemoryPageCounts] = useState<MemoryPageCounts>({
     total: 0,
     candidates: 0,
@@ -206,10 +227,11 @@ export function App() {
 
   const refreshMemoryPageSubjects = useCallback(async () => {
     try {
-      const pages = await invoke<Array<{ subject: string }>>("list_memory_pages", {
+      const pages = await invoke<ContextMemoryPage[]>("list_memory_pages", {
         status: null,
         query: null,
       });
+      setContextMemoryPages(pages);
       setMemoryPageSubjects(
         [...new Set(pages.map((page) => page.subject).filter(Boolean))].sort(),
       );
@@ -262,6 +284,15 @@ export function App() {
     const objects = contextPreview?.packet.objects;
     return Array.isArray(objects) ? objects.length : 0;
   }, [contextPreview]);
+
+  const reportableContextPages = useMemo(
+    () => contextMemoryPages
+      .filter((page) => page.subject === contextSubject.trim())
+      .filter((page) => page.status === "confirmed")
+      .filter((page) => includeSensitive || page.sensitivity === "ordinary" || page.sensitivity === "personal")
+      .sort((left, right) => left.title.localeCompare(right.title)),
+    [contextMemoryPages, contextSubject, includeSensitive],
+  );
 
   const visibleCandidateIds = useMemo(
     () => claims.filter((claim) => claim.status === "candidate").map((claim) => claim.id),
@@ -523,10 +554,17 @@ export function App() {
     }
   };
 
+  const resetRetrievalReport = () => {
+    setRetrievalReportOpen(false);
+    setRetrievalExpectedIds([]);
+    setRetrievalReportNote("");
+  };
+
   const previewContext = async () => {
     setBusy(true);
     setError(null);
     setContextPreview(null);
+    resetRetrievalReport();
     try {
       const preview = await invoke<ContextPreview>("preview_context", {
         subject: contextSubject,
@@ -539,6 +577,38 @@ export function App() {
       setError(String(cause));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const toggleExpectedPage = (id: string) => {
+    setRetrievalExpectedIds((current) =>
+      current.includes(id) ? current.filter((expectedId) => expectedId !== id) : [...current, id],
+    );
+  };
+
+  const saveRetrievalReport = async () => {
+    if (retrievalExpectedIds.length === 0) return;
+    setRetrievalReportBusy(true);
+    setError(null);
+    try {
+      const result = await invoke<RetrievalReportResult>("record_retrieval_report", {
+        input: {
+          subject: contextSubject,
+          purpose: contextPurpose,
+          includeSensitive,
+          maxItems: 20,
+          expectedIds: retrievalExpectedIds,
+          note: retrievalReportNote,
+        },
+      });
+      setMessage(
+        `Saved local retrieval evaluation ${result.id} to ${result.path}. Redact real memory text before sharing or promoting it into repo fixtures.`,
+      );
+      resetRetrievalReport();
+    } catch (cause) {
+      setError(String(cause));
+    } finally {
+      setRetrievalReportBusy(false);
     }
   };
 
@@ -932,6 +1002,68 @@ export function App() {
                   {contextObjectCount} memory item{contextObjectCount === 1 ? "" : "s"} selected
                 </strong>
                 <pre>{JSON.stringify(contextPreview.packet, null, 2)}</pre>
+                <div className="candidate-actions">
+                  <button
+                    className="quiet"
+                    type="button"
+                    onClick={() => {
+                      if (retrievalReportOpen) resetRetrievalReport();
+                      else setRetrievalReportOpen(true);
+                    }}
+                  >
+                    {retrievalReportOpen ? "Close feedback" : "This isn’t right"}
+                  </button>
+                </div>
+                {retrievalReportOpen && (
+                  <div className="capture-inbox-control">
+                    <strong>What should TOPO have surfaced?</strong>
+                    <p>
+                      Choose the confirmed Memory Page or Pages that were relevant to this purpose. TOPO will save the current subject corpus and actual result as a replayable local evaluation case.
+                    </p>
+                    {reportableContextPages.length === 0 ? (
+                      <div className="empty-state">
+                        <strong>No confirmed Memory Pages are available in this preview scope.</strong>
+                        <span>
+                          That points to a capture or memory-creation gap rather than a retrieval ranking miss.
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="capture-inbox-list">
+                        {reportableContextPages.map((page) => (
+                          <label className="checkbox-row" key={page.id}>
+                            <input
+                              type="checkbox"
+                              checked={retrievalExpectedIds.includes(page.id)}
+                              onChange={() => toggleExpectedPage(page.id)}
+                            />
+                            <span>{page.title} · {page.sensitivity}</span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+                    <label>
+                      What was wrong? <span className="muted">Optional</span>
+                      <textarea
+                        value={retrievalReportNote}
+                        onChange={(event) => setRetrievalReportNote(event.target.value)}
+                        rows={3}
+                        maxLength={2000}
+                        placeholder="For example: the architecture decision was more relevant than the newer project update."
+                      />
+                    </label>
+                    <p className="muted">
+                      Saved only on this device under ~/.topo/evaluation/retrieval/. The snapshot can contain real Memory Page text and must be redacted before it is shared or promoted into repository fixtures.
+                    </p>
+                    <button
+                      className="secondary"
+                      type="button"
+                      disabled={retrievalReportBusy || retrievalExpectedIds.length === 0}
+                      onClick={() => void saveRetrievalReport()}
+                    >
+                      {retrievalReportBusy ? "Saving evaluation…" : "Save local evaluation case"}
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
