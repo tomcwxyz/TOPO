@@ -108,8 +108,6 @@ pub enum MemoryPageEventType {
     Confirmed,
     #[serde(rename = "memory.edited")]
     Edited,
-    #[serde(rename = "memory.evidence_added")]
-    EvidenceAdded,
     #[serde(rename = "memory.rejected")]
     Rejected,
     #[serde(rename = "memory.superseded")]
