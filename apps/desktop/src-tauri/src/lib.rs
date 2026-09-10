@@ -2,6 +2,7 @@ mod capture_extractor;
 mod capture_inbox;
 mod capture_processor;
 mod capture_setup;
+mod context_pages;
 mod memory_pages;
 mod oos_local;
 
@@ -46,6 +47,10 @@ struct ClaimDraftInput {
 #[serde(rename_all = "camelCase")]
 struct ContextPreview {
     packet: Value,
+    // Compatibility field for the current desktop shell. During M4 this carries
+    // selected Memory Page ids when the page resolver is active, and Claim ids
+    // only when the legacy fallback is used. Consumers of /v0/context read the
+    // packet objects/provenance directly and are not exposed to this field.
     selected_claim_ids: Vec<String>,
 }
 
@@ -679,9 +684,6 @@ fn review_candidates_in(
         return Err("Bulk review candidate ids must be unique.".to_owned());
     }
 
-    // Validate the complete selection before making any durable review decision.
-    // TOPO remains a user-governed store: a stale/non-candidate item should stop
-    // the batch rather than silently changing only part of the requested set.
     for id in ids {
         let claim = read_claim(connection, id)?;
         if claim.status != ClaimStatus::Candidate {
@@ -795,6 +797,22 @@ fn context_packet_from_store(
         return Err("maxItems must be between 1 and 100.".to_owned());
     }
 
+    if let Some(resolved) = context_pages::resolve_page_context(
+        connection,
+        subject,
+        purpose,
+        requested_by,
+        query,
+        include_sensitive,
+        max_items,
+        channel,
+    )? {
+        return Ok(ContextPreview {
+            packet: resolved.packet,
+            selected_claim_ids: resolved.selected_ids,
+        });
+    }
+
     let now = Utc::now();
     let terms = context_terms(purpose, query);
     let mut eligible = all_claims(connection)?
@@ -881,6 +899,7 @@ fn context_packet_from_store(
         },
         "extensions": {
             "topo.channel": channel,
+            "topo.representation": "claim-compatibility",
             "topo.include_sensitive": include_sensitive,
             "topo.selection": if terms.is_empty() {
                 "confirmed+subject+temporal+sensitivity+recency"
@@ -1130,6 +1149,10 @@ mod tests {
             preview.packet["extensions"]["topo.relevance"][relevant.id.as_str()]["score"],
             20
         );
+        assert_eq!(
+            preview.packet["extensions"]["topo.representation"],
+            "claim-compatibility"
+        );
     }
 
     #[test]
@@ -1208,5 +1231,4 @@ mod tests {
         assert!(ids.contains(&ordinary.id.as_str()));
         assert!(!ids.contains(&restricted.id.as_str()));
     }
-
 }
