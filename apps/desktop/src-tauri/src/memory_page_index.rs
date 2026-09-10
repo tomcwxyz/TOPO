@@ -22,10 +22,18 @@ pub fn ensure_schema(connection: &Connection) -> Result<(), String> {
             |row| row.get(0),
         )
         .map_err(error_text)?;
-    if version >= MEMORY_PAGE_INDEX_SCHEMA_VERSION {
-        return Ok(());
-    }
+    let index_exists: bool = connection
+        .query_row(
+            "SELECT COUNT(*) > 0 FROM sqlite_master
+             WHERE type = 'table' AND name = 'memory_pages_fts'",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(error_text)?;
 
+    // The migration ledger records format history, not the existence of this
+    // disposable projection. Re-establish the FTS table/triggers idempotently on
+    // every open so deleting the index never deletes or strands durable memory.
     let tx = connection.unchecked_transaction().map_err(error_text)?;
     tx.execute_batch(
         "CREATE VIRTUAL TABLE IF NOT EXISTS memory_pages_fts USING fts5(
@@ -75,13 +83,19 @@ pub fn ensure_schema(connection: &Connection) -> Result<(), String> {
     )
     .map_err(error_text)?;
 
-    rebuild_in(&tx)?;
-    tx.execute(
-        "INSERT OR IGNORE INTO memory_page_index_migrations (version, applied_at)
-         VALUES (?1, datetime('now'))",
-        [MEMORY_PAGE_INDEX_SCHEMA_VERSION],
-    )
-    .map_err(error_text)?;
+    // First migration and recovery from a dropped projection both require a
+    // complete backfill. Ordinary opens do not rebuild the index.
+    if version < MEMORY_PAGE_INDEX_SCHEMA_VERSION || !index_exists {
+        rebuild_in(&tx)?;
+    }
+    if version < MEMORY_PAGE_INDEX_SCHEMA_VERSION {
+        tx.execute(
+            "INSERT OR IGNORE INTO memory_page_index_migrations (version, applied_at)
+             VALUES (?1, datetime('now'))",
+            [MEMORY_PAGE_INDEX_SCHEMA_VERSION],
+        )
+        .map_err(error_text)?;
+    }
     tx.commit().map_err(error_text)?;
     Ok(())
 }
@@ -234,7 +248,26 @@ mod tests {
     }
 
     #[test]
-    fn projection_can_be_deleted_and_rebuilt_from_canonical_pages() {
+    fn projection_table_can_be_dropped_and_rebuilt_from_canonical_pages() {
+        let connection = connection();
+        add_source(&connection);
+        let stored = page("Integration tests should exercise changed boundaries.");
+        write_memory_page(&connection, &stored).unwrap();
+
+        connection.execute("DROP TABLE memory_pages_fts", []).unwrap();
+        let canonical_count = memory_pages::all_memory_pages(&connection).unwrap().len();
+        assert_eq!(canonical_count, 1);
+
+        rebuild(&connection).unwrap();
+        let terms = BTreeSet::from(["integration".to_owned()]);
+        assert!(scores_for_terms(&connection, &terms)
+            .unwrap()
+            .contains_key(&stored.id));
+        assert_eq!(memory_pages::all_memory_pages(&connection).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn projection_rows_can_be_cleared_and_explicitly_rebuilt() {
         let connection = connection();
         add_source(&connection);
         let stored = page("Integration tests should exercise changed boundaries.");
@@ -248,7 +281,6 @@ mod tests {
         assert!(scores_for_terms(&connection, &terms)
             .unwrap()
             .contains_key(&stored.id));
-        assert_eq!(memory_pages::all_memory_pages(&connection).unwrap().len(), 1);
     }
 
     #[test]
