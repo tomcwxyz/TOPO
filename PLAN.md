@@ -262,9 +262,9 @@ Resolution considers:
 
 The resolver returns concise excerpts or renderings from authorised Memory Pages with provenance and stable revision/digest metadata.
 
-Start with deterministic metadata filters and full-text search. Add a small local semantic index when it demonstrably improves recall.
+The implemented baseline uses deterministic metadata filters plus local SQLite FTS5. A small local semantic index is conditional: add it only when repeated labelled dogfood misses demonstrate a material vocabulary/meaning gap and a semantic approach measurably improves retrieval without weakening governance.
 
-Embeddings are retrieval infrastructure, not canonical memory.
+Embeddings are retrieval infrastructure, not canonical memory. See [Retrieval evaluation](docs/RETRIEVAL_EVALUATION.md).
 
 ## 6. Architecture
 
@@ -320,7 +320,7 @@ Markdown Memory Pages are first-class portable artefacts. TOPO may maintain an i
 
 ### Capture
 
-Capture becomes a reusable page-first pipeline:
+Capture is a reusable page-first pipeline:
 
 ```text
 capture source
@@ -343,7 +343,7 @@ governance filters
        ↓
 metadata + FTS
        ↓
-optional local semantic index
+optional semantic score, only if justified
        ↓
 purpose/task ranking
        ↓
@@ -352,13 +352,13 @@ context budget/composition
 Context Packet
 ```
 
-Any embedding index must be completely reconstructable from canonical Memory Pages.
+The current implementation stops at deterministic metadata + FTS because that baseline is measurable and already handles the ordinary labelled cases. Any future embedding index must be completely reconstructable from canonical Memory Pages and must earn its complexity against the retrieval benchmark.
 
 ### MCP
 
 MCP remains an adapter around the shared core, not a separate memory implementation.
 
-The normal agent path is proposal/review rather than silent confirmed writes. MCP resources and tools will migrate from claim-first operations to page-first operations while retaining compatibility during alpha.
+The normal agent path is proposal/review rather than silent confirmed writes. MCP resources and tools still have Claim-era compatibility operations that should migrate incrementally to page-first operations without creating a second memory implementation.
 
 ### Browser extension
 
@@ -368,7 +368,7 @@ The Chromium capture companion remains a capture surface only. It must not becom
 
 TOPO defines a versioned native bundle independent of internal database layout.
 
-Target direction:
+The implemented portable Memory Page shape is:
 
 ```text
 topo-bundle/
@@ -381,7 +381,7 @@ topo-bundle/
 └── index.sqlite        # optional, disposable
 ```
 
-The exact vNext contract will be introduced additively alongside the existing v0.1 Claim bundle.
+Memory Page Markdown and structured annotations were introduced additively so existing Claim-era data can migrate without losing provenance or history.
 
 Portable format rules:
 
@@ -480,20 +480,27 @@ Context disclosure remains purpose-bound.
 
 ## 12. Migration from the claim-based alpha
 
-Do not rewrite the working alpha in one step.
+The migration remains additive rather than a rewrite, but the primary Memory Page path is now implemented.
 
-Migration sequence:
+Completed:
 
-1. add Memory Page schemas/fixtures alongside Claims;
-2. add SQLite persistence and events;
-3. add Markdown round-trip export/import;
-4. link existing confirmed Claims to provisional Memory Pages where useful;
-5. change capture extraction to page-first proposals;
-6. redesign the inbox around coherent memories;
-7. make context resolution page-aware while preserving Context Packet transport;
-8. add optional semantic retrieval after deterministic page retrieval works;
-9. migrate MCP/CLI operations;
-10. remove assumptions that every durable memory must be a Claim only after compatibility and data migration tests pass.
+1. Memory Page schemas/fixtures alongside Claims;
+2. SQLite persistence and events;
+3. Markdown round-trip export/import;
+4. compatibility links from existing Claims to provisional Memory Pages where useful;
+5. page-first capture extraction;
+6. Memory Inbox review around coherent prose;
+7. Memory Page-first context resolution and `/v0/search`, preserving the Context Packet boundary;
+8. deterministic FTS retrieval plus a labelled retrieval baseline.
+
+Conditional rather than automatically next:
+
+9. semantic retrieval — only if repeated real labelled misses justify it.
+
+Remaining compatibility migration:
+
+10. move MCP/CLI memory-facing operations towards Memory Pages while retaining safe Claim compatibility;
+11. remove residual assumptions that every durable memory is a Claim only after compatibility and data-migration tests pass.
 
 Existing Sources, Event history and provenance are assets and must survive.
 
@@ -534,9 +541,13 @@ Measure:
 
 A conversation where nothing is worth remembering is a successful result when TOPO proposes nothing.
 
-## 14. vNext success criteria
+Capture quality is defined in [Capture evaluation](docs/CAPTURE_EVALUATION.md). Retrieval quality and the evidence gate for semantic retrieval are defined in [Retrieval evaluation](docs/RETRIEVAL_EVALUATION.md).
 
-TOPO's next architecture milestone succeeds when:
+## 14. Alpha product-proof success criteria
+
+The architecture migration has largely landed. The next success criterion is proving the complete product loop in normal use.
+
+TOPO's alpha succeeds when:
 
 1. it runs locally without an account;
 2. Memory Pages can be proposed, reviewed and confirmed;
@@ -548,8 +559,10 @@ TOPO's next architecture milestone succeeds when:
 8. purpose-bound retrieval works over Memory Pages;
 9. RACK consumes the same stable Context Packet boundary without depending on page internals;
 10. another non-RACK AI/tool can consume the same portable context;
-11. semantic indexing, if enabled, is fully disposable/rebuildable;
-12. existing alpha Claim data can migrate without losing provenance.
+11. semantic indexing, if ever enabled, is fully disposable/rebuildable;
+12. existing alpha Claim data can migrate without losing provenance;
+13. a normal day's inbox can be governed in a few minutes;
+14. real retrieval misses can be preserved as labelled evaluation cases rather than hand-waved into architecture changes.
 
 ## 15. Explicit non-goals for the migration
 
