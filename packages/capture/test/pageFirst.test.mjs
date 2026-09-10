@@ -82,7 +82,7 @@ test("page-first prompt asks for coherent prose rather than atomic fact volume",
   assert.match(prompt, /primary memory object is a short prose Memory Page/);
   assert.match(prompt, /prefer fewer/);
   assert.match(prompt, /Do not split closely related context/);
-  assert.match(prompt, /structured annotations only when/);
+  assert.match(prompt, /include structured annotations when/);
   assert.match(prompt, new RegExp(`at most ${MAX_MEMORY_PAGE_PROPOSALS}`));
 });
 
