@@ -6,6 +6,8 @@ on:
       - "apps/desktop/**"
       - "apps/extension/**"
       - "crates/topo-native-host/**"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/local-alpha-release.yml"
       - ".github/workflows/windows-test-installer.yml"
   workflow_dispatch:
@@ -32,14 +34,20 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Install dependencies
-        run: npm install
+      - name: Install locked dependencies without unrelated native lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Require current Rust lockfiles
+        shell: pwsh
+        run: |
+          cargo metadata --locked --format-version 1 --manifest-path crates/topo-native-host/Cargo.toml | Out-Null
+          cargo metadata --locked --format-version 1 --manifest-path apps/desktop/src-tauri/Cargo.toml | Out-Null
 
       - name: Prepare packaged browser capture companion
         shell: pwsh
         run: |
           npm run test:extension-build
-          cargo build --release --target-dir target --manifest-path crates/topo-native-host/Cargo.toml
+          cargo build --locked --release --target-dir target --manifest-path crates/topo-native-host/Cargo.toml
           $resources = "apps/desktop/src-tauri/resources"
           Remove-Item -Recurse -Force $resources -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force "$resources/capture-extension" | Out-Null
@@ -49,48 +57,87 @@ jobs:
       - name: Build internal unsigned Windows installer
         run: npm run tauri --workspace @topo/desktop -- build --bundles nsis --config src-tauri/test.windows.json
 
-      - name: Require packaged Windows installer
+      - name: Require packaged Windows binaries
         shell: pwsh
         run: |
+          if (-not (Test-Path "target/release/topo-native-host.exe")) { throw "TOPO native host was not produced." }
+          if (-not (Test-Path "apps/desktop/src-tauri/target/release/topo.exe")) { throw "TOPO desktop executable was not produced." }
           $installers = @(Get-ChildItem "apps/desktop/src-tauri/target/release/bundle/nsis/*.exe")
           if ($installers.Count -eq 0) { throw "TOPO did not produce an NSIS installer." }
           foreach ($installer in $installers) {
             Write-Host "Packaged $($installer.Name) ($($installer.Length) bytes)"
           }
 
-      - name: Scan packaged installer with Microsoft Defender when available
+      - name: Scan native host, desktop app and installer with Microsoft Defender
         shell: pwsh
         run: |
+          $nativeHost = Get-Item "target/release/topo-native-host.exe"
+          $desktop = Get-Item "apps/desktop/src-tauri/target/release/topo.exe"
           $installers = @(Get-ChildItem "apps/desktop/src-tauri/target/release/bundle/nsis/*.exe")
+          $files = @($nativeHost, $desktop) + $installers
+
           $status = Get-MpComputerStatus -ErrorAction SilentlyContinue
           if (-not $status -or -not $status.AntivirusEnabled) {
-            Write-Warning "Microsoft Defender Antivirus is not enabled on this hosted runner. Clean-machine Defender acceptance remains mandatory before publishing."
-            exit 0
+            throw "Microsoft Defender Antivirus is not enabled on this hosted runner; Windows acceptance cannot pass without a scan."
           }
+          Write-Host "Defender signature version: $($status.AntivirusSignatureVersion)"
+          Write-Host "Defender signature updated: $($status.AntivirusSignatureLastUpdated)"
 
-          foreach ($installer in $installers) {
-            Write-Host "Scanning $($installer.FullName) with Microsoft Defender..."
-            Start-MpScan -ScanPath $installer.FullName -ScanType CustomScan
-          }
-
-          $detections = @(Get-MpThreatDetection -ErrorAction SilentlyContinue)
-          foreach ($installer in $installers) {
-            $escaped = [Regex]::Escape($installer.FullName)
-            $hits = @($detections | Where-Object {
-              ($_.Resources -join "`n") -match $escaped
-            })
-            if ($hits.Count -gt 0) {
-              $names = ($hits | ForEach-Object { $_.ThreatID }) -join ", "
-              throw "Microsoft Defender reported the TOPO installer as a threat. Threat IDs: $names"
+          $candidates = @()
+          $platformRoot = Join-Path $env:ProgramData "Microsoft\Windows Defender\Platform"
+          if (Test-Path $platformRoot) {
+            $latestPlatform = Get-ChildItem $platformRoot -Directory -ErrorAction SilentlyContinue |
+              Sort-Object Name -Descending |
+              Select-Object -First 1
+            if ($latestPlatform) {
+              $candidates += (Join-Path $latestPlatform.FullName "MpCmdRun.exe")
             }
           }
-          Write-Host "Microsoft Defender reported no detections for the packaged TOPO installer."
+          $candidates += (Join-Path $env:ProgramFiles "Windows Defender\MpCmdRun.exe")
+          $mpcmd = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $mpcmd) {
+            throw "Microsoft Defender command-line scanner (MpCmdRun.exe) was not found; Windows acceptance cannot pass without an actual scan."
+          }
+          Write-Host "Using Defender scanner: $mpcmd"
 
-      - name: Upload internal Windows package
+          & $mpcmd -SignatureUpdate
+          if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Defender signature refresh returned exit code $LASTEXITCODE; continuing with the installed signatures reported above."
+          }
+
+          foreach ($file in $files) {
+            Write-Host "Scanning $($file.FullName) with Microsoft Defender..."
+            $scanLog = Join-Path $env:RUNNER_TEMP ("defender-" + $file.Name + ".log")
+            Remove-Item $scanLog -ErrorAction SilentlyContinue
+            & $mpcmd -Scan -ScanType 3 -File $file.FullName -DisableRemediation 2>&1 | Tee-Object -FilePath $scanLog
+            $scanExit = $LASTEXITCODE
+            $scanText = if (Test-Path $scanLog) { Get-Content $scanLog -Raw } else { "" }
+
+            if ($scanText -match '(?i)was skipped') {
+              throw "Microsoft Defender skipped $($file.Name); Windows acceptance requires an actual scan."
+            }
+            if ($scanExit -ne 0) {
+              throw "Microsoft Defender did not return a clean result for $($file.Name); MpCmdRun exit code: $scanExit"
+            }
+            if ($scanText -notmatch '(?i)found no threats|detected 0 threats') {
+              throw "Microsoft Defender returned no positive clean-scan result for $($file.Name); refusing to publish an unchecked artifact."
+            }
+          }
+
+          $hashFile = "TOPO_windows_SHA256SUMS.txt"
+          Remove-Item $hashFile -ErrorAction SilentlyContinue
+          foreach ($file in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 $file.FullName).Hash.ToLowerInvariant()
+            "$hash  $($file.Name)" | Tee-Object -FilePath $hashFile -Append
+          }
+
+      - name: Upload internal Windows package and hashes
         uses: actions/upload-artifact@v4
         with:
           name: topo-windows-unsigned-smoke
-          path: apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/nsis/*.exe
+            TOPO_windows_SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 7
 
@@ -113,15 +160,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
-      - name: Install dependencies
-        run: npm install
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Require current Rust lockfiles
+        run: |
+          cargo metadata --locked --format-version 1 --manifest-path crates/topo-native-host/Cargo.toml > /dev/null
+          cargo metadata --locked --format-version 1 --manifest-path apps/desktop/src-tauri/Cargo.toml > /dev/null
 
       - name: Prepare packaged browser companion and verified local-engine installer
         shell: bash
         run: |
           set -euo pipefail
           npm run test:extension-build
-          cargo build --release --target-dir target --manifest-path crates/topo-native-host/Cargo.toml
+          cargo build --locked --release --target-dir target --manifest-path crates/topo-native-host/Cargo.toml
           resources="apps/desktop/src-tauri/resources"
           rm -rf "$resources"
           mkdir -p "$resources/capture-extension"

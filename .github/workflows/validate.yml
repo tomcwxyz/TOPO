@@ -23,7 +23,13 @@ jobs:
         with:
           node-version: 22
       - uses: dtolnay/rust-toolchain@stable
-      - run: npm install
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Require current Rust lockfiles
+        run: |
+          cargo metadata --locked --format-version 1 --manifest-path crates/topo-contracts/Cargo.toml > /dev/null
+          cargo metadata --locked --format-version 1 --manifest-path crates/topo-native-host/Cargo.toml > /dev/null
+          cargo metadata --locked --format-version 1 --manifest-path apps/desktop/src-tauri/Cargo.toml > /dev/null
       - name: Validate Hermes adapter syntax
         run: python3 -m py_compile adapters/hermes/__init__.py scripts/install-hermes-topo-plugin.py
       - run: npm run validate
