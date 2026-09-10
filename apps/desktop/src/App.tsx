@@ -52,7 +52,6 @@ type ClaimDraft = {
 
 type ContextPreview = {
   packet: Record<string, unknown>;
-  selectedClaimIds: string[];
 };
 
 type LocalContextSharingStatus = {
@@ -175,6 +174,7 @@ export function App() {
   const [captureSetupBusy, setCaptureSetupBusy] = useState(false);
   const [selectedCandidateIds, setSelectedCandidateIds] = useState<string[]>([]);
   const [memoryPageRefreshToken, setMemoryPageRefreshToken] = useState(0);
+  const [memoryPageSubjects, setMemoryPageSubjects] = useState<string[]>([]);
   const [memoryPageCounts, setMemoryPageCounts] = useState<MemoryPageCounts>({
     total: 0,
     candidates: 0,
@@ -204,9 +204,27 @@ export function App() {
     }
   }, [claimFilter, claimQuery]);
 
+  const refreshMemoryPageSubjects = useCallback(async () => {
+    try {
+      const pages = await invoke<Array<{ subject: string }>>("list_memory_pages", {
+        status: null,
+        query: null,
+      });
+      setMemoryPageSubjects(
+        [...new Set(pages.map((page) => page.subject).filter(Boolean))].sort(),
+      );
+    } catch (cause) {
+      setError(String(cause));
+    }
+  }, []);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    void refreshMemoryPageSubjects();
+  }, [refreshMemoryPageSubjects, memoryPageRefreshToken]);
 
   useEffect(() => {
     void invoke<LocalContextSharingStatus>("local_context_sharing_status")
@@ -236,9 +254,14 @@ export function App() {
   }, []);
 
   const visibleSubjects = useMemo(
-    () => [...new Set(claims.map((claim) => claim.subject))].sort(),
-    [claims],
+    () => [...new Set([...memoryPageSubjects, ...claims.map((claim) => claim.subject)])].sort(),
+    [claims, memoryPageSubjects],
   );
+
+  const contextObjectCount = useMemo(() => {
+    const objects = contextPreview?.packet.objects;
+    return Array.isArray(objects) ? objects.length : 0;
+  }, [contextPreview]);
 
   const visibleCandidateIds = useMemo(
     () => claims.filter((claim) => claim.status === "candidate").map((claim) => claim.id),
@@ -868,7 +891,7 @@ export function App() {
             <p className="kicker">Context preview</p>
             <h2>What would TOPO share?</h2>
             <p className="muted">
-              The current resolver remains Claim-backed during M3. Memory Page retrieval becomes primary in the next migration step; governance rules remain unchanged.
+              TOPO resolves confirmed Memory Pages first, applying review, sensitivity, temporal and subject rules before relevance. Legacy Claims remain only as a compatibility fallback for subjects without current confirmed pages.
             </p>
             <label>
               Subject
@@ -905,7 +928,9 @@ export function App() {
             </button>
             {contextPreview && (
               <div className="context-result">
-                <strong>{contextPreview.selectedClaimIds.length} structured annotations selected</strong>
+                <strong>
+                  {contextObjectCount} memory item{contextObjectCount === 1 ? "" : "s"} selected
+                </strong>
                 <pre>{JSON.stringify(contextPreview.packet, null, 2)}</pre>
               </div>
             )}
