@@ -1,11 +1,14 @@
 use chrono::{DateTime, Utc};
 use rusqlite::Connection;
 use serde_json::{json, Value};
+use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use topo_contracts::{MemoryPage, MemoryPageStatus, Sensitivity};
 use uuid::Uuid;
 
 use crate::memory_pages;
+#[path = "memory_page_index.rs"]
+mod memory_page_index;
 
 const PURPOSE_STOP_WORDS: &[&str] = &[
     "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "how", "in", "is",
@@ -15,6 +18,9 @@ const PURPOSE_STOP_WORDS: &[&str] = &[
 const MAX_CONTEXT_CHARS: usize = 12_000;
 const MAX_PAGE_EXCERPT_CHARS: usize = 2_400;
 const MIN_USEFUL_REMAINDER: usize = 160;
+
+type PageRelevance = (u32, Vec<&'static str>);
+type RankedPage = (MemoryPage, PageRelevance, Option<f64>);
 
 #[derive(Debug)]
 pub struct PageContextResolution {
@@ -40,7 +46,7 @@ fn context_terms(purpose: &str, query: Option<&str>) -> BTreeSet<String> {
     terms
 }
 
-fn page_relevance(page: &MemoryPage, terms: &BTreeSet<String>) -> (u32, Vec<&'static str>) {
+fn page_relevance(page: &MemoryPage, terms: &BTreeSet<String>) -> PageRelevance {
     if terms.is_empty() {
         return (0, Vec::new());
     }
@@ -130,6 +136,26 @@ fn page_cost(page: &MemoryPage, excerpt: &str) -> usize {
         + 96
 }
 
+fn compare_ranked_pages(left: &RankedPage, right: &RankedPage) -> Ordering {
+    let left_has_match = left.1 .0 > 0 || left.2.is_some();
+    let right_has_match = right.1 .0 > 0 || right.2.is_some();
+
+    right_has_match
+        .cmp(&left_has_match)
+        .then_with(|| right.1 .0.cmp(&left.1 .0))
+        .then_with(|| match (left.2, right.2) {
+            (Some(left_rank), Some(right_rank)) => left_rank
+                .partial_cmp(&right_rank)
+                .unwrap_or(Ordering::Equal),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
+        })
+        .then_with(|| right.0.updated_at.cmp(&left.0.updated_at))
+        .then_with(|| right.0.revision.cmp(&left.0.revision))
+        .then_with(|| left.0.id.cmp(&right.0.id))
+}
+
 pub fn resolve_page_context(
     connection: &Connection,
     subject: &str,
@@ -165,27 +191,24 @@ pub fn resolve_page_context(
     }
 
     let terms = context_terms(purpose, query);
+    // FTS is only a ranking signal. We deliberately compute the governance-eligible
+    // set first and attach FTS scores by id afterwards: relevance never grants access.
+    let fts_scores = memory_page_index::scores_for_terms(connection, &terms)?;
     let mut eligible = confirmed_for_subject
         .into_iter()
         .filter(|page| sensitivity_allowed(page, include_sensitive))
         .map(|page| {
             let relevance = page_relevance(&page, &terms);
-            (page, relevance)
+            let fts_rank = fts_scores.get(&page.id).copied();
+            (page, relevance, fts_rank)
         })
         .collect::<Vec<_>>();
 
-    eligible.sort_by(|(left, left_relevance), (right, right_relevance)| {
-        right_relevance
-            .0
-            .cmp(&left_relevance.0)
-            .then_with(|| right.updated_at.cmp(&left.updated_at))
-            .then_with(|| right.revision.cmp(&left.revision))
-            .then_with(|| left.id.cmp(&right.id))
-    });
+    eligible.sort_by(compare_ranked_pages);
 
-    let mut selected: Vec<(MemoryPage, (u32, Vec<&'static str>), String)> = Vec::new();
+    let mut selected: Vec<(MemoryPage, PageRelevance, Option<f64>, String)> = Vec::new();
     let mut used_chars = 0usize;
-    for (page, relevance) in eligible {
+    for (page, relevance, fts_rank) in eligible {
         if selected.len() >= max_items || used_chars >= MAX_CONTEXT_CHARS {
             break;
         }
@@ -201,28 +224,33 @@ pub fn resolve_page_context(
             continue;
         }
         used_chars += cost.min(remaining);
-        selected.push((page, relevance, excerpt));
+        selected.push((page, relevance, fts_rank, excerpt));
     }
 
     let selected_ids = selected
         .iter()
-        .map(|(page, _, _)| page.id.clone())
+        .map(|(page, _, _, _)| page.id.clone())
         .collect::<Vec<_>>();
     let evidence_refs = selected
         .iter()
-        .flat_map(|(page, _, _)| page.source_refs.iter().map(|reference| reference.source_id.clone()))
+        .flat_map(|(page, _, _, _)| {
+            page.source_refs
+                .iter()
+                .map(|reference| reference.source_id.clone())
+        })
         .collect::<BTreeSet<_>>()
         .into_iter()
         .collect::<Vec<_>>();
     let relevance = selected
         .iter()
-        .filter(|(_, result, _)| result.0 > 0)
-        .map(|(page, result, _)| {
+        .filter(|(_, result, fts_rank, _)| result.0 > 0 || fts_rank.is_some())
+        .map(|(page, result, fts_rank, _)| {
             (
                 page.id.clone(),
                 json!({
                     "score": result.0,
                     "fields": result.1.clone(),
+                    "fts_bm25": fts_rank,
                 }),
             )
         })
@@ -236,7 +264,7 @@ pub fn resolve_page_context(
         "subject": subject,
         "purpose": purpose,
         "requested_by": requested_by,
-        "objects": selected.iter().map(|(page, _, excerpt)| json!({
+        "objects": selected.iter().map(|(page, _, _, excerpt)| json!({
             "type": "topo.memory_page",
             "id": page.id,
             "value": {
@@ -271,7 +299,7 @@ pub fn resolve_page_context(
             "derived_from": selected_ids.clone(),
             "extensions": {
                 "memory_representation": "memory-page",
-                "page_revisions": selected.iter().map(|(page, _, _)| {
+                "page_revisions": selected.iter().map(|(page, _, _, _)| {
                     (page.id.clone(), json!(page.revision))
                 }).collect::<BTreeMap<_, _>>()
             }
@@ -283,10 +311,11 @@ pub fn resolve_page_context(
             "topo.selection": if terms.is_empty() {
                 "confirmed+subject+temporal+sensitivity+page-recency"
             } else {
-                "confirmed+subject+temporal+sensitivity+purpose-page-lexical-rank-v1"
+                "confirmed+subject+temporal+sensitivity+page-lexical+fts5-rank-v1"
             },
             "topo.query_supplied": query.map(str::trim).is_some_and(|value| !value.is_empty()),
             "topo.relevance": relevance,
+            "topo.search_index": "sqlite-fts5-disposable",
             "topo.context_budget": {
                 "max_items": max_items,
                 "max_chars": MAX_CONTEXT_CHARS,
@@ -306,7 +335,6 @@ pub fn resolve_page_context(
 mod tests {
     use super::*;
     use crate::memory_pages::write_memory_page;
-    use rusqlite::params;
     use topo_contracts::{MemoryHorizon, MemoryPageOrigin, MemoryPageSourceRef};
 
     fn connection() -> Connection {
@@ -400,6 +428,50 @@ mod tests {
             resolved.packet["extensions"]["topo.representation"],
             "memory-page"
         );
+        assert_eq!(
+            resolved.packet["extensions"]["topo.search_index"],
+            "sqlite-fts5-disposable"
+        );
+    }
+
+    #[test]
+    fn fts_stemming_can_rank_a_related_word_form() {
+        let connection = connection();
+        let mut older = page(
+            "older-testing",
+            "Release quality",
+            "Integration tests exercise changed boundaries.",
+            "2026-09-01T12:00:00Z",
+        );
+        older.category = Some("quality".to_owned());
+        older.tags = vec!["quality".to_owned()];
+        store_page(&connection, &older);
+        store_page(
+            &connection,
+            &page(
+                "newer-unrelated",
+                "Writing preference",
+                "Use British English for public copy.",
+                "2026-09-10T12:00:00Z",
+            ),
+        );
+
+        let resolved = resolve_page_context(
+            &connection,
+            "project:rack",
+            "testing",
+            "rack",
+            None,
+            false,
+            1,
+            "test",
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(resolved.selected_ids, vec!["older-testing"]);
+        assert!(resolved.packet["extensions"]["topo.relevance"]["older-testing"]["fts_bm25"]
+            .is_number());
     }
 
     #[test]
@@ -430,6 +502,45 @@ mod tests {
         let resolved = resolved.unwrap();
         assert!(resolved.selected_ids.is_empty());
         assert_eq!(resolved.packet["objects"], json!([]));
+    }
+
+    #[test]
+    fn strongest_fts_match_cannot_widen_sensitivity_access() {
+        let connection = connection();
+        let mut restricted = page(
+            "restricted-search-hit",
+            "Secret deployment architecture",
+            "The deployment architecture uses a restricted internal credential boundary.",
+            "2026-09-10T12:00:00Z",
+        );
+        restricted.sensitivity = Sensitivity::Restricted;
+        restricted.tags = vec!["deployment".to_owned(), "architecture".to_owned()];
+        store_page(&connection, &restricted);
+        store_page(
+            &connection,
+            &page(
+                "ordinary-page",
+                "General RACK architecture",
+                "RACK has a local-first architecture.",
+                "2026-09-09T12:00:00Z",
+            ),
+        );
+
+        let resolved = resolve_page_context(
+            &connection,
+            "project:rack",
+            "deployment architecture credential",
+            "rack",
+            None,
+            false,
+            20,
+            "test",
+        )
+        .unwrap()
+        .unwrap();
+
+        assert!(!resolved.selected_ids.contains(&"restricted-search-hit".to_owned()));
+        assert!(resolved.selected_ids.contains(&"ordinary-page".to_owned()));
     }
 
     #[test]
