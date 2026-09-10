@@ -30,7 +30,6 @@ pub struct CaptureProcessResult {
     supporting_evidence_added: usize,
     potential_changes: usize,
     duplicate_pages_suppressed: usize,
-    supporting_evidence_candidates: usize,
     representation: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     source_id: Option<String>,
@@ -39,9 +38,9 @@ pub struct CaptureProcessResult {
 #[derive(Debug)]
 struct PersistResult {
     candidates_created: usize,
+    supporting_evidence_added: usize,
     potential_changes: usize,
     duplicate_pages_suppressed: usize,
-    supporting_evidence_candidates: usize,
     source_id: Option<String>,
 }
 
@@ -55,7 +54,6 @@ fn duplicate_result(interaction_id: String, extractor: String) -> CaptureProcess
         supporting_evidence_added: 0,
         potential_changes: 0,
         duplicate_pages_suppressed: 0,
-        supporting_evidence_candidates: 0,
         representation: "memory-page",
         source_id: None,
     }
@@ -104,10 +102,9 @@ pub async fn process_capture_with_ollama(
         duplicate_snapshot: false,
         proposals_extracted: proposal_count,
         candidates_created: persisted.candidates_created,
-        supporting_evidence_added: 0,
+        supporting_evidence_added: persisted.supporting_evidence_added,
         potential_changes: persisted.potential_changes,
         duplicate_pages_suppressed: persisted.duplicate_pages_suppressed,
-        supporting_evidence_candidates: persisted.supporting_evidence_candidates,
         representation: "memory-page",
         source_id: persisted.source_id,
     })
@@ -296,6 +293,82 @@ fn compare_page_proposal(
     }
 }
 
+fn supporting_page_index(
+    related_ids: &[String],
+    pages: &[MemoryPage],
+) -> Option<usize> {
+    related_ids
+        .iter()
+        .filter_map(|id| pages.iter().position(|page| page.id == *id))
+        .find(|index| pages[*index].status == MemoryPageStatus::Confirmed)
+        .or_else(|| {
+            related_ids
+                .iter()
+                .find_map(|id| pages.iter().position(|page| page.id == *id))
+        })
+}
+
+fn attach_supporting_evidence(
+    connection: &Connection,
+    page: &mut MemoryPage,
+    source: &MemorySource,
+    proposal: &ExtractedMemoryPageProposal,
+    extractor: &str,
+    now: &str,
+) -> Result<bool, String> {
+    if page
+        .source_refs
+        .iter()
+        .any(|reference| reference.source_id == source.id)
+    {
+        return Ok(false);
+    }
+
+    page.source_refs.push(MemoryPageSourceRef {
+        source_id: source.id.clone(),
+        evidence: Some(proposal.evidence.trim().to_owned()),
+        turn_ids: Some(proposal.evidence_turn_ids.clone()),
+    });
+    page.revision += 1;
+    page.updated_at = now.to_owned();
+    write_memory_page(connection, page)?;
+    append_memory_page_event(
+        connection,
+        &MemoryPageEvent {
+            id: format!("event-{}", Uuid::new_v4()),
+            event_type: MemoryPageEventType::Edited,
+            entity_type: "memory".to_owned(),
+            entity_id: page.id.clone(),
+            occurred_at: now.to_owned(),
+            actor: Actor {
+                actor_type: ActorType::Agent,
+                id: Some("topo-capture-extractor".to_owned()),
+            },
+            data: Some(BTreeMap::from([
+                (
+                    "changeKind".to_owned(),
+                    Value::String("supporting-evidence".to_owned()),
+                ),
+                ("sourceId".to_owned(), Value::String(source.id.clone())),
+                (
+                    "evidence".to_owned(),
+                    Value::String(proposal.evidence.trim().to_owned()),
+                ),
+                (
+                    "turnIds".to_owned(),
+                    serde_json::to_value(&proposal.evidence_turn_ids).map_err(error_text)?,
+                ),
+                ("revision".to_owned(), json!(page.revision)),
+                (
+                    "extractor".to_owned(),
+                    Value::String(extractor.to_owned()),
+                ),
+            ])),
+        },
+    )?;
+    Ok(true)
+}
+
 fn persist_page_proposals(
     connection: &Connection,
     interaction: &CapturedInteraction,
@@ -309,9 +382,9 @@ fn persist_page_proposals(
         tx.rollback().map_err(error_text)?;
         return Ok(PersistResult {
             candidates_created: 0,
+            supporting_evidence_added: 0,
             potential_changes: 0,
             duplicate_pages_suppressed: 0,
-            supporting_evidence_candidates: 0,
             source_id: None,
         });
     }
@@ -321,9 +394,9 @@ fn persist_page_proposals(
         tx.commit().map_err(error_text)?;
         return Ok(PersistResult {
             candidates_created: 0,
+            supporting_evidence_added: 0,
             potential_changes: 0,
             duplicate_pages_suppressed: 0,
-            supporting_evidence_candidates: 0,
             source_id: None,
         });
     }
@@ -332,17 +405,33 @@ fn persist_page_proposals(
     let now = Utc::now().to_rfc3339();
     let source = upsert_page_capture_source(&tx, interaction, &proposals, &now)?;
     append_page_source_event(&tx, interaction, &source, proposal_count, &now)?;
-    let existing = all_memory_pages(&tx)?;
+    let mut existing = all_memory_pages(&tx)?;
 
     let mut candidates_created = 0usize;
+    let mut supporting_evidence_added = 0usize;
     let mut potential_changes = 0usize;
     let mut duplicate_pages_suppressed = 0usize;
-    let mut supporting_evidence_candidates = 0usize;
 
     for proposal in proposals {
         let comparison = compare_page_proposal(&interaction.subject, &proposal, &existing);
         if comparison.comparison == PageComparison::Duplicate {
             duplicate_pages_suppressed += 1;
+            continue;
+        }
+
+        if comparison.comparison == PageComparison::SupportingEvidence {
+            if let Some(index) = supporting_page_index(&comparison.related_ids, &existing) {
+                if attach_supporting_evidence(
+                    &tx,
+                    &mut existing[index],
+                    &source,
+                    &proposal,
+                    extractor,
+                    &now,
+                )? {
+                    supporting_evidence_added += 1;
+                }
+            }
             continue;
         }
 
@@ -366,10 +455,6 @@ fn persist_page_proposals(
             Vec::new()
         };
 
-        if comparison.comparison == PageComparison::SupportingEvidence {
-            supporting_evidence_candidates += 1;
-        }
-
         let page = page_candidate_from_proposal(
             interaction,
             &source,
@@ -386,6 +471,7 @@ fn persist_page_proposals(
             &comparison,
             &now,
         )?;
+        existing.push(page);
         candidates_created += 1;
     }
 
@@ -401,9 +487,9 @@ fn persist_page_proposals(
 
     Ok(PersistResult {
         candidates_created,
+        supporting_evidence_added,
         potential_changes,
         duplicate_pages_suppressed,
-        supporting_evidence_candidates,
         source_id: Some(source.id),
     })
 }
@@ -898,6 +984,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(result.candidates_created, 1);
+        assert_eq!(result.supporting_evidence_added, 0);
         assert_eq!(result.duplicate_pages_suppressed, 0);
         assert!(result.source_id.is_some());
         let pages = all_memory_pages(&connection).unwrap();
@@ -942,7 +1029,7 @@ mod tests {
     }
 
     #[test]
-    fn concise_restatement_is_supporting_evidence_candidate() {
+    fn concise_restatement_adds_provenance_without_another_candidate() {
         let connection = connection();
         persist_page_proposals(
             &connection,
@@ -952,20 +1039,59 @@ mod tests {
             "test:page-extractor",
         )
         .unwrap();
+        let page_id = all_memory_pages(&connection).unwrap()[0].id.clone();
+
+        let mut newer_interaction = interaction();
+        newer_interaction.id = "chatgpt-web-support".to_owned();
+        newer_interaction.external_id = Some("thread-support".to_owned());
+        newer_interaction.captured_at = "2026-09-01T10:00:00Z".to_owned();
 
         let mut supporting = page_proposal();
         supporting.title = "RACK architecture".to_owned();
         supporting.body = "RACK uses Neon and local projects remain account-free.".to_owned();
         let result = persist_page_proposals(
             &connection,
-            &interaction(),
+            &newer_interaction,
             vec![supporting],
             "page-digest-support",
             "test:page-extractor",
         )
         .unwrap();
-        assert_eq!(result.supporting_evidence_candidates, 1);
+
+        assert_eq!(result.supporting_evidence_added, 1);
+        assert_eq!(result.candidates_created, 0);
+        let pages = all_memory_pages(&connection).unwrap();
+        assert_eq!(pages.len(), 1);
+        assert_eq!(pages[0].id, page_id);
+        assert_eq!(pages[0].source_refs.len(), 2);
+        assert_eq!(pages[0].revision, 2);
+
+        let data: String = connection
+            .query_row(
+                "SELECT data_json FROM memory_page_events WHERE entity_id = ?1 AND type = 'memory.edited'",
+                [&page_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let data: Value = serde_json::from_str(&data).unwrap();
+        assert_eq!(data["changeKind"], "supporting-evidence");
+    }
+
+    #[test]
+    fn duplicate_proposals_inside_one_extraction_do_not_create_duplicate_pages() {
+        let connection = connection();
+        let result = persist_page_proposals(
+            &connection,
+            &interaction(),
+            vec![page_proposal(), page_proposal()],
+            "page-digest-same-batch",
+            "test:page-extractor",
+        )
+        .unwrap();
+
         assert_eq!(result.candidates_created, 1);
+        assert_eq!(result.duplicate_pages_suppressed, 1);
+        assert_eq!(all_memory_pages(&connection).unwrap().len(), 1);
     }
 
     #[test]
