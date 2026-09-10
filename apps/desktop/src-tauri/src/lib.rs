@@ -5,6 +5,7 @@ mod capture_setup;
 mod context_pages;
 mod memory_pages;
 mod oos_local;
+mod retrieval_reports;
 
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, Row};
@@ -980,6 +981,7 @@ pub fn run() {
             memory_pages::review_memory_page,
             memory_pages::review_memory_pages,
             preview_context,
+            retrieval_reports::record_retrieval_report,
             capture_inbox::capture_inbox_status,
             capture_extractor::ollama_extractor_status,
             capture_extractor::install_recommended_ollama_model,

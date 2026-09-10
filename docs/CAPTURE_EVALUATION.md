@@ -68,6 +68,28 @@ The desktop alpha records review effort on the Memory Page confirm/reject event 
 
 This is deliberately local product instrumentation, not telemetry. It stays in TOPO's local event history and is intended to test the product claim that a normal day's inbox can be governed in a few minutes.
 
+## Retrieval dogfood reports
+
+When a real Context Preview returns the wrong Memory Page or misses one that should have appeared, use **This isn’t right** in the desktop preview rather than immediately changing the resolver.
+
+TOPO saves the report locally under `~/.topo/evaluation/retrieval/`. A report contains the subject, purpose, actual selected IDs, the Memory Page IDs the reviewer expected, the current confirmed page corpus for that subject and the relevant sensitivity boundary. This makes a real miss replayable instead of leaving it as an anecdote.
+
+These files can contain real Memory Page text. They are **not telemetry, are not uploaded automatically, and must not be committed or shared in their raw form**.
+
+To promote a useful report into the repository benchmark:
+
+1. reproduce the miss from the local report;
+2. copy only the `candidateFixture` object into a working fixture;
+3. redact or replace names, organisations, personal details, source text and identifiers while preserving the retrieval failure mode;
+4. confirm that `expectedIds` still represent the pages that should be selected and `forbiddenIds` still represent pages that must not be disclosed;
+5. set `semanticChallenge: true` only when the miss genuinely depends on semantic similarity with little or no useful lexical overlap; otherwise leave it false;
+6. add the sanitised case to `apps/desktop/src-tauri/fixtures/retrieval-evaluation.json`;
+7. run `npm run test:retrieval-eval` and compare the new baseline with the previous one.
+
+A report with no suitable confirmed Memory Page is an upstream capture/memory-creation gap, not a retrieval-ranking fixture. Record and fix those through the capture evaluation loop instead.
+
+The point of this path is to make M5 evidence-driven: embeddings or other retrieval machinery should only be introduced when multiple sanitised real-use fixtures demonstrate a recurring failure that deterministic retrieval cannot solve well enough.
+
 ## Qualitative scoring
 
 Some page-first qualities are not well represented by key matching alone. Labelled fixtures should therefore include small human judgements, for example:
