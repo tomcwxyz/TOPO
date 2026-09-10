@@ -47,11 +47,7 @@ jobs:
       - run: cargo check --manifest-path apps/desktop/src-tauri/Cargo.toml
       - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
       - name: Report deterministic retrieval baseline
-        run: >-
-          cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml
-          --test retrieval_evaluation
-          deterministic_retrieval_baseline_is_measurable_before_m5
-          -- --nocapture
+        run: npm run test:retrieval-eval
 
   windows:
     name: Desktop smoke (Windows)
