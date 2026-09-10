@@ -1,0 +1,22 @@
+{
+  "title": "RACK architecture decisions",
+  "summary": "Keep managed and local architecture deliberately distinct.",
+  "body": "RACK uses Neon rather than Supabase. Managed work can use Neon-backed services, while local projects remain account-free.",
+  "category": "rack",
+  "tags": ["rack", "architecture"],
+  "sensitivity": "ordinary",
+  "horizon": "project",
+  "evidenceTurnIds": ["u1"],
+  "evidence": "RACK uses Neon rather than Supabase.",
+  "annotations": [
+    {
+      "key": "rack.database",
+      "value": "Neon",
+      "category": "architecture",
+      "tags": ["rack"],
+      "epistemicType": "assertion",
+      "confidence": 0.99,
+      "sensitivity": "ordinary"
+    }
+  ]
+}
