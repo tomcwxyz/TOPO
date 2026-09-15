@@ -59,7 +59,6 @@ fn duplicate_result(interaction_id: String, extractor: String) -> CaptureProcess
     }
 }
 
-#[tauri::command(rename_all = "camelCase")]
 pub async fn process_capture_with_ollama(
     interaction_id: String,
     model: String,
