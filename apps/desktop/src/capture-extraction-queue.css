@@ -1,0 +1,235 @@
+.capture-inbox-control.capture-queue-enhanced > .capture-extractor,
+.capture-inbox-control.capture-queue-enhanced > .capture-inbox-list {
+  display: none;
+}
+
+.capture-queue {
+  display: grid;
+  gap: 10px;
+  padding: 10px;
+  border-top: 1px solid #c2bcaf;
+  border-bottom: 1px solid #c2bcaf;
+}
+
+.capture-queue-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.capture-queue-header > div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.capture-queue-header strong {
+  font-size: .78rem;
+}
+
+.capture-queue-header span,
+.capture-queue-note,
+.capture-queue-unavailable,
+.capture-queue-empty {
+  color: #656159;
+  font-size: .68rem;
+  line-height: 1.4;
+}
+
+.capture-queue-count {
+  flex: 0 0 auto;
+  padding-top: 1px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.capture-queue-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.capture-queue-controls select {
+  min-width: 0;
+  padding: 8px 9px;
+  font-size: .76rem;
+}
+
+.capture-queue-controls .secondary {
+  white-space: nowrap;
+}
+
+.capture-queue-retry {
+  grid-column: 1 / -1;
+  justify-self: start;
+  font-size: .72rem;
+}
+
+.capture-queue-list {
+  display: grid;
+  gap: 6px;
+  max-height: 320px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.capture-queue-row {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  padding: 9px;
+  border: 1px solid #c2bcaf;
+  background: rgba(255,255,255,.28);
+}
+
+.capture-queue-row.is-processing {
+  background: #eee7d6;
+}
+
+.capture-queue-row.is-processed {
+  background: #e7eddc;
+}
+
+.capture-queue-row.is-failed {
+  border-color: #a86b5d;
+  background: #f3e2dd;
+}
+
+.capture-queue-row.is-skipped {
+  background: #e9e5db;
+}
+
+.capture-queue-marker {
+  display: grid;
+  width: 18px;
+  height: 18px;
+  place-items: center;
+  border: 1px solid #8a857a;
+  border-radius: 999px;
+  font-size: .68rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.capture-queue-row.is-processing .capture-queue-marker {
+  animation: topo-capture-pulse 1s ease-in-out infinite alternate;
+}
+
+.capture-queue-row.is-failed .capture-queue-marker {
+  border-color: #7b3f34;
+  color: #7b3f34;
+}
+
+.capture-queue-row-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.capture-queue-row-copy strong {
+  overflow: hidden;
+  font-size: .76rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capture-queue-row-copy small,
+.capture-queue-meta,
+.capture-queue-state {
+  color: #656159;
+  font-size: .64rem;
+  line-height: 1.35;
+}
+
+.capture-queue-row-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.capture-queue-state {
+  padding-top: 2px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
+.capture-queue-row.is-failed .capture-queue-state {
+  color: #7b3f34;
+}
+
+.capture-queue-summary {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px solid #c2bcaf;
+}
+
+.capture-queue-summary > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.capture-queue-summary strong {
+  font-size: .72rem;
+}
+
+.capture-queue-summary span {
+  color: #656159;
+  font-size: .66rem;
+}
+
+.capture-queue-summary-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  font-size: .7rem;
+}
+
+.capture-queue-error {
+  padding: 8px 9px;
+  border: 1px solid #a86b5d;
+  background: #f3e2dd;
+  color: #71372d;
+  font-size: .7rem;
+  line-height: 1.4;
+}
+
+.capture-queue-empty,
+.capture-queue-unavailable {
+  padding: 8px 9px;
+  border: 1px dashed #b5aea1;
+}
+
+.capture-queue-note {
+  display: block;
+}
+
+@keyframes topo-capture-pulse {
+  from { opacity: .45; }
+  to { opacity: 1; }
+}
+
+@media (max-width: 520px) {
+  .capture-queue-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .capture-queue-controls .secondary,
+  .capture-queue-retry {
+    justify-self: stretch;
+  }
+
+  .capture-queue-summary {
+    display: grid;
+  }
+
+  .capture-queue-summary-actions {
+    justify-content: flex-start;
+  }
+}
