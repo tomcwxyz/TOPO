@@ -9,6 +9,7 @@ fn recoverable_capture_error(error: &str) -> bool {
         || error.starts_with("Choose an Ollama model")
         || error.starts_with("Local Ollama model ")
         || error.starts_with("Could not call local Ollama model ")
+        || error.starts_with("Could not read Ollama response from")
         || error.starts_with("Ollama model ")
         || error.starts_with("Ollama returned an unreadable chat response")
         || error.contains("returned Memory Page JSON TOPO could not use")
@@ -72,6 +73,13 @@ mod tests {
     fn model_contract_failure_is_recoverable() {
         assert!(recoverable_capture_error(
             "qwen3:4b returned Memory Page JSON TOPO could not use: proposal 1 did not match"
+        ));
+    }
+
+    #[test]
+    fn ollama_response_read_failure_is_recoverable() {
+        assert!(recoverable_capture_error(
+            "Could not read Ollama response from http://127.0.0.1:11434/api/chat: request or response body error"
         ));
     }
 
