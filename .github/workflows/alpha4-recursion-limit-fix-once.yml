@@ -1,0 +1,35 @@
+name: alpha4-recursion-limit-fix-once
+
+on:
+  push:
+    branches: [alpha4/calm-memory-ux]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: alpha4/calm-memory-ux
+      - name: Raise Rust macro recursion limit for structured extraction schema
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path("apps/desktop/src-tauri/src/lib.rs")
+          text = path.read_text()
+          marker = '#![recursion_limit = "256"]\n\n'
+          if text.startswith(marker):
+              raise SystemExit("recursion limit already present")
+          path.write_text(marker + text)
+      - name: Commit fix and remove one-shot workflow
+        shell: bash
+        run: |
+          git rm .github/workflows/alpha4-recursion-limit-fix-once.yml
+          git add apps/desktop/src-tauri/src/lib.rs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: raise macro recursion limit for extractor schema"
+          git push origin HEAD:alpha4/calm-memory-ux
