@@ -54,7 +54,10 @@ Normal states use plain language, for example:
 - ChatGPT browser capture — connected;
 - local extraction — ready / processing locally;
 - RACK/local tools — can use approved memory this session;
-- local agents — capture/suggestion authority enabled or disabled.
+- local agent capture — enabled or disabled independently;
+- local memory suggestions — enabled or disabled independently.
+
+Capture and suggestion authority remain separate grants: enabling one never enables or implies the other.
 
 Setup and permission actions are shown only when needed.
 
@@ -143,6 +146,7 @@ Implemented on the alpha.4 branch:
 - review cards use Keep / Not useful / Edit, with evidence and governance behind progressive disclosure;
 - capture extraction runs automatically while TOPO is open when the recommended extractor is available;
 - first-run setup and the calm Home surface steer normal use to `qwen3:4b`, while arbitrary model choice remains in Advanced;
+- local context sharing, agent capture and memory-suggestion permissions remain distinct controls;
 - the existing technical workbench, raw queue, retrieval evaluation and Structured Claims remain available under Advanced;
 - Memory Page extraction now uses short user-evidence aliases, an explicit legal user-evidence boundary, structured JSON Schema output, temperature 0, one bounded repair pass and per-proposal validation;
 - a bad sibling proposal no longer forces TOPO to discard a valid grounded Memory Page from the same conversation;
