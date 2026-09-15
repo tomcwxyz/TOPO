@@ -1,5 +1,6 @@
 name: unsigned-alpha-packages
 
+# Build trigger: capture/extraction reliability alpha after PR #61.
 on:
   push:
     branches: [main]
