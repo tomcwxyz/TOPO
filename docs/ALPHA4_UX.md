@@ -133,3 +133,19 @@ A normal dogfood session should be possible without opening Advanced:
 6. allow a connected tool to use approved context without operating retrieval machinery manually.
 
 Advanced remains available for diagnosis and evaluation, but ordinary success must not depend on it.
+
+## Implementation status
+
+Implemented on the alpha.4 branch:
+
+- Home / Memories / Connections / Advanced is now the default desktop information architecture;
+- confirmed memories have a dedicated searchable Memories surface and no longer disappear into a status filter;
+- review cards use Keep / Not useful / Edit, with evidence and governance behind progressive disclosure;
+- capture extraction runs automatically while TOPO is open when the recommended extractor is available;
+- first-run setup and the calm Home surface steer normal use to `qwen3:4b`, while arbitrary model choice remains in Advanced;
+- the existing technical workbench, raw queue, retrieval evaluation and Structured Claims remain available under Advanced;
+- Memory Page extraction now uses short user-evidence aliases, an explicit legal user-evidence boundary, structured JSON Schema output, temperature 0, one bounded repair pass and per-proposal validation;
+- a bad sibling proposal no longer forces TOPO to discard a valid grounded Memory Page from the same conversation;
+- evidence validation remains strict: assistant-only project state, completion claims and invented evidence are still rejected rather than silently accepted.
+
+Before release, the branch must pass repository validation, Windows/Linux desktop smoke and installer packaging including the Windows Defender scan.
