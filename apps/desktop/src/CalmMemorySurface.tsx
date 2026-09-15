@@ -100,7 +100,7 @@ export function CalmMemorySurface({ mode, refreshToken = 0, onChanged, onCounts 
     return pages
       .filter((page) => {
         if (mode === "review") return page.status === "candidate";
-        if (showHistory) return page.status !== "candidate";
+        if (showHistory) return page.status !== "candidate" && page.status !== "confirmed";
         return page.status === "confirmed";
       })
       .filter((page) => {
