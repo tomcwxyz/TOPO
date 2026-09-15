@@ -1,6 +1,9 @@
 import type { CapturedInteraction } from "@topo/schemas";
 import { detectAdapter } from "../adapters/index.js";
-import { fallbackConversationId, turnId } from "../core/identity.js";
+import { fallbackConversationId, fnv1a, turnId } from "../core/identity.js";
+
+const MUTATION_SETTLE_MS = 1500;
+const SNAPSHOT_STABLE_MS = 2500;
 
 const adapter = detectAdapter();
 let enabled = false;
@@ -8,6 +11,8 @@ let observer: MutationObserver | undefined;
 let timer: number | undefined;
 let indicator: HTMLButtonElement | undefined;
 let lastSignature = "";
+let pendingSignature = "";
+let pendingSince = 0;
 let delivery: "unknown" | "delivered" | "queued" = "unknown";
 let queuedCount = 0;
 
@@ -41,7 +46,7 @@ function setEnabled(next: boolean): void {
 function start(): void {
   if (!adapter || observer) return;
   scheduleCapture(250);
-  observer = new MutationObserver(() => scheduleCapture(1200));
+  observer = new MutationObserver(() => scheduleCapture(MUTATION_SETTLE_MS));
   observer.observe(document.body, {
     childList: true,
     subtree: true,
@@ -54,6 +59,8 @@ function stop(): void {
   observer = undefined;
   if (timer !== undefined) window.clearTimeout(timer);
   timer = undefined;
+  pendingSignature = "";
+  pendingSince = 0;
 }
 
 function scheduleCapture(delay: number): void {
@@ -62,12 +69,34 @@ function scheduleCapture(delay: number): void {
   timer = window.setTimeout(captureSnapshot, delay);
 }
 
+function transientAssistantContent(content: string): boolean {
+  const normalised = content.replace(/\s+/g, " ").trim();
+  return [
+    /^thinking(?:\.{3}|…)?$/i,
+    /^generating(?:\.{3}|…)?$/i,
+    /^retry$/i,
+    /^message delivery timed out\.? please try again\.? retry$/i,
+  ].some((pattern) => pattern.test(normalised));
+}
+
 function captureSnapshot(): void {
   if (!adapter || !enabled) return;
 
   const parsed = adapter.parseTurns();
-  const firstUser = parsed.find((turn) => turn.role === "user");
+  const filtered = parsed.filter((turn, index) => {
+    const isLast = index === parsed.length - 1;
+    return !(
+      isLast &&
+      turn.role === "assistant" &&
+      transientAssistantContent(turn.content)
+    );
+  });
+  const firstUser = filtered.find((turn) => turn.role === "user");
   if (!firstUser) return;
+
+  // Do not publish a snapshot while the conversation is visibly waiting for an
+  // assistant response. A later DOM mutation will schedule another attempt.
+  if (filtered.at(-1)?.role === "user") return;
 
   const url = new URL(location.href);
   const externalId =
@@ -78,15 +107,35 @@ function captureSnapshot(): void {
       firstUser.content,
     );
 
-  const turns = parsed.map((turn, index) => ({
+  const turns = filtered.map((turn, index) => ({
     id: turnId(turn.role, turn.content, index, turn.providerTurnId),
     role: turn.role,
     content: turn.content,
   }));
 
-  const signature = turns.map((turn) => turn.id).join("|");
+  // Provider message IDs are intentionally stable while an assistant response
+  // streams. Include content in the snapshot signature so TOPO can observe the
+  // completed response rather than treating an early partial response as final.
+  const signature = turns
+    .map((turn) => `${turn.id}:${fnv1a(turn.content)}`)
+    .join("|");
   if (!signature || signature === lastSignature) return;
+
+  const now = Date.now();
+  if (signature !== pendingSignature) {
+    pendingSignature = signature;
+    pendingSince = now;
+    scheduleCapture(SNAPSHOT_STABLE_MS);
+    return;
+  }
+  if (now - pendingSince < SNAPSHOT_STABLE_MS) {
+    scheduleCapture(SNAPSHOT_STABLE_MS - (now - pendingSince));
+    return;
+  }
+
   lastSignature = signature;
+  pendingSignature = "";
+  pendingSince = 0;
 
   const interaction: CapturedInteraction = {
     id: `${adapter.product}-web-${externalId}`,
@@ -163,6 +212,6 @@ function renderIndicator(): void {
     ? "Click to enable TOPO capture for this AI"
     : delivery === "queued"
       ? "Capture is enabled but the native TOPO bridge is unavailable; interaction snapshots are queued in the extension."
-      : "Capture is enabled and interaction snapshots are being handed to local TOPO.";
+      : "Capture is enabled and stable interaction snapshots are being handed to local TOPO.";
   indicator.style.opacity = enabled ? "0.92" : "0.65";
 }
