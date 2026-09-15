@@ -641,7 +641,7 @@ pub fn page_extraction_prompt(fidelity: &CaptureFidelity) -> String {
     }
 
     format!(
-        "{}\n\nReturn JSON only using the supplied structured-output schema. Return {\"proposals\":[]} when nothing is genuinely worth remembering.",
+        "{}\n\nReturn JSON only using the supplied structured-output schema. Return {{\"proposals\":[]}} when nothing is genuinely worth remembering.",
         rules
             .into_iter()
             .map(|rule| format!("- {rule}"))
