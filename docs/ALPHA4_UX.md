@@ -150,6 +150,7 @@ Implemented on the alpha.4 branch:
 - the existing technical workbench, raw queue, retrieval evaluation and Structured Claims remain available under Advanced;
 - Memory Page extraction now uses short user-evidence aliases, an explicit legal user-evidence boundary, structured JSON Schema output, temperature 0, one bounded repair pass and per-proposal validation;
 - a bad sibling proposal no longer forces TOPO to discard a valid grounded Memory Page from the same conversation;
-- evidence validation remains strict: assistant-only project state, completion claims and invented evidence are still rejected rather than silently accepted.
+- evidence validation remains strict: assistant-only project state, completion claims and invented evidence are still rejected rather than silently accepted;
+- the desktop Rust crate explicitly raises its macro recursion limit for the structured-output schema, keeping the schema readable without weakening its constraints.
 
 Before release, the branch must pass repository validation, Windows/Linux desktop smoke and installer packaging including the Windows Defender scan.
