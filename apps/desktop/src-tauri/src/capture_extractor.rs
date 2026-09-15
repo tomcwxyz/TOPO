@@ -1,7 +1,13 @@
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::{collections::BTreeMap, time::Duration};
+use std::{
+    collections::BTreeMap,
+    fs::{self, OpenOptions},
+    io::Write,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 use topo_contracts::{
     CaptureFidelity, CaptureRole, CapturedInteraction, EpistemicType,
     ExtractedMemoryPageProposal, ExtractedMemoryProposal,
@@ -10,6 +16,8 @@ use topo_contracts::{
 const OLLAMA_BASE_URL: &str = "http://127.0.0.1:11434";
 pub const RECOMMENDED_MODEL: &str = "qwen3:4b";
 const MAX_TRANSCRIPT_CHARS: usize = 60_000;
+const OLLAMA_REQUEST_TIMEOUT_SECS: u64 = 300;
+const DIAGNOSTIC_LOG_NAME: &str = "extractor-alpha.jsonl";
 pub const MAX_MEMORY_PAGE_PROPOSALS: usize = 4;
 
 #[derive(Debug, Clone, Serialize)]
@@ -36,6 +44,20 @@ struct OllamaModel {
 #[derive(Debug, Deserialize)]
 struct OllamaChatResponse {
     message: OllamaChatMessage,
+    #[serde(default)]
+    done_reason: Option<String>,
+    #[serde(default)]
+    total_duration: Option<u64>,
+    #[serde(default)]
+    load_duration: Option<u64>,
+    #[serde(default)]
+    prompt_eval_count: Option<u64>,
+    #[serde(default)]
+    prompt_eval_duration: Option<u64>,
+    #[serde(default)]
+    eval_count: Option<u64>,
+    #[serde(default)]
+    eval_duration: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,16 +65,88 @@ struct OllamaChatMessage {
     content: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct ProposalEnvelope {
-    #[serde(default)]
-    proposals: Vec<ExtractedMemoryProposal>,
+struct OllamaCallResult {
+    content: String,
+    elapsed_ms: u64,
+    metrics: Value,
 }
 
-#[derive(Debug, Deserialize)]
-struct PageProposalEnvelope {
-    #[serde(default)]
-    proposals: Vec<ExtractedMemoryPageProposal>,
+fn extractor_diagnostics_path() -> Result<PathBuf, String> {
+    let home = dirs::home_dir().ok_or_else(|| "Unable to determine the home folder.".to_owned())?;
+    Ok(home.join(".topo").join("logs").join(DIAGNOSTIC_LOG_NAME))
+}
+
+fn append_extractor_diagnostic(mut event: Value) {
+    let Ok(path) = extractor_diagnostics_path() else {
+        return;
+    };
+    if let Some(parent) = path.parent() {
+        if fs::create_dir_all(parent).is_err() {
+            return;
+        }
+    }
+    let Value::Object(ref mut object) = event else {
+        return;
+    };
+    object.insert(
+        "at".to_owned(),
+        Value::String(chrono::Utc::now().to_rfc3339()),
+    );
+    let Ok(line) = serde_json::to_string(&event) else {
+        return;
+    };
+    let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) else {
+        return;
+    };
+    let _ = writeln!(file, "{line}");
+}
+
+fn elapsed_ms(started: Instant) -> u64 {
+    started.elapsed().as_millis().min(u64::MAX as u128) as u64
+}
+
+fn object_field_names(value: &Value) -> Vec<String> {
+    value
+        .as_object()
+        .map(|object| object.keys().cloned().collect::<Vec<_>>())
+        .unwrap_or_default()
+}
+
+fn json_shape_summary(text: &str) -> Value {
+    match serde_json::from_str::<Value>(text.trim()) {
+        Ok(Value::Object(object)) => {
+            let top_level_fields = object.keys().cloned().collect::<Vec<_>>();
+            let proposal_fields = object
+                .get("proposals")
+                .and_then(Value::as_array)
+                .and_then(|items| items.first())
+                .map(object_field_names)
+                .unwrap_or_default();
+            json!({
+                "root": "object",
+                "topLevelFields": top_level_fields,
+                "proposalFields": proposal_fields
+            })
+        }
+        Ok(Value::Array(items)) => json!({
+            "root": "array",
+            "length": items.len(),
+            "proposalFields": items.first().map(object_field_names).unwrap_or_default()
+        }),
+        Ok(other) => json!({
+            "root": match other {
+                Value::Null => "null",
+                Value::Bool(_) => "boolean",
+                Value::Number(_) => "number",
+                Value::String(_) => "string",
+                Value::Array(_) | Value::Object(_) => unreachable!(),
+            }
+        }),
+        Err(error) => json!({
+            "root": "invalid-json",
+            "error": error.to_string()
+        }),
+    }
 }
 
 #[tauri::command]
@@ -153,15 +247,28 @@ async fn call_ollama(
     interaction: &CapturedInteraction,
     model: &str,
     system: String,
-) -> Result<String, String> {
+    representation: &'static str,
+) -> Result<OllamaCallResult, String> {
     let model = model.trim();
     if model.is_empty() {
         return Err("Choose an Ollama model before extracting capture.".to_owned());
     }
 
     let transcript = format_interaction(interaction);
+    let started = Instant::now();
+    append_extractor_diagnostic(json!({
+        "event": "extract.start",
+        "interactionId": interaction.id,
+        "model": model,
+        "representation": representation,
+        "turnCount": interaction.turns.len(),
+        "transcriptChars": transcript.chars().count(),
+        "timeoutSeconds": OLLAMA_REQUEST_TIMEOUT_SECS
+    }));
+
     let client = Client::builder()
-        .timeout(Duration::from_secs(120))
+        .connect_timeout(Duration::from_secs(5))
+        .timeout(Duration::from_secs(OLLAMA_REQUEST_TIMEOUT_SECS))
         .build()
         .map_err(|error| error.to_string())?;
 
@@ -171,6 +278,7 @@ async fn call_ollama(
             "model": model,
             "stream": false,
             "format": "json",
+            "keep_alive": "10m",
             "options": { "temperature": 0.1 },
             "messages": [
                 { "role": "system", "content": system },
@@ -179,22 +287,82 @@ async fn call_ollama(
         }))
         .send()
         .await
-        .map_err(|error| format!("Could not call local Ollama: {error}"))?;
+        .map_err(|error| {
+            append_extractor_diagnostic(json!({
+                "event": if error.is_timeout() { "extract.timeout" } else { "extract.request_failed" },
+                "interactionId": interaction.id,
+                "model": model,
+                "representation": representation,
+                "elapsedMs": elapsed_ms(started),
+                "error": error.to_string()
+            }));
+            if error.is_timeout() {
+                format!(
+                    "Local Ollama model {model} did not finish within {OLLAMA_REQUEST_TIMEOUT_SECS} seconds. Try again while the model is warm or choose a smaller model."
+                )
+            } else {
+                format!("Could not call local Ollama model {model}: {error}")
+            }
+        })?;
 
-    if !response.status().is_success() {
-        let status = response.status();
-        let body = response.text().await.unwrap_or_default();
+    let status = response.status();
+    let body = response.text().await.map_err(|error| {
+        append_extractor_diagnostic(json!({
+            "event": "extract.response_read_failed",
+            "interactionId": interaction.id,
+            "model": model,
+            "representation": representation,
+            "elapsedMs": elapsed_ms(started),
+            "error": error.to_string()
+        }));
+        format!("Could not read Ollama response from {model}: {error}")
+    })?;
+
+    if !status.is_success() {
+        append_extractor_diagnostic(json!({
+            "event": "extract.http_error",
+            "interactionId": interaction.id,
+            "model": model,
+            "representation": representation,
+            "elapsedMs": elapsed_ms(started),
+            "httpStatus": status.as_u16(),
+            "bodyChars": body.chars().count()
+        }));
         return Err(format!(
-            "Ollama extraction failed with HTTP {status}: {}",
+            "Ollama model {model} returned HTTP {status}: {}",
             body.chars().take(500).collect::<String>()
         ));
     }
 
-    let payload = response
-        .json::<OllamaChatResponse>()
-        .await
-        .map_err(|error| format!("Ollama returned an unreadable response: {error}"))?;
-    Ok(payload.message.content)
+    let payload = serde_json::from_str::<OllamaChatResponse>(&body).map_err(|error| {
+        append_extractor_diagnostic(json!({
+            "event": "extract.ollama_envelope_invalid",
+            "interactionId": interaction.id,
+            "model": model,
+            "representation": representation,
+            "elapsedMs": elapsed_ms(started),
+            "responseChars": body.chars().count(),
+            "error": error.to_string()
+        }));
+        format!("Ollama returned an unreadable chat response for {model}: {error}")
+    })?;
+
+    let elapsed = elapsed_ms(started);
+    let metrics = json!({
+        "doneReason": payload.done_reason,
+        "totalDurationNs": payload.total_duration,
+        "loadDurationNs": payload.load_duration,
+        "promptEvalCount": payload.prompt_eval_count,
+        "promptEvalDurationNs": payload.prompt_eval_duration,
+        "evalCount": payload.eval_count,
+        "evalDurationNs": payload.eval_duration
+    });
+
+    Ok(OllamaCallResult {
+        content: payload.message.content,
+        elapsed_ms: elapsed,
+        metrics,
+    })
 }
 
 /// Legacy Claim extractor retained during the Memory Page migration.
@@ -202,9 +370,47 @@ pub async fn extract_with_ollama(
     interaction: &CapturedInteraction,
     model: &str,
 ) -> Result<Vec<ExtractedMemoryProposal>, String> {
-    let content = call_ollama(interaction, model, extraction_prompt(&interaction.fidelity)).await?;
-    let proposals = parse_proposals(&content)?;
-    validate_proposals(interaction, proposals)
+    let call = call_ollama(
+        interaction,
+        model,
+        extraction_prompt(&interaction.fidelity),
+        "claim-compatibility",
+    )
+    .await?;
+    let proposals = parse_proposals(&call.content).map_err(|error| {
+        append_extractor_diagnostic(json!({
+            "event": "extract.proposal_parse_failed",
+            "interactionId": interaction.id,
+            "model": model,
+            "representation": "claim-compatibility",
+            "elapsedMs": call.elapsed_ms,
+            "modelOutputChars": call.content.chars().count(),
+            "modelOutputShape": json_shape_summary(&call.content),
+            "error": error
+        }));
+        format!("{model} returned JSON TOPO could not use: {error}")
+    })?;
+    let validated = validate_proposals(interaction, proposals).map_err(|error| {
+        append_extractor_diagnostic(json!({
+            "event": "extract.validation_failed",
+            "interactionId": interaction.id,
+            "model": model,
+            "representation": "claim-compatibility",
+            "elapsedMs": call.elapsed_ms,
+            "error": error
+        }));
+        error
+    })?;
+    append_extractor_diagnostic(json!({
+        "event": "extract.success",
+        "interactionId": interaction.id,
+        "model": model,
+        "representation": "claim-compatibility",
+        "elapsedMs": call.elapsed_ms,
+        "proposalCount": validated.len(),
+        "ollama": call.metrics
+    }));
+    Ok(validated)
 }
 
 /// Primary M3 extractor. Produces a small number of coherent prose Memory Pages.
@@ -212,14 +418,47 @@ pub async fn extract_pages_with_ollama(
     interaction: &CapturedInteraction,
     model: &str,
 ) -> Result<Vec<ExtractedMemoryPageProposal>, String> {
-    let content = call_ollama(
+    let call = call_ollama(
         interaction,
         model,
         page_extraction_prompt(&interaction.fidelity),
+        "memory-page",
     )
     .await?;
-    let proposals = parse_page_proposals(&content)?;
-    validate_page_proposals(interaction, proposals)
+    let proposals = parse_page_proposals(&call.content).map_err(|error| {
+        append_extractor_diagnostic(json!({
+            "event": "extract.memory_page_parse_failed",
+            "interactionId": interaction.id,
+            "model": model,
+            "representation": "memory-page",
+            "elapsedMs": call.elapsed_ms,
+            "modelOutputChars": call.content.chars().count(),
+            "modelOutputShape": json_shape_summary(&call.content),
+            "error": error
+        }));
+        format!("{model} returned Memory Page JSON TOPO could not use: {error}")
+    })?;
+    let validated = validate_page_proposals(interaction, proposals).map_err(|error| {
+        append_extractor_diagnostic(json!({
+            "event": "extract.memory_page_validation_failed",
+            "interactionId": interaction.id,
+            "model": model,
+            "representation": "memory-page",
+            "elapsedMs": call.elapsed_ms,
+            "error": error
+        }));
+        format!("{model} returned Memory Pages that failed TOPO evidence validation: {error}")
+    })?;
+    append_extractor_diagnostic(json!({
+        "event": "extract.memory_page_success",
+        "interactionId": interaction.id,
+        "model": model,
+        "representation": "memory-page",
+        "elapsedMs": call.elapsed_ms,
+        "proposalCount": validated.len(),
+        "ollama": call.metrics
+    }));
+    Ok(validated)
 }
 
 pub fn page_extraction_prompt(fidelity: &CaptureFidelity) -> String {
@@ -374,48 +613,80 @@ pub fn format_interaction(interaction: &CapturedInteraction) -> String {
     output
 }
 
-pub fn parse_page_proposals(text: &str) -> Result<Vec<ExtractedMemoryPageProposal>, String> {
+fn proposal_source_value(text: &str) -> Result<Value, String> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
-        return Ok(Vec::new());
+        return Ok(json!({ "proposals": [] }));
     }
-
-    if let Ok(envelope) = serde_json::from_str::<PageProposalEnvelope>(trimmed) {
-        return Ok(envelope.proposals);
+    if let Ok(value) = serde_json::from_str::<Value>(trimmed) {
+        return Ok(value);
     }
-    if let Ok(items) = serde_json::from_str::<Vec<ExtractedMemoryPageProposal>>(trimmed) {
-        return Ok(items);
-    }
-
     let candidate = extract_json_object(trimmed)
         .ok_or_else(|| "Extractor response did not contain valid JSON.".to_owned())?;
-    if let Ok(envelope) = serde_json::from_str::<PageProposalEnvelope>(&candidate) {
-        return Ok(envelope.proposals);
-    }
+    serde_json::from_str::<Value>(&candidate)
+        .map_err(|error| format!("Extractor response contained invalid JSON: {error}"))
+}
 
-    Err("Extractor JSON did not match the TOPO Memory Page proposal contract.".to_owned())
+fn parse_typed_proposals<T: DeserializeOwned>(text: &str, contract: &str) -> Result<Vec<T>, String> {
+    let value = proposal_source_value(text)?;
+    let items = match value {
+        Value::Array(items) => items,
+        Value::Object(mut object) => match object.remove("proposals") {
+            Some(Value::Array(items)) => items,
+            Some(other) => {
+                return Err(format!(
+                    "Extractor {contract} field 'proposals' was {}, not an array.",
+                    value_kind(&other)
+                ))
+            }
+            None => {
+                let fields = object.keys().cloned().collect::<Vec<_>>().join(", ");
+                return Err(format!(
+                    "Extractor JSON did not match the TOPO {contract} contract. Top-level fields seen: {fields}"
+                ));
+            }
+        },
+        other => {
+            return Err(format!(
+                "Extractor {contract} response had {} at the root; expected an object or array.",
+                value_kind(&other)
+            ))
+        }
+    };
+
+    let mut parsed = Vec::with_capacity(items.len());
+    for (index, item) in items.into_iter().enumerate() {
+        let fields = object_field_names(&item).join(", ");
+        match serde_json::from_value::<T>(item) {
+            Ok(proposal) => parsed.push(proposal),
+            Err(error) => {
+                return Err(format!(
+                    "proposal {} did not match the TOPO {contract} contract: {error}. Fields seen: {fields}",
+                    index + 1
+                ));
+            }
+        }
+    }
+    Ok(parsed)
+}
+
+fn value_kind(value: &Value) -> &'static str {
+    match value {
+        Value::Null => "null",
+        Value::Bool(_) => "a boolean",
+        Value::Number(_) => "a number",
+        Value::String(_) => "a string",
+        Value::Array(_) => "an array",
+        Value::Object(_) => "an object",
+    }
+}
+
+pub fn parse_page_proposals(text: &str) -> Result<Vec<ExtractedMemoryPageProposal>, String> {
+    parse_typed_proposals(text, "Memory Page proposal")
 }
 
 pub fn parse_proposals(text: &str) -> Result<Vec<ExtractedMemoryProposal>, String> {
-    let trimmed = text.trim();
-    if trimmed.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    if let Ok(envelope) = serde_json::from_str::<ProposalEnvelope>(trimmed) {
-        return Ok(envelope.proposals);
-    }
-    if let Ok(items) = serde_json::from_str::<Vec<ExtractedMemoryProposal>>(trimmed) {
-        return Ok(items);
-    }
-
-    let candidate = extract_json_object(trimmed)
-        .ok_or_else(|| "Extractor response did not contain valid JSON.".to_owned())?;
-    if let Ok(envelope) = serde_json::from_str::<ProposalEnvelope>(&candidate) {
-        return Ok(envelope.proposals);
-    }
-
-    Err("Extractor JSON did not match the TOPO proposal contract.".to_owned())
+    parse_typed_proposals(text, "proposal")
 }
 
 fn extract_json_object(text: &str) -> Option<String> {
@@ -761,6 +1032,17 @@ mod tests {
         .unwrap();
         assert_eq!(proposals.len(), 1);
         assert_eq!(proposals[0].title, "RACK architecture");
+    }
+
+    #[test]
+    fn page_parse_failure_identifies_bad_proposal_and_fields() {
+        let error = parse_page_proposals(
+            r#"{"proposals":[{"title":"RACK architecture","body":"RACK uses Neon.","evidenceTurnIds":["u1"],"evidence":"RACK uses Neon.","annotations":[{"key":"rack.database","value":"Neon","epistemicType":"information","confidence":0.9}]}]}"#,
+        )
+        .unwrap_err();
+        assert!(error.contains("proposal 1"));
+        assert!(error.contains("unknown variant `information`"));
+        assert!(error.contains("annotations"));
     }
 
     #[test]
