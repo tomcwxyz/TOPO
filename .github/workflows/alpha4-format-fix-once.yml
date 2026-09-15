@@ -1,0 +1,37 @@
+name: alpha4-format-fix-once
+
+on:
+  push:
+    branches: [alpha4/calm-memory-ux]
+
+permissions:
+  contents: write
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: alpha4/calm-memory-ux
+      - name: Escape literal JSON braces in Rust format string
+        shell: python
+        run: |
+          from pathlib import Path
+          path = Path("apps/desktop/src-tauri/src/capture_extractor.rs")
+          text = path.read_text()
+          old = 'Return {\\"proposals\\":[]} when nothing is genuinely worth remembering.'
+          new = 'Return {{\\"proposals\\":[]}} when nothing is genuinely worth remembering.'
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f"Expected one prompt literal to fix, found {count}")
+          path.write_text(text.replace(old, new))
+      - name: Commit fix and remove one-shot workflow
+        shell: bash
+        run: |
+          git rm .github/workflows/alpha4-format-fix-once.yml
+          git add apps/desktop/src-tauri/src/capture_extractor.rs
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "fix: escape structured output prompt literal"
+          git push origin HEAD:alpha4/calm-memory-ux
