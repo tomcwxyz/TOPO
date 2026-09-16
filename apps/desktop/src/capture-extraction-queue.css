@@ -61,28 +61,37 @@
   white-space: nowrap;
 }
 
-.capture-queue-retry {
-  grid-column: 1 / -1;
-  justify-self: start;
-  font-size: .72rem;
+.capture-queue-stop {
+  border-color: #a86b5d;
+  color: #71372d;
 }
 
 .capture-queue-list {
   display: grid;
   gap: 6px;
-  max-height: 320px;
+  max-height: 360px;
   overflow-y: auto;
   padding-right: 2px;
 }
 
 .capture-queue-row {
   display: grid;
-  grid-template-columns: 18px minmax(0, 1fr) auto;
+  grid-template-columns: 16px 18px minmax(0, 1fr) auto;
   gap: 8px;
   align-items: start;
   padding: 9px;
   border: 1px solid #c2bcaf;
   background: rgba(255,255,255,.28);
+}
+
+.capture-queue-row.is-selectable {
+  cursor: pointer;
+}
+
+.capture-queue-row.is-selected {
+  border-color: #70695d;
+  box-shadow: inset 0 0 0 1px #70695d;
+  background: rgba(255,255,255,.55);
 }
 
 .capture-queue-row.is-processing {
@@ -98,8 +107,20 @@
   background: #f3e2dd;
 }
 
+.capture-queue-row.is-cancelled {
+  border-color: #a49477;
+  background: #efe9dc;
+}
+
 .capture-queue-row.is-skipped {
   background: #e9e5db;
+}
+
+.capture-queue-radio {
+  width: 14px;
+  height: 14px;
+  margin: 2px 0 0;
+  accent-color: currentColor;
 }
 
 .capture-queue-marker {
@@ -118,9 +139,16 @@
   animation: topo-capture-pulse 1s ease-in-out infinite alternate;
 }
 
-.capture-queue-row.is-failed .capture-queue-marker {
+.capture-queue-row.is-failed .capture-queue-marker,
+.capture-queue-row.is-failed .capture-queue-state {
   border-color: #7b3f34;
   color: #7b3f34;
+}
+
+.capture-queue-row.is-cancelled .capture-queue-marker,
+.capture-queue-row.is-cancelled .capture-queue-state {
+  border-color: #796b50;
+  color: #65583e;
 }
 
 .capture-queue-row-copy {
@@ -154,10 +182,6 @@
   padding-top: 2px;
   font-weight: 750;
   white-space: nowrap;
-}
-
-.capture-queue-row.is-failed .capture-queue-state {
-  color: #7b3f34;
 }
 
 .capture-queue-summary {
@@ -220,8 +244,7 @@
     grid-template-columns: 1fr;
   }
 
-  .capture-queue-controls .secondary,
-  .capture-queue-retry {
+  .capture-queue-controls .secondary {
     justify-self: stretch;
   }
 

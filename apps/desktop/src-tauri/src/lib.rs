@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 mod capture_extractor;
 mod capture_inbox;
 mod capture_processor;

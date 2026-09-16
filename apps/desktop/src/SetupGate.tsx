@@ -53,7 +53,9 @@ export function SetupGate({ children }: SetupGateProps) {
     if (!complete) void refresh();
   }, [complete]);
 
-  const modelReady = Boolean(ollama?.available && ollama.models.length > 0);
+  const modelReady = Boolean(
+    ollama?.available && ollama.models.includes(ollama.recommendedModel),
+  );
   const browserReady = Boolean(
     browser && (!browser.supported || (browser.prepared && browserLoaded)),
   );
@@ -142,10 +144,12 @@ export function SetupGate({ children }: SetupGateProps) {
                 <p>Checking the local engine…</p>
               ) : !ollama.available ? (
                 <p>Install the local engine from here. Windows opens the normal Ollama installer; Linux uses a graphical system prompt with no terminal commands.</p>
-              ) : ollama.models.length === 0 ? (
-                <p>The local engine is ready. Install TOPO’s recommended model once, then extraction stays on this computer.</p>
+              ) : modelReady ? (
+                <p>TOPO’s recommended local extractor, {ollama.recommendedModel}, is ready.</p>
+              ) : ollama.models.length > 0 ? (
+                <p>You already have local models, but TOPO uses {ollama.recommendedModel} for its normal memory extraction path so quality is predictable.</p>
               ) : (
-                <p>{ollama.models.length} local model{ollama.models.length === 1 ? " is" : "s are"} ready.</p>
+                <p>The local engine is ready. Install TOPO’s recommended model once, then extraction stays on this computer.</p>
               )}
             </div>
             <div className="setup-actions">
@@ -164,7 +168,7 @@ export function SetupGate({ children }: SetupGateProps) {
                   </button>
                 </>
               )}
-              {ollama?.available && ollama.models.length === 0 && (
+              {ollama?.available && !modelReady && (
                 <button className="setup-primary" type="button" disabled={busy === "model"} onClick={() => void installModel()}>
                   {busy === "model" ? "Installing local model…" : `Install ${ollama.recommendedModel}`}
                 </button>

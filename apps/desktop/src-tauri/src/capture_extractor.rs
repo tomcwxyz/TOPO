@@ -71,6 +71,11 @@ struct OllamaCallResult {
     metrics: Value,
 }
 
+struct FormattedExtractionInput {
+    content: String,
+    alias_to_original: BTreeMap<String, String>,
+}
+
 fn extractor_diagnostics_path() -> Result<PathBuf, String> {
     let home = dirs::home_dir().ok_or_else(|| "Unable to determine the home folder.".to_owned())?;
     Ok(home.join(".topo").join("logs").join(DIAGNOSTIC_LOG_NAME))
@@ -248,13 +253,14 @@ async fn call_ollama(
     model: &str,
     system: String,
     representation: &'static str,
+    user_content: String,
+    format: Value,
 ) -> Result<OllamaCallResult, String> {
     let model = model.trim();
     if model.is_empty() {
         return Err("Choose an Ollama model before extracting capture.".to_owned());
     }
 
-    let transcript = format_interaction(interaction);
     let started = Instant::now();
     append_extractor_diagnostic(json!({
         "event": "extract.start",
@@ -262,7 +268,7 @@ async fn call_ollama(
         "model": model,
         "representation": representation,
         "turnCount": interaction.turns.len(),
-        "transcriptChars": transcript.chars().count(),
+        "transcriptChars": user_content.chars().count(),
         "timeoutSeconds": OLLAMA_REQUEST_TIMEOUT_SECS
     }));
 
@@ -277,12 +283,12 @@ async fn call_ollama(
         .json(&json!({
             "model": model,
             "stream": false,
-            "format": "json",
+            "format": format,
             "keep_alive": "10m",
-            "options": { "temperature": 0.1 },
+            "options": { "temperature": 0 },
             "messages": [
                 { "role": "system", "content": system },
-                { "role": "user", "content": transcript }
+                { "role": "user", "content": user_content }
             ]
         }))
         .send()
@@ -375,6 +381,8 @@ pub async fn extract_with_ollama(
         model,
         extraction_prompt(&interaction.fidelity),
         "claim-compatibility",
+        format_interaction(interaction),
+        Value::String("json".to_owned()),
     )
     .await?;
     let proposals = parse_proposals(&call.content).map_err(|error| {
@@ -413,52 +421,191 @@ pub async fn extract_with_ollama(
     Ok(validated)
 }
 
-/// Primary M3 extractor. Produces a small number of coherent prose Memory Pages.
+/// Primary extractor. Produces a small number of coherent prose Memory Pages.
 pub async fn extract_pages_with_ollama(
     interaction: &CapturedInteraction,
     model: &str,
 ) -> Result<Vec<ExtractedMemoryPageProposal>, String> {
-    let call = call_ollama(
+    let formatted = format_interaction_for_page_extraction(interaction);
+    let schema = memory_page_output_schema();
+    let first = call_ollama(
         interaction,
         model,
         page_extraction_prompt(&interaction.fidelity),
         "memory-page",
+        formatted.content.clone(),
+        schema.clone(),
     )
     .await?;
-    let proposals = parse_page_proposals(&call.content).map_err(|error| {
-        append_extractor_diagnostic(json!({
-            "event": "extract.memory_page_parse_failed",
-            "interactionId": interaction.id,
-            "model": model,
-            "representation": "memory-page",
-            "elapsedMs": call.elapsed_ms,
-            "modelOutputChars": call.content.chars().count(),
-            "modelOutputShape": json_shape_summary(&call.content),
-            "error": error
-        }));
-        format!("{model} returned Memory Page JSON TOPO could not use: {error}")
-    })?;
-    let validated = validate_page_proposals(interaction, proposals).map_err(|error| {
-        append_extractor_diagnostic(json!({
-            "event": "extract.memory_page_validation_failed",
-            "interactionId": interaction.id,
-            "model": model,
-            "representation": "memory-page",
-            "elapsedMs": call.elapsed_ms,
-            "error": error
-        }));
-        format!("{model} returned Memory Pages that failed TOPO evidence validation: {error}")
-    })?;
-    append_extractor_diagnostic(json!({
-        "event": "extract.memory_page_success",
-        "interactionId": interaction.id,
-        "model": model,
-        "representation": "memory-page",
-        "elapsedMs": call.elapsed_ms,
-        "proposalCount": validated.len(),
-        "ollama": call.metrics
-    }));
-    Ok(validated)
+
+    match parse_and_validate_page_output(interaction, &formatted.alias_to_original, &first.content) {
+        Ok((valid, rejected)) if !valid.is_empty() || rejected.is_empty() => {
+            if !rejected.is_empty() {
+                append_extractor_diagnostic(json!({
+                    "event": "extract.memory_page_partial_rejection",
+                    "interactionId": interaction.id,
+                    "model": model,
+                    "representation": "memory-page",
+                    "elapsedMs": first.elapsed_ms,
+                    "accepted": valid.len(),
+                    "rejected": rejected.len(),
+                    "reasons": rejected
+                }));
+            }
+            append_extractor_diagnostic(json!({
+                "event": "extract.memory_page_success",
+                "interactionId": interaction.id,
+                "model": model,
+                "representation": "memory-page",
+                "elapsedMs": first.elapsed_ms,
+                "proposalCount": valid.len(),
+                "ollama": first.metrics
+            }));
+            return Ok(valid);
+        }
+        first_result => {
+            let first_error = match first_result {
+                Ok((_valid, rejected)) => format!(
+                    "All proposed Memory Pages failed evidence validation: {}",
+                    rejected.join(" | ")
+                ),
+                Err(error) => error,
+            };
+
+            append_extractor_diagnostic(json!({
+                "event": "extract.memory_page_repair_started",
+                "interactionId": interaction.id,
+                "model": model,
+                "representation": "memory-page",
+                "firstError": first_error
+            }));
+
+            let repair_system = format!(
+                "{}\n\nREPAIR PASS:\nThe previous extraction could not be accepted by TOPO. Correct the output using only the supplied legal USER evidence aliases. Remove any proposal that cannot be directly supported. Do not invent turn IDs, evidence, enum values or project state. Return fresh JSON matching the schema.\nValidation problem: {}",
+                page_extraction_prompt(&interaction.fidelity),
+                first_error
+            );
+            let repaired = call_ollama(
+                interaction,
+                model,
+                repair_system,
+                "memory-page-repair",
+                formatted.content.clone(),
+                schema,
+            )
+            .await?;
+
+            match parse_and_validate_page_output(
+                interaction,
+                &formatted.alias_to_original,
+                &repaired.content,
+            ) {
+                Ok((valid, rejected)) if !valid.is_empty() || rejected.is_empty() => {
+                    append_extractor_diagnostic(json!({
+                        "event": "extract.memory_page_repair_success",
+                        "interactionId": interaction.id,
+                        "model": model,
+                        "accepted": valid.len(),
+                        "rejected": rejected.len(),
+                        "elapsedMs": repaired.elapsed_ms,
+                        "ollama": repaired.metrics
+                    }));
+                    Ok(valid)
+                }
+                Ok((_valid, rejected)) => {
+                    let error = format!(
+                        "{} returned Memory Pages that failed TOPO evidence validation after one repair pass: {}",
+                        model,
+                        rejected.join(" | ")
+                    );
+                    append_extractor_diagnostic(json!({
+                        "event": "extract.memory_page_repair_failed",
+                        "interactionId": interaction.id,
+                        "model": model,
+                        "error": error
+                    }));
+                    Err(error)
+                }
+                Err(error) => {
+                    append_extractor_diagnostic(json!({
+                        "event": "extract.memory_page_repair_failed",
+                        "interactionId": interaction.id,
+                        "model": model,
+                        "error": error
+                    }));
+                    Err(format!(
+                        "{model} returned Memory Page JSON TOPO could not use after one repair pass: {error}"
+                    ))
+                }
+            }
+        }
+    }
+}
+
+fn memory_page_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["proposals"],
+        "properties": {
+            "proposals": {
+                "type": "array",
+                "maxItems": MAX_MEMORY_PAGE_PROPOSALS,
+                "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["title", "body", "evidenceTurnIds", "evidence"],
+                    "properties": {
+                        "title": { "type": "string" },
+                        "summary": { "type": "string" },
+                        "body": { "type": "string" },
+                        "category": { "type": "string" },
+                        "tags": { "type": "array", "items": { "type": "string" } },
+                        "sensitivity": {
+                            "type": "string",
+                            "enum": ["ordinary", "personal", "sensitive", "restricted"]
+                        },
+                        "horizon": {
+                            "type": "string",
+                            "enum": ["durable", "project", "temporary"]
+                        },
+                        "evidenceTurnIds": {
+                            "type": "array",
+                            "minItems": 1,
+                            "items": { "type": "string", "pattern": "^u[0-9]+$" }
+                        },
+                        "evidence": { "type": "string" },
+                        "validFrom": { "type": "string" },
+                        "validUntil": { "type": "string" },
+                        "annotations": {
+                            "type": "array",
+                            "maxItems": 8,
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": false,
+                                "required": ["key", "value", "epistemicType", "confidence"],
+                                "properties": {
+                                    "key": { "type": "string" },
+                                    "value": {},
+                                    "category": { "type": "string" },
+                                    "tags": { "type": "array", "items": { "type": "string" } },
+                                    "epistemicType": {
+                                        "type": "string",
+                                        "enum": ["assertion", "observation", "inference", "preference", "derived-pattern"]
+                                    },
+                                    "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+                                    "sensitivity": {
+                                        "type": "string",
+                                        "enum": ["ordinary", "personal", "sensitive", "restricted"]
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    })
 }
 
 pub fn page_extraction_prompt(fidelity: &CaptureFidelity) -> String {
@@ -475,10 +622,11 @@ pub fn page_extraction_prompt(fidelity: &CaptureFidelity) -> String {
         "Each page should capture one coherent thing worth remembering, such as a project decision, useful preference in context, working relationship, recurring pattern, current circumstance, or relevant background.",
         "Write each body as concise natural prose that remains useful when copied into an ordinary Markdown note.",
         "Do not split closely related context into separate pages merely because several facts are present.",
-        "Every page must cite at least one USER turn ID from the transcript.",
-        "Assistant, tool and system messages may provide context but are not evidence about the user.",
-        "Evidence must be a short verbatim excerpt from one of the cited USER turns.",
+        "evidenceTurnIds may contain ONLY the short USER aliases listed in the LEGAL USER EVIDENCE ALIASES block, for example u1 or u2.",
+        "Assistant, tool and system messages may orient you but are NEVER evidence about the user and must not be turned into remembered project status or facts unless the user explicitly stated them.",
+        "Evidence must be a short verbatim excerpt from the cited USER turn.",
         "Questions are weak evidence. Do not turn a question into a fact unless the user explicitly states that fact.",
+        "If the assistant claims work is complete, a version exists, a roadmap changed, or a project has a status that the user did not explicitly state, do not remember that claim.",
         "Use horizon durable for stable preferences/enduring context, project for active project context, temporary for short-lived circumstances.",
         "Only include structured annotations when a machine-readable key/value materially helps deterministic filtering, temporal comparison or interoperability.",
         "Do not create annotations merely to duplicate every sentence in the page.",
@@ -493,37 +641,12 @@ pub fn page_extraction_prompt(fidelity: &CaptureFidelity) -> String {
     }
 
     format!(
-        "{}\n\nReturn JSON only using this object shape:\n{}",
+        "{}\n\nReturn JSON only using the supplied structured-output schema. Return {{\"proposals\":[]}} when nothing is genuinely worth remembering.",
         rules
             .into_iter()
             .map(|rule| format!("- {rule}"))
             .collect::<Vec<_>>()
-            .join("\n"),
-        r#"{
-  "proposals": [
-    {
-      "title": "Short useful title",
-      "summary": "Optional one-line summary",
-      "body": "Concise coherent prose memory.",
-      "category": "optional-category",
-      "tags": ["optional", "tags"],
-      "sensitivity": "ordinary",
-      "horizon": "project",
-      "evidenceTurnIds": ["u1"],
-      "evidence": "verbatim user excerpt",
-      "annotations": [
-        {
-          "key": "optional.machine.key",
-          "value": "machine-readable value",
-          "epistemicType": "preference",
-          "confidence": 0.98
-        }
-      ]
-    }
-  ]
-}
-
-Omit optional fields instead of returning null. Return {"proposals":[]} when nothing is genuinely worth remembering."#
+            .join("\n")
     )
 }
 
@@ -611,6 +734,64 @@ pub fn format_interaction(interaction: &CapturedInteraction) -> String {
     }
 
     output
+}
+
+fn format_interaction_for_page_extraction(interaction: &CapturedInteraction) -> FormattedExtractionInput {
+    let mut output = String::from(
+        "CONVERSATION CONTEXT\nAssistant/tool/system turns may help orientation, but only USER aliases listed later are legal evidence.\n\n",
+    );
+    let mut alias_to_original = BTreeMap::new();
+    let mut user_aliases = Vec::new();
+    let mut user_index = 0usize;
+    let mut assistant_index = 0usize;
+    let mut system_index = 0usize;
+    let mut tool_index = 0usize;
+
+    for turn in &interaction.turns {
+        let (alias, role, limit) = match turn.role {
+            CaptureRole::User => {
+                user_index += 1;
+                (format!("u{user_index}"), "USER", 5_000)
+            }
+            CaptureRole::Assistant => {
+                assistant_index += 1;
+                (format!("a{assistant_index}"), "ASSISTANT", 2_000)
+            }
+            CaptureRole::System => {
+                system_index += 1;
+                (format!("s{system_index}"), "SYSTEM", 1_000)
+            }
+            CaptureRole::Tool => {
+                tool_index += 1;
+                (format!("t{tool_index}"), "TOOL", 1_000)
+            }
+        };
+        alias_to_original.insert(alias.clone(), turn.id.clone());
+        if matches!(turn.role, CaptureRole::User) {
+            user_aliases.push(alias.clone());
+        }
+
+        let mut content = turn.content.chars().take(limit).collect::<String>();
+        if turn.content.chars().count() > limit {
+            content.push_str(" …[truncated]");
+        }
+        let line = format!("[TURN {alias}][{role}]: {content}\n");
+        if output.len() + line.len() > MAX_TRANSCRIPT_CHARS {
+            output.push_str("[... transcript truncated by TOPO ...]\n");
+            break;
+        }
+        output.push_str(&line);
+    }
+
+    output.push_str("\nLEGAL USER EVIDENCE ALIASES\n");
+    output.push_str("Only these IDs may appear in evidenceTurnIds: ");
+    output.push_str(&user_aliases.join(", "));
+    output.push_str("\nQuote evidence verbatim from the matching USER turn above. If none supports a memory, return an empty proposals array.\n");
+
+    FormattedExtractionInput {
+        content: output,
+        alias_to_original,
+    }
 }
 
 fn proposal_source_value(text: &str) -> Result<Value, String> {
@@ -703,10 +884,30 @@ fn normalise_evidence(value: &str) -> String {
         .join(" ")
 }
 
-pub fn validate_page_proposals(
+fn resolve_page_aliases(
+    mut proposal: ExtractedMemoryPageProposal,
+    alias_to_original: &BTreeMap<String, String>,
+) -> Result<ExtractedMemoryPageProposal, String> {
+    let mut resolved = Vec::with_capacity(proposal.evidence_turn_ids.len());
+    for alias in &proposal.evidence_turn_ids {
+        let original = alias_to_original.get(alias).ok_or_else(|| {
+            format!(
+                "Extractor referenced unknown evidence alias {alias} for '{}'. Legal evidence IDs are the supplied u1/u2-style USER aliases.",
+                proposal.title
+            )
+        })?;
+        resolved.push(original.clone());
+    }
+    proposal.evidence_turn_ids = resolved;
+    Ok(proposal)
+}
+
+fn parse_and_validate_page_output(
     interaction: &CapturedInteraction,
-    proposals: Vec<ExtractedMemoryPageProposal>,
-) -> Result<Vec<ExtractedMemoryPageProposal>, String> {
+    alias_to_original: &BTreeMap<String, String>,
+    output: &str,
+) -> Result<(Vec<ExtractedMemoryPageProposal>, Vec<String>), String> {
+    let proposals = parse_page_proposals(output)?;
     if proposals.len() > MAX_MEMORY_PAGE_PROPOSALS {
         return Err(format!(
             "Extractor returned {} Memory Pages; maximum is {}.",
@@ -714,6 +915,25 @@ pub fn validate_page_proposals(
         ));
     }
 
+    let mut resolved = Vec::with_capacity(proposals.len());
+    let mut rejected = Vec::new();
+    for proposal in proposals {
+        match resolve_page_aliases(proposal, alias_to_original) {
+            Ok(proposal) => resolved.push(proposal),
+            Err(error) => rejected.push(error),
+        }
+    }
+
+    let (mut valid, validation_rejections) = validate_page_proposals_partial(interaction, resolved)?;
+    rejected.extend(validation_rejections);
+    valid.shrink_to_fit();
+    Ok((valid, rejected))
+}
+
+fn validate_single_page_proposal(
+    interaction: &CapturedInteraction,
+    mut proposal: ExtractedMemoryPageProposal,
+) -> Result<ExtractedMemoryPageProposal, String> {
     let turns = interaction
         .turns
         .iter()
@@ -723,115 +943,144 @@ pub fn validate_page_proposals(
         interaction.fidelity,
         CaptureFidelity::TaskSummary | CaptureFidelity::PartialVisible
     );
-    let mut valid = Vec::with_capacity(proposals.len());
 
-    for mut proposal in proposals {
-        if proposal.title.trim().is_empty()
-            || proposal.body.trim().is_empty()
-            || proposal.evidence.trim().is_empty()
-        {
-            return Err("Extractor returned a Memory Page with an empty title, body or evidence.".to_owned());
+    if proposal.title.trim().is_empty()
+        || proposal.body.trim().is_empty()
+        || proposal.evidence.trim().is_empty()
+    {
+        return Err("Extractor returned a Memory Page with an empty title, body or evidence.".to_owned());
+    }
+    if proposal.evidence_turn_ids.is_empty() {
+        return Err(format!(
+            "Extractor returned '{}' without evidence turn IDs.",
+            proposal.title
+        ));
+    }
+
+    let mut user_turns = Vec::new();
+    for turn_id in &proposal.evidence_turn_ids {
+        let turn = turns.get(turn_id.as_str()).ok_or_else(|| {
+            format!(
+                "Extractor referenced unknown evidence turn {turn_id} for '{}'.",
+                proposal.title
+            )
+        })?;
+        if matches!(turn.role, CaptureRole::User) {
+            user_turns.push(*turn);
         }
-        if proposal.evidence_turn_ids.is_empty() {
+    }
+    if user_turns.is_empty() {
+        return Err(format!(
+            "Extractor Memory Page '{}' is not grounded in a user-authored turn.",
+            proposal.title
+        ));
+    }
+
+    let evidence = normalise_evidence(&proposal.evidence);
+    if !user_turns
+        .iter()
+        .any(|turn| normalise_evidence(&turn.content).contains(&evidence))
+    {
+        return Err(format!(
+            "Extractor Memory Page '{}' evidence is not present in its cited user turn.",
+            proposal.title
+        ));
+    }
+
+    let mut seen_tags = std::collections::BTreeSet::new();
+    if proposal
+        .tags
+        .as_ref()
+        .is_some_and(|tags| tags.iter().any(|tag| !seen_tags.insert(tag.trim().to_owned())))
+    {
+        return Err(format!("Extractor returned duplicate tags for '{}'.", proposal.title));
+    }
+
+    if let Some(annotations) = proposal.annotations.as_mut() {
+        if annotations.len() > 8 {
             return Err(format!(
-                "Extractor returned '{}' without evidence turn IDs.",
+                "Extractor returned too many structured annotations for '{}'.",
                 proposal.title
             ));
         }
-
-        let mut user_turns = Vec::new();
-        for turn_id in &proposal.evidence_turn_ids {
-            let turn = turns.get(turn_id.as_str()).ok_or_else(|| {
-                format!(
-                    "Extractor referenced unknown evidence turn {turn_id} for '{}'.",
-                    proposal.title
-                )
-            })?;
-            if matches!(turn.role, CaptureRole::User) {
-                user_turns.push(*turn);
-            }
-        }
-        if user_turns.is_empty() {
-            return Err(format!(
-                "Extractor Memory Page '{}' is not grounded in a user-authored turn.",
-                proposal.title
-            ));
-        }
-
-        let evidence = normalise_evidence(&proposal.evidence);
-        if !user_turns
-            .iter()
-            .any(|turn| normalise_evidence(&turn.content).contains(&evidence))
-        {
-            return Err(format!(
-                "Extractor Memory Page '{}' evidence is not present in its cited user turn.",
-                proposal.title
-            ));
-        }
-
-        let mut seen_tags = std::collections::BTreeSet::new();
-        if proposal
-            .tags
-            .as_ref()
-            .is_some_and(|tags| tags.iter().any(|tag| !seen_tags.insert(tag.trim().to_owned())))
-        {
-            return Err(format!("Extractor returned duplicate tags for '{}'.", proposal.title));
-        }
-
-        if let Some(annotations) = proposal.annotations.as_mut() {
-            if annotations.len() > 8 {
+        annotations.retain(|annotation| !secret_like_key(&annotation.key));
+        for annotation in annotations.iter() {
+            if annotation.key.trim().is_empty()
+                || !(0.0..=1.0).contains(&annotation.confidence)
+                || !annotation.confidence.is_finite()
+            {
                 return Err(format!(
-                    "Extractor returned too many structured annotations for '{}'.",
+                    "Extractor returned an invalid annotation for '{}'.",
                     proposal.title
                 ));
             }
-            annotations.retain(|annotation| !secret_like_key(&annotation.key));
-            for annotation in annotations.iter() {
-                if annotation.key.trim().is_empty()
-                    || !(0.0..=1.0).contains(&annotation.confidence)
-                    || !annotation.confidence.is_finite()
-                {
-                    return Err(format!(
-                        "Extractor returned an invalid annotation for '{}'.",
-                        proposal.title
-                    ));
-                }
-                if incomplete
-                    && !matches!(
-                        annotation.epistemic_type,
-                        EpistemicType::Assertion | EpistemicType::Preference
-                    )
-                {
-                    return Err(format!(
-                        "Incomplete capture cannot propose inferred annotation {}.",
-                        annotation.key
-                    ));
-                }
+            if incomplete
+                && !matches!(
+                    annotation.epistemic_type,
+                    EpistemicType::Assertion | EpistemicType::Preference
+                )
+            {
+                return Err(format!(
+                    "Incomplete capture cannot propose inferred annotation {}.",
+                    annotation.key
+                ));
             }
         }
-
-        if let Some(valid_from) = &proposal.valid_from {
-            chrono::DateTime::parse_from_rfc3339(valid_from).map_err(|_| {
-                format!("Extractor returned invalid validFrom for '{}'.", proposal.title)
-            })?;
-        }
-        if let Some(valid_until) = &proposal.valid_until {
-            chrono::DateTime::parse_from_rfc3339(valid_until).map_err(|_| {
-                format!("Extractor returned invalid validUntil for '{}'.", proposal.title)
-            })?;
-        }
-        if let (Some(valid_from), Some(valid_until)) = (&proposal.valid_from, &proposal.valid_until) {
-            let from = chrono::DateTime::parse_from_rfc3339(valid_from).map_err(|e| e.to_string())?;
-            let until = chrono::DateTime::parse_from_rfc3339(valid_until).map_err(|e| e.to_string())?;
-            if until < from {
-                return Err(format!("validUntil cannot be before validFrom for '{}'.", proposal.title));
-            }
-        }
-
-        valid.push(proposal);
     }
 
-    Ok(valid)
+    if let Some(valid_from) = &proposal.valid_from {
+        chrono::DateTime::parse_from_rfc3339(valid_from).map_err(|_| {
+            format!("Extractor returned invalid validFrom for '{}'.", proposal.title)
+        })?;
+    }
+    if let Some(valid_until) = &proposal.valid_until {
+        chrono::DateTime::parse_from_rfc3339(valid_until).map_err(|_| {
+            format!("Extractor returned invalid validUntil for '{}'.", proposal.title)
+        })?;
+    }
+    if let (Some(valid_from), Some(valid_until)) = (&proposal.valid_from, &proposal.valid_until) {
+        let from = chrono::DateTime::parse_from_rfc3339(valid_from).map_err(|e| e.to_string())?;
+        let until = chrono::DateTime::parse_from_rfc3339(valid_until).map_err(|e| e.to_string())?;
+        if until < from {
+            return Err(format!("validUntil cannot be before validFrom for '{}'.", proposal.title));
+        }
+    }
+
+    Ok(proposal)
+}
+
+fn validate_page_proposals_partial(
+    interaction: &CapturedInteraction,
+    proposals: Vec<ExtractedMemoryPageProposal>,
+) -> Result<(Vec<ExtractedMemoryPageProposal>, Vec<String>), String> {
+    if proposals.len() > MAX_MEMORY_PAGE_PROPOSALS {
+        return Err(format!(
+            "Extractor returned {} Memory Pages; maximum is {}.",
+            proposals.len(), MAX_MEMORY_PAGE_PROPOSALS
+        ));
+    }
+
+    let mut valid = Vec::with_capacity(proposals.len());
+    let mut rejected = Vec::new();
+    for proposal in proposals {
+        match validate_single_page_proposal(interaction, proposal) {
+            Ok(proposal) => valid.push(proposal),
+            Err(error) => rejected.push(error),
+        }
+    }
+    Ok((valid, rejected))
+}
+
+pub fn validate_page_proposals(
+    interaction: &CapturedInteraction,
+    proposals: Vec<ExtractedMemoryPageProposal>,
+) -> Result<Vec<ExtractedMemoryPageProposal>, String> {
+    let (valid, rejected) = validate_page_proposals_partial(interaction, proposals)?;
+    if rejected.is_empty() {
+        Ok(valid)
+    } else {
+        Err(rejected.join(" | "))
+    }
 }
 
 pub fn validate_proposals(
@@ -956,15 +1205,15 @@ mod tests {
             captured_at: "2026-08-31T20:00:00Z".to_owned(),
             turns: vec![
                 topo_contracts::CapturedTurn {
-                    id: "u1".to_owned(),
+                    id: "provider-user-783a1d3e".to_owned(),
                     role: CaptureRole::User,
                     content: "Please use British English. RACK uses Neon rather than Supabase.".to_owned(),
                     occurred_at: None,
                 },
                 topo_contracts::CapturedTurn {
-                    id: "a1".to_owned(),
+                    id: "provider-assistant-19af".to_owned(),
                     role: CaptureRole::Assistant,
-                    content: "Understood.".to_owned(),
+                    content: "Understood. RACK version 9.9 is released.".to_owned(),
                     occurred_at: None,
                 },
             ],
@@ -983,7 +1232,7 @@ mod tests {
             confidence: 0.98,
             sensitivity: Some(Sensitivity::Ordinary),
             horizon: None,
-            evidence_turn_ids: vec!["u1".to_owned()],
+            evidence_turn_ids: vec!["provider-user-783a1d3e".to_owned()],
             evidence: "Please use British English.".to_owned(),
             valid_until: None,
         }
@@ -998,7 +1247,7 @@ mod tests {
             tags: Some(vec!["rack".to_owned()]),
             sensitivity: Some(Sensitivity::Ordinary),
             horizon: Some(MemoryHorizon::Project),
-            evidence_turn_ids: vec!["u1".to_owned()],
+            evidence_turn_ids: vec!["provider-user-783a1d3e".to_owned()],
             evidence: "RACK uses Neon rather than Supabase.".to_owned(),
             valid_from: None,
             valid_until: None,
@@ -1017,7 +1266,7 @@ mod tests {
     #[test]
     fn parses_enveloped_json() {
         let proposals = parse_proposals(
-            r#"{"proposals":[{"key":"writing.locale","value":"en-GB","epistemicType":"preference","confidence":0.98,"evidenceTurnIds":["u1"],"evidence":"Please use British English."}]}"#,
+            r#"{"proposals":[{"key":"writing.locale","value":"en-GB","epistemicType":"preference","confidence":0.98,"evidenceTurnIds":["provider-user-783a1d3e"],"evidence":"Please use British English."}]}"#,
         )
         .unwrap();
         assert_eq!(proposals.len(), 1);
@@ -1070,6 +1319,23 @@ mod tests {
     }
 
     #[test]
+    fn partial_validation_keeps_good_page_when_sibling_is_bad() {
+        let good = page_proposal();
+        let mut bad = page_proposal();
+        bad.title = "Assistant-only release status".to_owned();
+        bad.evidence_turn_ids = vec!["provider-assistant-19af".to_owned()];
+        bad.evidence = "RACK version 9.9 is released.".to_owned();
+        let (valid, rejected) = validate_page_proposals_partial(
+            &interaction(CaptureFidelity::ConversationTurns),
+            vec![good, bad],
+        )
+        .unwrap();
+        assert_eq!(valid.len(), 1);
+        assert_eq!(rejected.len(), 1);
+        assert!(rejected[0].contains("not grounded in a user-authored turn"));
+    }
+
+    #[test]
     fn incomplete_page_capture_rejects_inferred_annotations() {
         let mut proposal = page_proposal();
         proposal.annotations.as_mut().unwrap()[0].epistemic_type = EpistemicType::Inference;
@@ -1083,7 +1349,7 @@ mod tests {
     #[test]
     fn rejects_assistant_only_evidence() {
         let mut proposal = preference();
-        proposal.evidence_turn_ids = vec!["a1".to_owned()];
+        proposal.evidence_turn_ids = vec!["provider-assistant-19af".to_owned()];
         assert!(validate_proposals(
             &interaction(CaptureFidelity::ConversationTurns),
             vec![proposal]
@@ -1112,10 +1378,53 @@ mod tests {
     }
 
     #[test]
-    fn transcript_preserves_turn_ids_and_roles() {
+    fn page_extraction_uses_short_aliases_and_hides_provider_ids() {
+        let formatted = format_interaction_for_page_extraction(
+            &interaction(CaptureFidelity::ConversationTurns),
+        );
+        assert!(formatted.content.contains("[TURN u1][USER]"));
+        assert!(formatted.content.contains("[TURN a1][ASSISTANT]"));
+        assert!(formatted.content.contains("LEGAL USER EVIDENCE ALIASES"));
+        assert!(!formatted.content.contains("provider-user-783a1d3e"));
+        assert_eq!(
+            formatted.alias_to_original.get("u1").map(String::as_str),
+            Some("provider-user-783a1d3e")
+        );
+    }
+
+    #[test]
+    fn page_aliases_are_resolved_before_validation() {
+        let formatted = format_interaction_for_page_extraction(
+            &interaction(CaptureFidelity::ConversationTurns),
+        );
+        let output = r#"{"proposals":[{"title":"RACK architecture","body":"RACK uses Neon rather than Supabase.","evidenceTurnIds":["u1"],"evidence":"RACK uses Neon rather than Supabase."}]}"#;
+        let (valid, rejected) = parse_and_validate_page_output(
+            &interaction(CaptureFidelity::ConversationTurns),
+            &formatted.alias_to_original,
+            output,
+        )
+        .unwrap();
+        assert_eq!(valid.len(), 1);
+        assert!(rejected.is_empty());
+        assert_eq!(valid[0].evidence_turn_ids, vec!["provider-user-783a1d3e"]);
+    }
+
+    #[test]
+    fn structured_schema_constrains_annotation_epistemic_type() {
+        let schema = memory_page_output_schema();
+        let allowed = schema["properties"]["proposals"]["items"]["properties"]["annotations"]
+            ["items"]["properties"]["epistemicType"]["enum"]
+            .as_array()
+            .unwrap();
+        assert!(allowed.contains(&json!("preference")));
+        assert!(!allowed.contains(&json!("process_state")));
+    }
+
+    #[test]
+    fn transcript_preserves_turn_ids_and_roles_for_legacy_path() {
         let transcript = format_interaction(&interaction(CaptureFidelity::ConversationTurns));
-        assert!(transcript.contains("[TURN u1][USER]"));
-        assert!(transcript.contains("[TURN a1][ASSISTANT]"));
+        assert!(transcript.contains("[TURN provider-user-783a1d3e][USER]"));
+        assert!(transcript.contains("[TURN provider-assistant-19af][ASSISTANT]"));
     }
 
     #[test]
@@ -1131,6 +1440,7 @@ mod tests {
         assert!(prompt.contains("primary memory object is a short prose Memory Page"));
         assert!(prompt.contains("prefer fewer"));
         assert!(prompt.contains("Do not split closely related context"));
+        assert!(prompt.contains("LEGAL USER EVIDENCE ALIASES"));
     }
 
     #[test]

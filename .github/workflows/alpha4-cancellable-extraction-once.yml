@@ -1,0 +1,56 @@
+name: alpha4-cancellable-extraction-once
+
+on:
+  push:
+    paths:
+      - ".github/workflows/alpha4-cancellable-extraction-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: alpha4/calm-memory-ux
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Apply cancellable extraction patch
+        run: python .github/scripts/alpha4_cancellable_patch.py
+
+      - name: Refresh Rust lockfile
+        run: cargo generate-lockfile --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Verify desktop frontend
+        run: |
+          npm ci --ignore-scripts
+          npm run build --workspace @topo/desktop
+
+      - name: Verify desktop Rust
+        run: |
+          cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+          cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Commit patch and remove temporary files
+        run: |
+          rm .github/workflows/alpha4-cancellable-extraction-once.yml
+          rm .github/scripts/alpha4_cancellable_patch.py
+          git config user.name "Tom C Watson"
+          git config user.email "150357824+tomcwxyz@users.noreply.github.com"
+          git add -A
+          git commit -m "feat: control and cancel local extraction"
+          git push origin HEAD:alpha4/calm-memory-ux
