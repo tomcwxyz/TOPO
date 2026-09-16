@@ -208,3 +208,20 @@ replace_once(
     '            capture_processor::process_capture_with_ollama,\n',
     '            capture_processor::process_capture_with_ollama,\n            capture_processor::cancel_capture_extraction,\n',
 )
+
+# Keep calm background extraction from continuing after the user leaves Home.
+replace_once(
+    "apps/desktop/src/CalmApp.tsx",
+    '  const processingRef = useRef(false);\n  const stopRequestedRef = useRef(false);\n',
+    '  const processingRef = useRef(false);\n  const stopRequestedRef = useRef(false);\n  const surfaceRef = useRef<Surface>("home");\n',
+)
+replace_once(
+    "apps/desktop/src/CalmApp.tsx",
+    '  const recommendedReady = Boolean(\n',
+    '  useEffect(() => {\n    surfaceRef.current = surface;\n    if (surface === "home" || !processingRef.current) return;\n\n    stopRequestedRef.current = true;\n    setExtractionPaused(true);\n    if (activeInteractionId) {\n      void invoke<boolean>("cancel_capture_extraction", { interactionId: activeInteractionId }).catch(() => undefined);\n    }\n  }, [surface]);\n\n  const recommendedReady = Boolean(\n',
+)
+replace_once(
+    "apps/desktop/src/CalmApp.tsx",
+    '          if (stopRequestedRef.current || surface !== "home") break;\n',
+    '          if (stopRequestedRef.current || surfaceRef.current !== "home") break;\n',
+)
