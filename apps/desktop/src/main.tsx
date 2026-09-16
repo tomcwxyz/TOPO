@@ -5,6 +5,7 @@ import { CaptureExtractionQueue } from "./CaptureExtractionQueue";
 import { SetupGate } from "./SetupGate";
 import "./styles.css";
 import "./memory-pages.css";
+import "./topo-brand.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
