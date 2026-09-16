@@ -20,9 +20,14 @@ fn register_extraction(interaction_id: &str) -> Result<Arc<AtomicBool>, String> 
     let mut active = active_extractions()
         .lock()
         .map_err(|_| "TOPO could not access the active extraction registry.".to_owned())?;
-    if active.contains_key(interaction_id) {
+    if let Some((active_id, _)) = active.iter().next() {
+        if active_id == interaction_id {
+            return Err(format!(
+                "Extraction is already running for captured interaction {interaction_id}."
+            ));
+        }
         return Err(format!(
-            "Extraction is already running for captured interaction {interaction_id}."
+            "Another local extraction is already running for captured interaction {active_id}. Stop or finish it before starting another."
         ));
     }
     let cancellation = Arc::new(AtomicBool::new(false));
@@ -40,6 +45,8 @@ fn recoverable_capture_error(error: &str) -> bool {
     error == "Capture inbox is empty."
         || error == "Extraction stopped by user."
         || error.starts_with("Captured interaction not found:")
+        || error.starts_with("Extraction is already running for captured interaction")
+        || error.starts_with("Another local extraction is already running")
         || error.starts_with("Choose an Ollama model")
         || error.starts_with("Local Ollama model ")
         || error.starts_with("Could not call local Ollama model ")
@@ -92,7 +99,13 @@ pub async fn process_capture_with_ollama(
     interaction_id: String,
     model: String,
 ) -> Result<Value, String> {
-    let cancellation = register_extraction(&interaction_id)?;
+    let cancellation = match register_extraction(&interaction_id) {
+        Ok(cancellation) => cancellation,
+        Err(error) if recoverable_capture_error(&error) => {
+            return Ok(recoverable_result(interaction_id, &model, error));
+        }
+        Err(error) => return Err(error),
+    };
     let result = core::process_capture_with_ollama(
         interaction_id.clone(),
         model.clone(),
@@ -143,6 +156,13 @@ mod tests {
         );
         assert_eq!(value["status"], "cancelled");
         assert!(recoverable_capture_error("Extraction stopped by user."));
+    }
+
+    #[test]
+    fn concurrent_extraction_is_recoverable() {
+        assert!(recoverable_capture_error(
+            "Another local extraction is already running for captured interaction one. Stop or finish it before starting another."
+        ));
     }
 
     #[test]
