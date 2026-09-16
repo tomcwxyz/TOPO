@@ -64,7 +64,7 @@ type CaptureProcessResult = {
   supportingEvidenceAdded: number;
   potentialChanges: number;
   duplicatePagesSuppressed?: number;
-  status?: "processed" | "failed" | "skipped";
+  status?: "processed" | "failed" | "skipped" | "cancelled";
   error?: string;
 };
 
@@ -73,6 +73,7 @@ type ExtractionSummary = {
   processed: number;
   failed: number;
   skipped: number;
+  cancelled: number;
   candidates: number;
 };
 
@@ -94,12 +95,16 @@ export function CalmApp() {
   const [counts, setCounts] = useState<CalmMemoryCounts>(emptyCounts);
   const [memoryRefreshToken, setMemoryRefreshToken] = useState(0);
   const [processing, setProcessing] = useState(false);
+  const [stopping, setStopping] = useState(false);
+  const [extractionPaused, setExtractionPaused] = useState(false);
+  const [activeInteractionId, setActiveInteractionId] = useState<string | null>(null);
   const [installingModel, setInstallingModel] = useState(false);
   const [connectionBusy, setConnectionBusy] = useState(false);
   const [lastExtraction, setLastExtraction] = useState<ExtractionSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const attemptedIds = useRef(new Set<string>());
   const processingRef = useRef(false);
+  const stopRequestedRef = useRef(false);
 
   const refreshOverview = useCallback(async () => {
     try {
@@ -137,7 +142,14 @@ export function CalmApp() {
 
   const runExtraction = useCallback(
     async (forceRetry = false) => {
-      if (processingRef.current || !captureInbox || !ollama || !recommendedReady) return;
+      if (
+        processingRef.current
+        || extractionPaused
+        || surface !== "home"
+        || !captureInbox
+        || !ollama
+        || !recommendedReady
+      ) return;
 
       const items = forceRetry
         ? captureInbox.items
@@ -145,19 +157,27 @@ export function CalmApp() {
       if (items.length === 0) return;
 
       processingRef.current = true;
+      stopRequestedRef.current = false;
       setProcessing(true);
+      setStopping(false);
       setError(null);
       const summary: ExtractionSummary = {
-        attempted: items.length,
+        attempted: 0,
         processed: 0,
         failed: 0,
         skipped: 0,
+        cancelled: 0,
         candidates: 0,
       };
 
       try {
         for (const item of items) {
+          if (stopRequestedRef.current || surface !== "home") break;
+
           attemptedIds.current.add(item.id);
+          summary.attempted += 1;
+          setActiveInteractionId(item.id);
+
           const result = await invoke<CaptureProcessResult>("process_capture_with_ollama", {
             interactionId: item.id,
             model: ollama.recommendedModel,
@@ -166,29 +186,63 @@ export function CalmApp() {
           summary.candidates += result.candidatesCreated ?? 0;
           if (result.status === "failed") summary.failed += 1;
           else if (result.status === "skipped") summary.skipped += 1;
-          else summary.processed += 1;
+          else if (result.status === "cancelled") {
+            summary.cancelled += 1;
+            setExtractionPaused(true);
+            stopRequestedRef.current = true;
+          } else summary.processed += 1;
 
+          setActiveInteractionId(null);
           setLastExtraction({ ...summary });
           setMemoryRefreshToken((value) => value + 1);
+
+          if (stopRequestedRef.current) break;
         }
       } catch (cause) {
         setError(String(cause));
       } finally {
+        setActiveInteractionId(null);
         processingRef.current = false;
         setProcessing(false);
+        setStopping(false);
         setLastExtraction({ ...summary });
         await refreshOverview();
         setMemoryRefreshToken((value) => value + 1);
       }
     },
-    [captureInbox, ollama, recommendedReady, refreshOverview],
+    [captureInbox, extractionPaused, ollama, recommendedReady, refreshOverview, surface],
   );
 
   useEffect(() => {
-    if (!captureInbox || captureInbox.pending === 0 || !recommendedReady) return;
+    if (
+      surface !== "home"
+      || extractionPaused
+      || !captureInbox
+      || captureInbox.pending === 0
+      || !recommendedReady
+    ) return;
     const unseen = captureInbox.items.some((item) => !attemptedIds.current.has(item.id));
     if (unseen) void runExtraction(false);
-  }, [captureInbox, recommendedReady, runExtraction]);
+  }, [captureInbox, extractionPaused, recommendedReady, runExtraction, surface]);
+
+  const stopExtraction = async () => {
+    stopRequestedRef.current = true;
+    setExtractionPaused(true);
+    if (!activeInteractionId || stopping) return;
+    setStopping(true);
+    try {
+      await invoke<boolean>("cancel_capture_extraction", { interactionId: activeInteractionId });
+    } catch (cause) {
+      setError(`TOPO could not stop this extraction cleanly: ${String(cause)}`);
+      setStopping(false);
+    }
+  };
+
+  const resumeExtraction = () => {
+    stopRequestedRef.current = false;
+    setExtractionPaused(false);
+    setError(null);
+  };
 
   const installRecommendedModel = async () => {
     setInstallingModel(true);
@@ -244,10 +298,13 @@ export function CalmApp() {
 
   const homeStatus = useMemo(() => {
     if (processing && captureInbox) {
-      const done = lastExtraction?.attempted
-        ? lastExtraction.processed + lastExtraction.failed + lastExtraction.skipped
+      const done = lastExtraction
+        ? lastExtraction.processed + lastExtraction.failed + lastExtraction.skipped + lastExtraction.cancelled
         : 0;
-      return `Learning from recent conversations… ${Math.min(done, captureInbox.pending)} processed in this pass`;
+      return `Learning from recent conversations… ${done} completed in this pass`;
+    }
+    if (extractionPaused && captureInbox?.pending) {
+      return `Processing paused · ${captureInbox.pending} conversation${captureInbox.pending === 1 ? " is" : "s are"} still waiting`;
     }
     if (captureInbox && captureInbox.pending > 0 && !recommendedReady) {
       return `${captureInbox.pending} conversation${captureInbox.pending === 1 ? " is" : "s are"} waiting for local processing`;
@@ -259,7 +316,7 @@ export function CalmApp() {
       return `${captureInbox.pending} conversation${captureInbox.pending === 1 ? " is" : "s are"} waiting`;
     }
     return "Quietly up to date";
-  }, [captureInbox, lastExtraction, processing, recommendedReady]);
+  }, [captureInbox, extractionPaused, lastExtraction, processing, recommendedReady]);
 
   return (
     <main className="calm-shell">
@@ -320,14 +377,35 @@ export function CalmApp() {
                 {installingModel ? "Installing…" : `Set up ${ollama.recommendedModel}`}
               </button>
             )}
-            {lastExtraction?.failed ? (
+            {processing ? (
               <button
                 className="calm-button calm-button-quiet"
                 type="button"
-                disabled={processing || !recommendedReady}
-                onClick={() => void runExtraction(true)}
+                disabled={stopping}
+                onClick={() => void stopExtraction()}
               >
-                Retry {lastExtraction.failed} failed
+                {stopping ? "Stopping…" : "Stop extraction"}
+              </button>
+            ) : extractionPaused && captureInbox?.pending ? (
+              <button
+                className="calm-button calm-button-secondary"
+                type="button"
+                disabled={!recommendedReady}
+                onClick={resumeExtraction}
+              >
+                Resume processing
+              </button>
+            ) : lastExtraction?.failed ? (
+              <button
+                className="calm-button calm-button-quiet"
+                type="button"
+                disabled={!recommendedReady}
+                onClick={() => {
+                  attemptedIds.current.clear();
+                  void runExtraction(true);
+                }}
+              >
+                Retry failed conversations
               </button>
             ) : null}
           </div>
@@ -504,7 +582,7 @@ export function CalmApp() {
           </div>
           <div className="calm-advanced-note">
             <strong>Developer workbench</strong>
-            <span>The surface below is intentionally more technical than everyday TOPO.</span>
+            <span>Extraction here is explicit: select one conversation at a time, and stop it at any point.</span>
           </div>
           <div className="calm-workbench">
             <App />
