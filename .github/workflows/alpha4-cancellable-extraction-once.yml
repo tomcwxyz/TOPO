@@ -1,0 +1,197 @@
+name: alpha4-cancellable-extraction-once
+
+on:
+  push:
+    paths:
+      - ".github/workflows/alpha4-cancellable-extraction-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: alpha4/calm-memory-ux
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Add cancellable Ollama request path
+        shell: python
+        run: |
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              p = Path(path)
+              text = p.read_text()
+              if old not in text:
+                  raise SystemExit(f"Expected text not found in {path}: {old[:120]!r}")
+              p.write_text(text.replace(old, new, 1))
+
+          # Direct tokio use for select!/time polling. Tokio is already in the graph,
+          # but declaring it directly keeps the cancellation implementation explicit.
+          replace_once(
+              "apps/desktop/src-tauri/Cargo.toml",
+              'tiny_http = "0.12"\n',
+              'tiny_http = "0.12"\ntokio = { version = "1", features = ["macros", "time"] }\n',
+          )
+
+          # Propagate one cancellation flag from the Tauri command to the extractor.
+          replace_once(
+              "apps/desktop/src-tauri/src/capture_processor_core.rs",
+              'use std::collections::{BTreeMap, BTreeSet};\n',
+              'use std::{\n    collections::{BTreeMap, BTreeSet},\n    sync::{atomic::AtomicBool, Arc},\n};\n',
+          )
+          replace_once(
+              "apps/desktop/src-tauri/src/capture_processor_core.rs",
+              'pub async fn process_capture_with_ollama(\n    interaction_id: String,\n    model: String,\n) -> Result<CaptureProcessResult, String> {',
+              'pub async fn process_capture_with_ollama(\n    interaction_id: String,\n    model: String,\n    cancellation: Arc<AtomicBool>,\n) -> Result<CaptureProcessResult, String> {',
+          )
+          replace_once(
+              "apps/desktop/src-tauri/src/capture_processor_core.rs",
+              'capture_extractor::extract_pages_with_ollama(&loaded.interaction, model.trim()).await?;',
+              'capture_extractor::extract_pages_with_ollama(\n            &loaded.interaction,\n            model.trim(),\n            cancellation,\n        )\n        .await?;',
+          )
+
+          extractor = Path("apps/desktop/src-tauri/src/capture_extractor.rs")
+          text = extractor.read_text()
+          text = text.replace(
+              '    path::PathBuf,\n    time::{Duration, Instant},\n};',
+              '    path::PathBuf,\n    sync::{\n        atomic::{AtomicBool, Ordering},\n        Arc,\n    },\n    time::{Duration, Instant},\n};',
+              1,
+          )
+          marker = 'async fn call_ollama(\n'
+          if marker not in text:
+              raise SystemExit('call_ollama marker missing')
+          helper = '''async fn wait_for_cancellation(cancellation: Arc<AtomicBool>) {
+    while !cancellation.load(Ordering::SeqCst) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+'''
+          text = text.replace(marker, helper + marker, 1)
+          text = text.replace(
+              '    user_content: String,\n    format: Value,\n) -> Result<OllamaCallResult, String> {',
+              '    user_content: String,\n    format: Value,\n    cancellation: Arc<AtomicBool>,\n) -> Result<OllamaCallResult, String> {',
+              1,
+          )
+          text = text.replace(
+              '    if model.is_empty() {\n        return Err("Choose an Ollama model before extracting capture.".to_owned());\n    }\n\n    let started = Instant::now();',
+              '    if model.is_empty() {\n        return Err("Choose an Ollama model before extracting capture.".to_owned());\n    }\n    if cancellation.load(Ordering::SeqCst) {\n        return Err("Extraction stopped by user.".to_owned());\n    }\n\n    let started = Instant::now();',
+              1,
+          )
+
+          start = text.index('    let response = client\n        .post(format!("{OLLAMA_BASE_URL}/api/chat"))', text.index('async fn call_ollama'))
+          end = text.index('\n\n    let status = response.status();', start)
+          replacement = '''    let response = tokio::select! {
+        result = client
+            .post(format!("{OLLAMA_BASE_URL}/api/chat"))
+            .json(&json!({
+                "model": model,
+                "stream": false,
+                "format": format,
+                "keep_alive": "10m",
+                "options": { "temperature": 0 },
+                "messages": [
+                    { "role": "system", "content": system },
+                    { "role": "user", "content": user_content }
+                ]
+            }))
+            .send() => {
+                result.map_err(|error| {
+                    append_extractor_diagnostic(json!({
+                        "event": if error.is_timeout() { "extract.timeout" } else { "extract.request_failed" },
+                        "interactionId": interaction.id,
+                        "model": model,
+                        "representation": representation,
+                        "elapsedMs": elapsed_ms(started),
+                        "error": error.to_string()
+                    }));
+                    if error.is_timeout() {
+                        format!(
+                            "Local Ollama model {model} did not finish within {OLLAMA_REQUEST_TIMEOUT_SECS} seconds. Try again while the model is warm or choose a smaller model."
+                        )
+                    } else {
+                        format!("Could not call local Ollama model {model}: {error}")
+                    }
+                })?
+            }
+        _ = wait_for_cancellation(cancellation.clone()) => {
+            append_extractor_diagnostic(json!({
+                "event": "extract.cancelled",
+                "interactionId": interaction.id,
+                "model": model,
+                "representation": representation,
+                "elapsedMs": elapsed_ms(started)
+            }));
+            return Err("Extraction stopped by user.".to_owned());
+        }
+    };'''
+          text = text[:start] + replacement + text[end:]
+
+          # Legacy claim extraction is not user-cancellable; give it an inert flag.
+          legacy_call = '        Value::String("json".to_owned()),\n    )\n    .await?;'
+          if legacy_call not in text:
+              raise SystemExit('legacy call marker missing')
+          text = text.replace(
+              legacy_call,
+              '        Value::String("json".to_owned()),\n        Arc::new(AtomicBool::new(false)),\n    )\n    .await?;',
+              1,
+          )
+
+          text = text.replace(
+              'pub async fn extract_pages_with_ollama(\n    interaction: &CapturedInteraction,\n    model: &str,\n) -> Result<Vec<ExtractedMemoryPageProposal>, String> {',
+              'pub async fn extract_pages_with_ollama(\n    interaction: &CapturedInteraction,\n    model: &str,\n    cancellation: Arc<AtomicBool>,\n) -> Result<Vec<ExtractedMemoryPageProposal>, String> {',
+              1,
+          )
+          first_call = '        formatted.content.clone(),\n        schema.clone(),\n    )\n    .await?;'
+          if first_call not in text:
+              raise SystemExit('first page call marker missing')
+          text = text.replace(
+              first_call,
+              '        formatted.content.clone(),\n        schema.clone(),\n        cancellation.clone(),\n    )\n    .await?;',
+              1,
+          )
+          repair_call = '                formatted.content.clone(),\n                schema,\n            )\n            .await?;'
+          if repair_call not in text:
+              raise SystemExit('repair call marker missing')
+          text = text.replace(
+              repair_call,
+              '                formatted.content.clone(),\n                schema,\n                cancellation,\n            )\n            .await?;',
+              1,
+          )
+          extractor.write_text(text)
+
+          replace_once(
+              "apps/desktop/src-tauri/src/lib.rs",
+              '            capture_processor::process_capture_with_ollama,\n',
+              '            capture_processor::process_capture_with_ollama,\n            capture_processor::cancel_capture_extraction,\n',
+          )
+
+      - name: Refresh Rust lockfile
+        run: cargo generate-lockfile --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Verify desktop
+        run: |
+          npm ci --ignore-scripts
+          npm run build --workspace @topo/desktop
+          cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+          cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Commit patch and remove one-shot workflow
+        shell: bash
+        run: |
+          rm .github/workflows/alpha4-cancellable-extraction-once.yml
+          git config user.name "Tom C Watson"
+          git config user.email "150357824+tomcwxyz@users.noreply.github.com"
+          git add apps/desktop/src-tauri/Cargo.toml apps/desktop/src-tauri/Cargo.lock apps/desktop/src-tauri/src/capture_extractor.rs apps/desktop/src-tauri/src/capture_processor_core.rs apps/desktop/src-tauri/src/lib.rs .github/workflows/alpha4-cancellable-extraction-once.yml
+          git commit -m "feat: cancel in-flight Ollama extraction"
+          git push origin HEAD:alpha4/calm-memory-ux
