@@ -85,7 +85,8 @@ new_model_guard = '''    if model.is_empty() {
         return Err("Extraction stopped by user.".to_owned());
     }
 
-    let started = Instant::now();'''
+    let started = Instant::now();
+    let input_chars = user_content.chars().count();'''
 if old_model_guard not in text:
     raise SystemExit("model guard marker missing")
 text = text.replace(old_model_guard, new_model_guard, 1)
@@ -103,9 +104,13 @@ replacement = '''    let response = tokio::select! {
             .json(&json!({
                 "model": model,
                 "stream": false,
+                "think": false,
                 "format": format,
                 "keep_alive": "10m",
-                "options": { "temperature": 0 },
+                "options": {
+                    "temperature": 0,
+                    "num_predict": 1200
+                },
                 "messages": [
                     { "role": "system", "content": system },
                     { "role": "user", "content": user_content }
@@ -119,11 +124,12 @@ replacement = '''    let response = tokio::select! {
                         "model": model,
                         "representation": representation,
                         "elapsedMs": elapsed_ms(started),
+                        "inputChars": input_chars,
                         "error": error.to_string()
                     }));
                     if error.is_timeout() {
                         format!(
-                            "Local Ollama model {model} did not finish within {OLLAMA_REQUEST_TIMEOUT_SECS} seconds. Try again while the model is warm or choose a smaller model."
+                            "Local Ollama model {model} did not finish within {OLLAMA_REQUEST_TIMEOUT_SECS} seconds. Stop and retry, or choose a smaller model."
                         )
                     } else {
                         format!("Could not call local Ollama model {model}: {error}")
@@ -136,7 +142,8 @@ replacement = '''    let response = tokio::select! {
                 "interactionId": interaction.id,
                 "model": model,
                 "representation": representation,
-                "elapsedMs": elapsed_ms(started)
+                "elapsedMs": elapsed_ms(started),
+                "inputChars": input_chars
             }));
             return Err("Extraction stopped by user.".to_owned());
         }
