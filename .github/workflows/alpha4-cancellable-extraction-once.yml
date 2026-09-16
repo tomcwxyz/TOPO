@@ -23,6 +23,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
+      - name: Install Tauri Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
       - name: Apply cancellable extraction patch
         run: python .github/scripts/alpha4_cancellable_patch.py
 
