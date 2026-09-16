@@ -1,0 +1,150 @@
+name: release-alpha4-windows-once
+
+on:
+  push:
+    paths:
+      - ".github/workflows/release-alpha4-windows-once.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  windows:
+    name: TOPO 0.1.1-alpha.4 · Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: alpha4/calm-memory-ux
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Stamp alpha.4 and refresh lockfiles
+        shell: pwsh
+        run: |
+          $files = @(
+            "apps/desktop/package.json",
+            "apps/desktop/src-tauri/tauri.conf.json",
+            "apps/desktop/src-tauri/Cargo.toml"
+          )
+          foreach ($file in $files) {
+            $text = Get-Content $file -Raw
+            $text = $text.Replace("0.1.1-alpha.3", "0.1.1-alpha.4")
+            Set-Content -Path $file -Value $text -NoNewline
+          }
+
+          npm install --package-lock-only --ignore-scripts
+          cargo metadata --format-version 1 --manifest-path apps/desktop/src-tauri/Cargo.toml | Out-Null
+          node scripts/check-desktop-version.mjs 0.1.1-alpha.4
+
+      - name: Commit alpha.4 version and remove one-shot workflow
+        shell: pwsh
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/release-alpha4-windows-once.yml
+          git add apps/desktop/package.json apps/desktop/src-tauri/tauri.conf.json apps/desktop/src-tauri/Cargo.toml package-lock.json apps/desktop/src-tauri/Cargo.lock
+          git commit -m "chore: bump desktop to 0.1.1-alpha.4"
+          git push origin HEAD:alpha4/calm-memory-ux
+
+      - name: Install locked dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Require current Rust lockfiles
+        shell: pwsh
+        run: |
+          cargo metadata --locked --format-version 1 --manifest-path crates/topo-native-host/Cargo.toml | Out-Null
+          cargo metadata --locked --format-version 1 --manifest-path apps/desktop/src-tauri/Cargo.toml | Out-Null
+
+      - name: Build desktop frontend
+        run: npm run build --workspace @topo/desktop
+
+      - name: Check Windows desktop Rust
+        run: cargo check --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Test Windows desktop Rust
+        run: cargo test --locked --manifest-path apps/desktop/src-tauri/Cargo.toml
+
+      - name: Prepare packaged browser capture companion
+        shell: pwsh
+        run: |
+          npm run test:extension-build
+          cargo build --locked --release --target-dir target --manifest-path crates/topo-native-host/Cargo.toml
+          $resources = "apps/desktop/src-tauri/resources"
+          Remove-Item -Recurse -Force $resources -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force "$resources/capture-extension" | Out-Null
+          Copy-Item "apps/extension/dist/*" "$resources/capture-extension" -Recurse -Force
+          Copy-Item "target/release/topo-native-host.exe" "$resources/topo-native-host.exe" -Force
+
+      - name: Build alpha.4 Windows NSIS installer
+        run: npm run tauri --workspace @topo/desktop -- build --bundles nsis --config src-tauri/test.windows.json
+
+      - name: Require exact alpha.4 installer
+        shell: pwsh
+        run: |
+          $installer = "apps/desktop/src-tauri/target/release/bundle/nsis/TOPO_0.1.1-alpha.4_x64-setup.exe"
+          if (-not (Test-Path $installer)) { throw "Expected alpha.4 installer was not produced: $installer" }
+          if (-not (Test-Path "target/release/topo-native-host.exe")) { throw "TOPO native host was not produced." }
+          if (-not (Test-Path "apps/desktop/src-tauri/target/release/topo.exe")) { throw "TOPO desktop executable was not produced." }
+          Get-Item $installer | Format-List Name,Length,FullName
+
+      - name: Scan alpha.4 with Microsoft Defender and hash
+        shell: pwsh
+        run: |
+          $nativeHost = Get-Item "target/release/topo-native-host.exe"
+          $desktop = Get-Item "apps/desktop/src-tauri/target/release/topo.exe"
+          $installer = Get-Item "apps/desktop/src-tauri/target/release/bundle/nsis/TOPO_0.1.1-alpha.4_x64-setup.exe"
+          $files = @($nativeHost, $desktop, $installer)
+
+          $status = Get-MpComputerStatus -ErrorAction SilentlyContinue
+          if (-not $status -or -not $status.AntivirusEnabled) {
+            throw "Microsoft Defender Antivirus is not enabled; refusing to publish an unchecked Windows alpha."
+          }
+
+          $candidates = @()
+          $platformRoot = Join-Path $env:ProgramData "Microsoft\Windows Defender\Platform"
+          if (Test-Path $platformRoot) {
+            $latestPlatform = Get-ChildItem $platformRoot -Directory -ErrorAction SilentlyContinue | Sort-Object Name -Descending | Select-Object -First 1
+            if ($latestPlatform) { $candidates += (Join-Path $latestPlatform.FullName "MpCmdRun.exe") }
+          }
+          $candidates += (Join-Path $env:ProgramFiles "Windows Defender\MpCmdRun.exe")
+          $mpcmd = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $mpcmd) { throw "Microsoft Defender scanner was not found." }
+
+          & $mpcmd -SignatureUpdate
+          if ($LASTEXITCODE -ne 0) { Write-Warning "Defender signature refresh returned $LASTEXITCODE; using installed signatures." }
+
+          foreach ($file in $files) {
+            $scanLog = Join-Path $env:RUNNER_TEMP ("defender-" + $file.Name + ".log")
+            Remove-Item $scanLog -ErrorAction SilentlyContinue
+            & $mpcmd -Scan -ScanType 3 -File $file.FullName -DisableRemediation 2>&1 | Tee-Object -FilePath $scanLog
+            $scanExit = $LASTEXITCODE
+            $scanText = if (Test-Path $scanLog) { Get-Content $scanLog -Raw } else { "" }
+            if ($scanText -match '(?i)was skipped') { throw "Defender skipped $($file.Name)." }
+            if ($scanExit -ne 0) { throw "Defender did not return a clean result for $($file.Name); exit code $scanExit." }
+            if ($scanText -notmatch '(?i)found no threats|detected 0 threats') { throw "Defender returned no positive clean result for $($file.Name)." }
+          }
+
+          $hashFile = "TOPO_0.1.1-alpha.4_windows_SHA256SUMS.txt"
+          Remove-Item $hashFile -ErrorAction SilentlyContinue
+          foreach ($file in $files) {
+            $hash = (Get-FileHash -Algorithm SHA256 $file.FullName).Hash.ToLowerInvariant()
+            "$hash  $($file.Name)" | Tee-Object -FilePath $hashFile -Append
+          }
+
+      - name: Upload Windows alpha.4
+        uses: actions/upload-artifact@v4
+        with:
+          name: TOPO_0.1.1-alpha.4_windows_x64
+          path: |
+            apps/desktop/src-tauri/target/release/bundle/nsis/TOPO_0.1.1-alpha.4_x64-setup.exe
+            TOPO_0.1.1-alpha.4_windows_SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
