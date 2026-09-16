@@ -1,0 +1,560 @@
+/*
+ * TOPO brand layer
+ *
+ * Loaded after the functional surface styles so the product can keep its
+ * practical UI while presenting a distinct, terrain-led visual language.
+ */
+
+:root {
+  --topo-ink: #1d1d18;
+  --topo-ink-soft: #59594f;
+  --topo-paper: #f1ede2;
+  --topo-paper-raised: #f8f4ea;
+  --topo-paper-deep: #e8e2d3;
+  --topo-moss: #68744d;
+  --topo-moss-deep: #4f5a3b;
+  --topo-lichen: #dce4c7;
+  --topo-line: #817c70;
+  --topo-line-soft: #c8c0b1;
+  --topo-clay: #9a5847;
+  --topo-clay-soft: #f0ddd6;
+  --topo-warm: #eee0b3;
+  --topo-serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+  --topo-sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --topo-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --topo-contours: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 420 260'%3E%3Cg fill='none' stroke='%2368744d' stroke-width='1.25' opacity='.32'%3E%3Cpath d='M421 34c-54-22-112-22-153 2-39 23-50 57-86 73-43 19-85 1-117 18-29 15-39 50-13 79 32 35 91 34 130 17 42-19 60-55 103-68 42-13 81 3 113-17 31-19 45-64 23-104Z'/%3E%3Cpath d='M421 59c-47-18-97-17-132 3-34 20-43 48-75 62-36 16-72 2-100 16-25 13-33 41-12 64 27 29 76 28 109 14 36-16 51-46 87-57 36-11 69 2 96-14 26-16 38-53 27-88Z'/%3E%3Cpath d='M421 87c-39-14-80-12-108 4-28 16-35 38-62 49-30 13-59 3-82 14-19 10-26 31-10 49 21 22 60 21 87 10 29-13 41-37 71-46 29-9 56 1 78-12 20-12 29-39 26-68Z'/%3E%3Cpath d='M421 116c-29-10-60-7-81 5-20 12-26 28-45 36-22 10-43 3-60 11-14 7-18 22-7 35 15 16 43 15 62 7 22-10 31-27 52-34 21-6 40 1 56-8 14-9 21-28 23-52Z'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+html,
+body {
+  background: var(--topo-paper);
+}
+
+body {
+  color: var(--topo-ink);
+  font-family: var(--topo-sans);
+}
+
+::selection {
+  background: var(--topo-lichen);
+  color: var(--topo-ink);
+}
+
+/* Brand + masthead */
+.app-shell {
+  width: min(1480px, calc(100% - 52px));
+  padding-top: 24px;
+}
+
+.topbar {
+  position: relative;
+  isolation: isolate;
+  min-height: 230px;
+  padding: 30px 0 34px;
+  overflow: hidden;
+  border-bottom-color: var(--topo-line);
+  align-items: end;
+}
+
+.topbar::after {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  top: -34px;
+  right: -36px;
+  width: min(48vw, 610px);
+  height: 320px;
+  background-image: var(--topo-contours);
+  background-repeat: no-repeat;
+  background-position: right top;
+  background-size: contain;
+  opacity: .74;
+  pointer-events: none;
+}
+
+.topbar > div:first-child {
+  position: relative;
+}
+
+.topbar > div:first-child::before {
+  content: "";
+  display: block;
+  width: 72px;
+  height: 42px;
+  margin: 0 0 14px;
+  background-image: var(--topo-contours);
+  background-position: 82% 46%;
+  background-size: 190px auto;
+  border-left: 2px solid var(--topo-moss);
+}
+
+.eyebrow,
+.kicker {
+  color: var(--topo-moss-deep);
+  font-size: .68rem;
+  letter-spacing: .19em;
+}
+
+.eyebrow {
+  margin-bottom: 13px;
+  font-weight: 850;
+}
+
+h1 {
+  max-width: 820px;
+  font-family: var(--topo-serif);
+  font-size: clamp(2.9rem, 5.5vw, 5.6rem);
+  font-weight: 500;
+  letter-spacing: -.055em;
+  line-height: .91;
+  text-wrap: balance;
+}
+
+h2,
+h3 {
+  font-family: var(--topo-serif);
+  font-weight: 600;
+  letter-spacing: -.018em;
+}
+
+.store-status {
+  position: relative;
+  align-self: end;
+  min-width: 250px;
+  gap: 7px;
+  padding: 15px 0 3px 18px;
+  border-left: 1px solid var(--topo-line-soft);
+  color: var(--topo-ink-soft);
+}
+
+.store-status::before {
+  content: "terrain / local";
+  margin-bottom: 4px;
+  color: var(--topo-moss-deep);
+  font-size: .62rem;
+  font-weight: 800;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+.store-status code {
+  color: var(--topo-ink-soft);
+  font-family: var(--topo-mono);
+  font-size: .65rem;
+}
+
+/* Layout: utility to the left, memory landscape to the right */
+.workspace {
+  grid-template-columns: minmax(300px, 390px) minmax(0, 1fr);
+  gap: clamp(34px, 4vw, 68px);
+  padding-top: 42px;
+}
+
+.editor-panel {
+  gap: 30px;
+}
+
+.memory-panel {
+  padding-top: 1px;
+}
+
+.memory-toolbar {
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--topo-line-soft);
+}
+
+/* Surfaces behave more like paper/annotations than dashboard cards. */
+.claim-form,
+.context-panel,
+.capture-inbox-control,
+.local-sharing-control,
+.capture-queue,
+.legacy-tools,
+.legacy-claims {
+  border-color: var(--topo-line-soft);
+  background: rgba(248, 244, 234, .52);
+  box-shadow: none;
+}
+
+.claim-form,
+.context-panel {
+  padding: 18px;
+}
+
+.capture-inbox-control,
+.local-sharing-control {
+  position: relative;
+  padding: 15px 15px 15px 17px;
+  border: 0;
+  border-left: 2px solid var(--topo-line-soft);
+  background: transparent;
+}
+
+.capture-inbox-control::before,
+.local-sharing-control::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -2px;
+  width: 2px;
+  height: 48px;
+  background: var(--topo-moss);
+}
+
+.capture-inbox-heading strong,
+.local-sharing-heading strong {
+  font-family: var(--topo-serif);
+  font-size: .98rem;
+  font-weight: 650;
+}
+
+.local-permission-row,
+.capture-extractor,
+.capture-queue,
+.context-result,
+.claim-meta,
+.memory-page-edit,
+.legacy-tools .legacy-claim-form,
+.legacy-claims-content {
+  border-color: var(--topo-line-soft);
+}
+
+input,
+textarea,
+select {
+  border-color: var(--topo-line-soft);
+  border-radius: 2px;
+  background: rgba(248, 244, 234, .9);
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline-color: var(--topo-moss-deep);
+}
+
+.primary,
+.secondary,
+.quiet,
+.setup-primary,
+.setup-secondary {
+  border-radius: 2px;
+}
+
+.primary,
+.setup-primary {
+  border-color: var(--topo-moss-deep);
+  background: var(--topo-moss-deep);
+  color: #fbf8ef;
+}
+
+.secondary,
+.setup-secondary {
+  border-color: var(--topo-line);
+  background: var(--topo-paper-raised);
+}
+
+.quiet,
+.setup-link {
+  text-decoration-color: var(--topo-moss);
+  text-underline-offset: 3px;
+}
+
+.notice {
+  border-color: var(--topo-moss);
+  background: var(--topo-lichen);
+}
+
+.notice.error,
+.setup-error,
+.capture-queue-error {
+  border-color: var(--topo-clay);
+  background: var(--topo-clay-soft);
+}
+
+/* Memory pages are the product's main reading surface. */
+.memory-page-panel {
+  gap: 22px;
+}
+
+.memory-page-intro {
+  max-width: 68ch;
+  color: var(--topo-ink-soft);
+  font-size: .9rem;
+  line-height: 1.58;
+}
+
+.memory-page-list {
+  gap: 0;
+}
+
+.memory-page-card {
+  position: relative;
+  padding: 28px 8px 30px 22px;
+  border: 0;
+  border-top: 1px solid var(--topo-line-soft);
+  background: transparent;
+}
+
+.memory-page-card::before {
+  content: "";
+  position: absolute;
+  top: 28px;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  border: 1px solid var(--topo-moss);
+  border-radius: 50%;
+  background: var(--topo-paper);
+}
+
+.memory-page-card::after {
+  content: "";
+  position: absolute;
+  top: 35px;
+  bottom: -1px;
+  left: 3px;
+  width: 1px;
+  background: linear-gradient(var(--topo-line-soft), transparent 86%);
+  opacity: .8;
+}
+
+.memory-page-card:last-child::after {
+  display: none;
+}
+
+.memory-page-title {
+  margin-top: 12px;
+  font-family: var(--topo-serif);
+  font-size: clamp(1.35rem, 2vw, 1.75rem);
+  font-weight: 600;
+  line-height: 1.12;
+  letter-spacing: -.025em;
+}
+
+.memory-page-summary {
+  max-width: 62ch;
+  color: var(--topo-moss-deep);
+  font-weight: 650;
+}
+
+.memory-page-body {
+  max-width: 72ch;
+  color: #2e2e28;
+  font-size: 1rem;
+  line-height: 1.68;
+}
+
+.memory-horizon,
+.status-pill,
+.sensitivity,
+.change-pill {
+  border-color: var(--topo-line-soft);
+  background: transparent;
+  color: var(--topo-ink-soft);
+}
+
+.status-pill.candidate,
+.change-pill {
+  background: var(--topo-warm);
+}
+
+.status-pill.confirmed {
+  background: var(--topo-lichen);
+}
+
+.status-pill.rejected,
+.status-pill.expired {
+  background: var(--topo-clay-soft);
+}
+
+.subject {
+  color: var(--topo-ink-soft);
+  font-family: var(--topo-mono);
+}
+
+.tags span {
+  background: var(--topo-paper-deep);
+}
+
+.empty-state {
+  position: relative;
+  min-height: 260px;
+  place-content: center;
+  overflow: hidden;
+  border-color: var(--topo-line-soft);
+  background: rgba(248, 244, 234, .26);
+}
+
+.empty-state::before {
+  content: "";
+  position: absolute;
+  inset: -50px -20px -30px 40%;
+  background-image: var(--topo-contours);
+  background-size: cover;
+  opacity: .45;
+  pointer-events: none;
+}
+
+.empty-state > * {
+  position: relative;
+}
+
+/* Queue reads as a trace of activity rather than a task manager. */
+.capture-queue-row {
+  border: 0;
+  border-top: 1px solid var(--topo-line-soft);
+  background: transparent;
+}
+
+.capture-queue-row.is-processing {
+  background: rgba(238, 224, 179, .36);
+}
+
+.capture-queue-row.is-processed {
+  background: rgba(220, 228, 199, .36);
+}
+
+.capture-queue-row.is-failed {
+  border-color: var(--topo-clay);
+  background: rgba(240, 221, 214, .5);
+}
+
+.capture-queue-marker {
+  border-color: var(--topo-moss);
+  color: var(--topo-moss-deep);
+}
+
+/* First-run experience carries the same field-note identity. */
+.setup-shell {
+  position: relative;
+  overflow: hidden;
+  background: var(--topo-paper);
+}
+
+.setup-shell::before {
+  content: "";
+  position: fixed;
+  top: -90px;
+  right: -90px;
+  width: min(62vw, 760px);
+  height: 520px;
+  background-image: var(--topo-contours);
+  background-size: contain;
+  background-repeat: no-repeat;
+  opacity: .5;
+  pointer-events: none;
+}
+
+.setup-card {
+  position: relative;
+  border-color: var(--topo-line);
+  background: rgba(248, 244, 234, .76);
+  box-shadow: 0 28px 70px rgba(37, 35, 28, .08);
+  backdrop-filter: blur(4px);
+}
+
+.setup-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--topo-moss-deep);
+}
+
+.setup-brand::before {
+  content: "";
+  width: 52px;
+  height: 30px;
+  background-image: var(--topo-contours);
+  background-position: 82% 47%;
+  background-size: 145px auto;
+  border-left: 2px solid var(--topo-moss);
+}
+
+.setup-card h1 {
+  font-family: var(--topo-serif);
+  font-weight: 500;
+  text-wrap: balance;
+}
+
+.setup-step {
+  border: 0;
+  border-top: 1px solid var(--topo-line-soft);
+  background: transparent;
+}
+
+.setup-step.is-ready {
+  background: rgba(220, 228, 199, .36);
+}
+
+.setup-step-number {
+  border-color: var(--topo-moss);
+  color: var(--topo-moss-deep);
+}
+
+.setup-state {
+  color: var(--topo-moss-deep);
+}
+
+.setup-path {
+  border-color: var(--topo-line-soft);
+  background: var(--topo-paper-raised);
+}
+
+footer {
+  border-color: var(--topo-line-soft);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .capture-queue-row.is-processing .capture-queue-marker {
+    animation: none;
+  }
+}
+
+@media (max-width: 1050px) {
+  .topbar {
+    min-height: 200px;
+  }
+
+  .topbar::after {
+    opacity: .45;
+  }
+}
+
+@media (max-width: 760px) {
+  .app-shell {
+    width: min(100% - 24px, 1480px);
+  }
+
+  .topbar {
+    min-height: 0;
+    padding-top: 22px;
+  }
+
+  .topbar::after {
+    top: -50px;
+    right: -160px;
+    width: 430px;
+    opacity: .34;
+  }
+
+  h1 {
+    font-size: clamp(2.65rem, 13vw, 4.35rem);
+  }
+
+  .store-status {
+    min-width: 0;
+    padding-left: 0;
+    border-left: 0;
+    border-top: 1px solid var(--topo-line-soft);
+    padding-top: 14px;
+  }
+
+  .memory-page-card {
+    padding-left: 19px;
+  }
+
+  .setup-card {
+    backdrop-filter: none;
+  }
+}
