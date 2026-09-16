@@ -26,7 +26,9 @@ It shows:
 - a calm all-caught-up state when there is nothing to review;
 - a small number of Memory Page suggestions when TOPO has found something worth keeping;
 - simple actions: **Keep**, **Not useful**, **Edit**;
-- a compact background-processing state such as “Learning from 6 recent conversations…”;
+- a compact background-processing state such as “Learning from recent conversations…”;
+- **Stop extraction** while a local model request is active;
+- a paused state after stopping, so TOPO never silently advances to another capture until the person chooses **Resume processing**;
 - one unobtrusive retry affordance when some captures could not be fully processed.
 
 Technical extraction failures remain available under details/Advanced, but are not the primary experience.
@@ -66,7 +68,10 @@ Setup and permission actions are shown only when needed.
 Advanced preserves the alpha workbench for dogfooding and technical control:
 
 - extractor model selection;
-- row-by-row capture queue and raw failure messages;
+- a row-by-row capture queue with **one selected conversation at a time**;
+- **Extract selected / Retry selected / Stop extraction** rather than a run-everything batch control;
+- stopped captures remain in the local inbox and can be selected again later;
+- raw failure messages;
 - Context Preview and retrieval evaluation;
 - Structured Claim compatibility tools;
 - storage paths and diagnostics.
@@ -83,7 +88,8 @@ Map internal states to simpler language:
 - confirmed → saved;
 - rejected → not useful / history;
 - superseded → changed / history;
-- expired → history.
+- expired → history;
+- cancelled → stopped / waiting to retry.
 
 Keep explicit language when a new page may replace existing context.
 
@@ -111,14 +117,21 @@ Potential changes are deliberately more explicit:
 
 ## Capture and extraction
 
-Capture should mostly disappear once configured.
+Capture should mostly disappear once configured, but quiet automation must remain interruptible.
 
 Rules:
 
-- process newly captured interactions automatically while TOPO is open;
+- process newly captured interactions automatically while TOPO is open and Home is active;
+- only one Ollama extraction request may run for a given captured interaction;
+- leaving Home stops the current automatic extraction and pauses the background pass;
+- stopping cancels the in-flight Ollama request rather than merely preventing the next row;
+- a stopped capture stays local and retryable;
+- Advanced extraction is explicit single selection, never an implicit whole-queue action;
 - use TOPO’s recommended extractor model by default;
 - do not choose the first arbitrary installed Ollama model;
 - model selection belongs in Advanced;
+- structured extraction disables model thinking and caps generation because the result contract is small and bounded;
+- extraction diagnostics record input size for timeout/cancellation investigation;
 - failures stay recoverable and visible without blocking successfully extracted memory;
 - never weaken evidence validation to increase apparent success rate.
 
@@ -132,8 +145,9 @@ A normal dogfood session should be possible without opening Advanced:
 2. open TOPO;
 3. see either “all caught up” or a small set of suggestions;
 4. keep/reject/edit them quickly;
-5. open Memories and immediately find what was kept;
-6. allow a connected tool to use approved context without operating retrieval machinery manually.
+5. stop a slow extraction immediately without losing its capture;
+6. open Memories and immediately find what was kept;
+7. allow a connected tool to use approved context without operating retrieval machinery manually.
 
 Advanced remains available for diagnosis and evaluation, but ordinary success must not depend on it.
 
@@ -144,13 +158,15 @@ Implemented on the alpha.4 branch:
 - Home / Memories / Connections / Advanced is now the default desktop information architecture;
 - confirmed memories have a dedicated searchable Memories surface and no longer disappear into a status filter;
 - review cards use Keep / Not useful / Edit, with evidence and governance behind progressive disclosure;
-- capture extraction runs automatically while TOPO is open when the recommended extractor is available;
+- capture extraction runs automatically while TOPO is open on Home when the recommended extractor is available, and can be stopped/paused by the user;
+- Advanced extraction is single-select and stoppable;
 - first-run setup and the calm Home surface steer normal use to `qwen3:4b`, while arbitrary model choice remains in Advanced;
 - local context sharing, agent capture and memory-suggestion permissions remain distinct controls;
 - the existing technical workbench, raw queue, retrieval evaluation and Structured Claims remain available under Advanced;
-- Memory Page extraction now uses short user-evidence aliases, an explicit legal user-evidence boundary, structured JSON Schema output, temperature 0, one bounded repair pass and per-proposal validation;
+- Memory Page extraction uses short user-evidence aliases, an explicit legal user-evidence boundary, structured JSON Schema output, temperature 0, one bounded repair pass and per-proposal validation;
+- structured local extraction disables thinking, caps generation and records input length in diagnostics to make timeout behaviour observable;
 - a bad sibling proposal no longer forces TOPO to discard a valid grounded Memory Page from the same conversation;
 - evidence validation remains strict: assistant-only project state, completion claims and invented evidence are still rejected rather than silently accepted;
 - the desktop Rust crate explicitly raises its macro recursion limit for the structured-output schema, keeping the schema readable without weakening its constraints.
 
-Before release, the branch must pass repository validation, Windows/Linux desktop smoke and installer packaging including the Windows Defender scan.
+Windows is the current dogfood release target. Linux/macOS packaging is not a release gate for this alpha cycle.
