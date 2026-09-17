@@ -75,6 +75,7 @@ test("remote request is resolved on the enrolled TOPO device over outbound polli
     relayBaseUrl: "https://relay.example",
     deviceToken,
     fetchImpl: relayFetch,
+    now: () => now,
     resolver: {
       async context(request) {
         localRequests.push(request);
@@ -172,6 +173,7 @@ test("device resolver failures are returned to the waiting remote request", asyn
     relayBaseUrl: "https://relay.example",
     deviceToken,
     fetchImpl: relayFetch,
+    now: () => now,
     resolver: {
       async context() {
         throw new Error("local context sharing is disabled in TOPO");
