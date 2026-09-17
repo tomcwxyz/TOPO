@@ -1,29 +1,96 @@
 # TOPO MCP
 
-TOPO exposes its local memory store to MCP-compatible AI clients without giving those clients silent ownership of memory.
+TOPO exposes governed context to MCP-compatible AI clients without giving those clients silent ownership of memory.
 
 The implementation uses the MCP TypeScript SDK v2 and stdio transport.
+
+Memory Page retrieval now follows the same principle as the RACK/OOS bridge:
+
+```text
+TOPO Memory Pages
+      ↓
+TOPO Desktop resolver
+      ↓
+purpose-bound Context Packet
+      ↓
+topo-mcp
+      ↓
+AI client
+```
+
+MCP is a transport over TOPO's context contract. It is not a second memory model or a second retrieval engine.
+
+See [Context everywhere](CONTEXT_EVERYWHERE.md) for the broader CLI/cloud/mobile architecture.
 
 ## Default trust model
 
 Connecting an MCP client grants **agent** authority, not **user** authority.
 
-Default tools:
+When TOPO Desktop is running, the normal MCP surface includes:
 
 | Tool | Purpose |
 | --- | --- |
-| `topo_capabilities` | Report authority, sensitivity and transport policy |
-| `topo_propose_claims` | Add one or more candidate claims |
-| `topo_search` | Search confirmed, currently-valid claims |
-| `topo_get_claim` | Read one allowed confirmed claim |
-| `topo_list_candidates` | Inspect candidate claims |
-| `topo_claim_history` | Read audit events for an allowed claim |
+| `topo_capabilities` | Report authority, sensitivity, context mode and transport policy |
+| `topo_context` | Resolve a small purpose-bound Context Packet from governed Memory Pages |
+| `topo_search_pages` | Search confirmed, currently-valid Memory Pages |
+| `topo_propose_claims` | Legacy/structured compatibility: add candidate claims |
+| `topo_search` | Legacy/structured compatibility: search confirmed claims |
+| `topo_get_claim` | Legacy/structured compatibility: read one confirmed claim |
+| `topo_list_candidates` | Inspect candidate structured claims |
+| `topo_claim_history` | Read audit events for an allowed structured claim |
 
 There is deliberately no `store confirmed fact` tool.
 
+For ordinary AI work, clients should prefer `topo_context` when they can describe the current purpose/task. `topo_search_pages` is useful for explicit lookup. The claim-shaped tools remain compatibility/advanced interfaces while the representation migration finishes.
+
+## Desktop context bridge
+
+`topo-mcp` discovers the currently running TOPO Desktop instance through:
+
+```text
+~/.topo/oos-local.json
+```
+
+The discovery file contains a loopback endpoint and per-run bearer token. MCP refuses a discovery endpoint that resolves away from loopback.
+
+Memory Page tools delegate to Desktop's `/v0/context` and `/v0/search` routes, so MCP inherits the canonical page-first resolver rather than reading/interpreting Memory Pages directly from SQLite.
+
+Before an AI client can retrieve context:
+
+1. TOPO Desktop must be running;
+2. **Share context** must be enabled in TOPO Desktop for the current session;
+3. the requested context must pass TOPO's governance/relevance rules.
+
+If Desktop is closed or sharing is disabled, the MCP context tool returns an explicit error rather than silently falling back to a broad profile or ungoverned store read.
+
+A custom discovery path may be supplied with:
+
+```bash
+topo-mcp --discovery /path/to/oos-local.json
+```
+
+or `TOPO_LOCAL_DISCOVERY`.
+
+## Purpose-bound context
+
+A typical request is conceptually:
+
+```json
+{
+  "subject": "project:topo",
+  "purpose": "Continue implementing the mobile context architecture",
+  "query": "MCP remote context mobile",
+  "maxItems": 8
+}
+```
+
+TOPO applies sharing authority, review state, sensitivity, temporal validity, subject scope, task relevance, freshness and context budget before returning a compact Context Packet with Memory Page/revision/source provenance.
+
+Do not use MCP to inject every Memory Page into every prompt. The useful contract is **the smallest authorised context that materially helps the current task**.
+
 ## Review delegation
 
-Candidate editing, confirmation and rejection represent user review decisions in TOPO's core lifecycle. They are therefore not registered on an ordinary MCP connection.
+Candidate editing, confirmation and rejection represent user review decisions in TOPO's legacy structured-claim lifecycle. They are therefore not registered on an ordinary MCP connection.
 
 Launch with:
 
@@ -47,7 +114,7 @@ This adds:
 
 Events produced through this path are recorded with a user actor ID of `mcp-review-delegation`, making the delegation visible in history.
 
-Enabling this mode means the connected AI client can make durable review decisions. It should only be used for a client/configuration the user intends to trust at that level.
+This delegation does **not** currently grant Memory Page review authority. A page-first contribution/review surface will be added separately so an AI client cannot acquire durable page-confirmation authority merely because it can retrieve context.
 
 ## Sensitivity
 
@@ -57,9 +124,9 @@ The default maximum MCP sensitivity is:
 personal
 ```
 
-So ordinary and personal claims may be disclosed; sensitive and restricted claims are excluded.
+So ordinary and personal material may be disclosed; sensitive and restricted material is excluded from the current local sharing path.
 
-Configure another ceiling with:
+Configure a different MCP ceiling with:
 
 ```bash
 topo-mcp --max-sensitivity ordinary
@@ -69,11 +136,13 @@ topo-mcp --max-sensitivity restricted
 
 or `TOPO_MCP_MAX_SENSITIVITY`.
 
-The ceiling applies to proposal creation as well as retrieval, avoiding a client creating memory that it is not allowed to inspect.
+The MCP ceiling can only narrow what the Desktop resolver is willing to share. It cannot widen Desktop's own context-sharing boundary. The bridge performs a final disclosure filtering step on returned Memory Page material for this reason.
+
+Legacy claim proposal/retrieval also continues to honour the MCP ceiling.
 
 ## Store
 
-The MCP server uses the same Node SQLite adapter as the CLI.
+Legacy structured-claim tools use the same Node SQLite adapter as the CLI.
 
 Default:
 
@@ -89,23 +158,23 @@ topo-mcp --store /path/to/topo.sqlite
 
 or `TOPO_DB`.
 
-The MCP package does not own a separate database model.
+Memory Page context is intentionally **not** reimplemented against this SQLite adapter. It is resolved by the running Desktop service so MCP, RACK and agent adapters share the same governance/retrieval behaviour.
 
 ## Transport
 
-v0.1 is **stdio only**.
+The MCP host transport remains **stdio only**.
 
-TOPO does not currently expose MCP over HTTP. This is intentional: a network transport introduces authentication, binding and origin/security concerns that should not be inherited accidentally from predecessor implementations.
+TOPO does not currently expose MCP itself over HTTP. This is intentional: a network transport introduces authentication, device identity, revocation, binding, origin and sync/key-management concerns that should not be inherited accidentally from predecessor implementations.
 
-A future HTTP implementation must preserve the threat-model invariant that non-loopback operation cannot be unauthenticated.
+The Desktop bridge uses an authenticated **loopback-only** HTTP service. It must not be exposed directly to a network.
 
-## Context resources
+A future remote MCP/API layer is specified separately in [Context everywhere](CONTEXT_EVERYWHERE.md) and must preserve local-first operation and authenticated, revocable, purpose-bound access.
 
-TOPO does not expose a `memory://profile` equivalent yet.
+## No full-profile resource
 
-A full-profile resource would encourage broad context injection before TOPO has implemented purpose-aware retrieval, sensitivity selection, token budgets and an explainable context manifest.
+TOPO deliberately does not expose a `memory://profile` equivalent.
 
-For now, clients should use `topo_search` and explicit claim retrieval. Purpose-aware context resources belong to the context-resolution phase.
+A full-profile resource encourages broad context injection and weakens purpose/sensitivity boundaries. Clients should ask `topo_context` for the current task, or use `topo_search_pages` for an explicit lookup.
 
 ## Example client configuration
 
@@ -118,6 +187,14 @@ After building the repository, an MCP host can launch:
 }
 ```
 
-For a non-default store, add `--store` and the store path to `args`.
+For non-default paths, add `--store` and/or `--discovery` to `args`.
+
+The normal flow is then:
+
+1. launch TOPO Desktop;
+2. enable **Share context**;
+3. start/use the MCP client;
+4. allow the client to call `topo_context` for relevant tasks;
+5. keep durable memory review in TOPO unless review authority has been explicitly delegated.
 
 Do not put API keys, encryption keys or other secrets in TOPO MCP arguments unless a future feature explicitly documents a safe mechanism for them.
