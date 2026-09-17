@@ -1,25 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
 import { Command } from "commander";
 import { resolveOosContext } from "@topo/oos";
+import {
+  TopoLocalClient,
+  type TopoLocalContextRequest,
+} from "@topo/oos/local-client";
 import {
   sensitivitySchema,
   type Sensitivity,
 } from "@topo/schemas";
 import type { MemoryStore } from "@topo/store";
 
-export type DesktopContextRequest = {
-  subject: string;
-  purpose: string;
-  requester: string;
-  query?: string;
-  maxItems?: number;
-};
-
 export type DesktopContextClient = {
-  context(request: DesktopContextRequest): Promise<unknown>;
+  context(request: TopoLocalContextRequest): Promise<unknown>;
 };
 
 export type OosCommandDependencies = {
@@ -42,12 +35,6 @@ type ContextCommandOptions = {
   category?: string[];
 };
 
-interface DiscoveryFile {
-  protocol: string;
-  endpoint: string;
-  token: string;
-}
-
 const parsePositiveInteger = (value: string): number => {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed < 1 || parsed > 200) {
@@ -63,119 +50,6 @@ const parseSensitivities = (
   return values.map((value) => sensitivitySchema.parse(value));
 };
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === "object" && value !== null && !Array.isArray(value);
-
-const assertLoopback = (endpoint: URL): void => {
-  const host = endpoint.hostname.toLowerCase();
-  if (
-    host !== "127.0.0.1" &&
-    host !== "localhost" &&
-    host !== "[::1]" &&
-    host !== "::1"
-  ) {
-    throw new Error(
-      `TOPO Desktop discovery resolved to non-loopback host ${endpoint.hostname}; refusing connection`,
-    );
-  }
-};
-
-const desktopContextClient = (): DesktopContextClient => {
-  const discoveryPath = resolve(
-    process.env.TOPO_LOCAL_DISCOVERY ??
-      join(homedir(), ".topo", "oos-local.json"),
-  );
-
-  const discovery = (): DiscoveryFile => {
-    let raw: string;
-    try {
-      raw = readFileSync(discoveryPath, "utf8");
-    } catch {
-      throw new Error(
-        `TOPO Desktop is not discoverable at ${discoveryPath}. Open TOPO Desktop and enable Share context.`,
-      );
-    }
-
-    const value: unknown = JSON.parse(raw);
-    if (
-      !isRecord(value) ||
-      typeof value.protocol !== "string" ||
-      typeof value.endpoint !== "string" ||
-      typeof value.token !== "string"
-    ) {
-      throw new Error("TOPO Desktop discovery file is invalid");
-    }
-    if (value.protocol !== "oos-local/0.1") {
-      throw new Error(`Unsupported TOPO Desktop protocol: ${value.protocol}`);
-    }
-    return {
-      protocol: value.protocol,
-      endpoint: value.endpoint,
-      token: value.token,
-    };
-  };
-
-  return {
-    async context(request: DesktopContextRequest): Promise<unknown> {
-      const local = discovery();
-      const base = new URL(local.endpoint);
-      assertLoopback(base);
-      const url = new URL(
-        "/v0/context",
-        `${base.toString().replace(/\/$/, "")}/`,
-      );
-      assertLoopback(url);
-
-      let response: Response;
-      try {
-        response = await fetch(url, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${local.token}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            subject: request.subject,
-            purpose: request.purpose,
-            requested_by: request.requester,
-            wanted: {
-              ...(request.query === undefined ? {} : { query: request.query }),
-              ...(request.maxItems === undefined
-                ? {}
-                : { max_items: request.maxItems }),
-            },
-          }),
-        });
-      } catch (error) {
-        throw new Error(
-          `Could not reach TOPO Desktop: ${error instanceof Error ? error.message : String(error)}`,
-        );
-      }
-
-      const text = await response.text();
-      let value: unknown = {};
-      if (text.trim().length > 0) {
-        try {
-          value = JSON.parse(text);
-        } catch {
-          throw new Error(
-            `TOPO Desktop returned invalid JSON (${response.status})`,
-          );
-        }
-      }
-
-      if (!response.ok) {
-        const detail =
-          isRecord(value) && typeof value.error === "string"
-            ? value.error
-            : `HTTP ${response.status}`;
-        throw new Error(`TOPO Desktop context request failed: ${detail}`);
-      }
-      return value;
-    },
-  };
-};
-
 export const registerOosCommands = (
   program: Command,
   dependencies: OosCommandDependencies,
@@ -186,7 +60,7 @@ export const registerOosCommands = (
     dependencies.write ?? ((value: string) => process.stdout.write(value));
   const writeError =
     dependencies.writeError ?? ((value: string) => process.stderr.write(value));
-  const desktopContext = dependencies.desktopContext ?? desktopContextClient();
+  const desktopContext = dependencies.desktopContext ?? new TopoLocalClient();
 
   program
     .command("context")
@@ -201,7 +75,7 @@ export const registerOosCommands = (
         const packet = await desktopContext.context({
           subject: options.subject,
           purpose: options.purpose,
-          requester: options.requester,
+          requestedBy: options.requester,
           ...(options.query === undefined ? {} : { query: options.query }),
           maxItems: parsePositiveInteger(options.maxItems),
         });
@@ -220,7 +94,9 @@ export const registerOosCommands = (
 
   oos
     .command("context")
-    .description("Resolve a purpose-bound OOS Context Packet from legacy structured claims")
+    .description(
+      "Resolve a purpose-bound OOS Context Packet from legacy structured claims",
+    )
     .requiredOption("--subject <subject>", "context subject")
     .requiredOption("--purpose <purpose>", "why this context is being requested")
     .option("--requester <node>", "requesting OOS node", "rack")
