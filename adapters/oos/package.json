@@ -23,6 +23,14 @@
     "./remote-relay": {
       "types": "./dist/remote-relay.d.ts",
       "default": "./dist/remote-relay.js"
+    },
+    "./remote-relay-http": {
+      "types": "./dist/remote-relay-http.d.ts",
+      "default": "./dist/remote-relay-http.js"
+    },
+    "./remote-relay-device": {
+      "types": "./dist/remote-relay-device.d.ts",
+      "default": "./dist/remote-relay-device.js"
     }
   },
   "scripts": {
