@@ -7,9 +7,11 @@ import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { createTopoMcpServer, TopoMcpService } from "@topo/mcp";
 import { sensitivitySchema, type Sensitivity } from "@topo/schemas";
 import { SqliteMemoryStore } from "@topo/store-node";
+import { LocalDesktopContextProvider } from "./local-context.js";
 
 interface Options {
   store: string;
+  discovery?: string;
   maxSensitivity: Sensitivity;
   allowReviewDecisions: boolean;
 }
@@ -20,14 +22,19 @@ function usage(): string {
     "",
     "Usage: topo-mcp [options]",
     "",
+    "Memory Page context is resolved through the running TOPO Desktop instance.",
+    "Legacy structured-claim tools continue to use the local SQLite store.",
+    "",
     "Options:",
-    "  --store <path>                 SQLite store path",
+    "  --store <path>                 SQLite store path for legacy structured claims",
+    "  --discovery <path>             TOPO Desktop local discovery file",
     "  --max-sensitivity <level>      ordinary|personal|sensitive|restricted",
     "  --allow-review-decisions       Delegate user review authority to this connection",
     "  --help                         Show this help",
     "",
     "Environment:",
     "  TOPO_DB",
+    "  TOPO_LOCAL_DISCOVERY",
     "  TOPO_MCP_MAX_SENSITIVITY",
     "  TOPO_MCP_ALLOW_REVIEW_DECISIONS=1",
   ].join("\n");
@@ -53,6 +60,8 @@ function options(args: string[]): Options {
     valueAfter(args, "--store") ??
     process.env.TOPO_DB ??
     join(homedir(), ".topo", "topo.sqlite");
+  const discovery =
+    valueAfter(args, "--discovery") ?? process.env.TOPO_LOCAL_DISCOVERY;
 
   const rawSensitivity =
     valueAfter(args, "--max-sensitivity") ??
@@ -61,6 +70,7 @@ function options(args: string[]): Options {
 
   return {
     store: resolve(store),
+    ...(discovery === undefined ? {} : { discovery: resolve(discovery) }),
     maxSensitivity: sensitivitySchema.parse(rawSensitivity),
     allowReviewDecisions:
       args.includes("--allow-review-decisions") ||
@@ -76,6 +86,12 @@ try {
   const service = new TopoMcpService(store, {
     maxSensitivity: config.maxSensitivity,
     allowReviewDecisions: config.allowReviewDecisions,
+  });
+  const contextProvider = new LocalDesktopContextProvider({
+    ...(config.discovery === undefined
+      ? {}
+      : { discoveryPath: config.discovery }),
+    maxSensitivity: config.maxSensitivity,
   });
 
   const close = (): void => {
@@ -95,7 +111,7 @@ try {
     process.exit(143);
   });
 
-  serveStdio(() => createTopoMcpServer(service));
+  serveStdio(() => createTopoMcpServer(service, contextProvider));
 } catch (error) {
   process.stderr.write(
     `TOPO MCP: ${error instanceof Error ? error.message : String(error)}\n`,
