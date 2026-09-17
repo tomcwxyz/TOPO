@@ -11,10 +11,12 @@ import {
   TopoMcpService,
 } from "../dist/index.js";
 
-async function harness(options = {}) {
+async function harness(options = {}, contextProvider) {
   const store = new SqliteMemoryStore(":memory:");
   const service = new TopoMcpService(store, options);
-  const handler = createMcpHandler(() => createTopoMcpServer(service));
+  const handler = createMcpHandler(() =>
+    createTopoMcpServer(service, contextProvider),
+  );
   const transport = new StreamableHTTPClientTransport(
     new URL("http://test.local/mcp"),
     {
@@ -53,6 +55,7 @@ test("default MCP tool surface is proposal-first", async () => {
 
     assert.equal(names.includes("topo_propose_claims"), true);
     assert.equal(names.includes("topo_search"), true);
+    assert.equal(names.includes("topo_context"), false);
     assert.equal(names.includes("topo_confirm_candidate"), false);
     assert.equal(names.includes("topo_reject_candidate"), false);
     assert.equal(names.includes("topo_edit_candidate"), false);
@@ -79,6 +82,85 @@ test("default MCP tool surface is proposal-first", async () => {
       }),
     );
     assert.equal(candidates.candidates.length, 1);
+  } finally {
+    await testHarness.close();
+  }
+});
+
+test("Memory Page context tools delegate to a context provider", async () => {
+  const requests = [];
+  const contextProvider = {
+    mode: "memory-pages",
+    transport: "test-provider",
+    async context(request) {
+      requests.push(["context", request]);
+      return {
+        objects: [
+          {
+            type: "topo.memory_page",
+            id: "memory-1",
+            value: { title: "TOPO", content: "Useful project context." },
+          },
+        ],
+      };
+    },
+    async searchPages(request) {
+      requests.push(["search", request]);
+      return { representation: "memory-page", results: [] };
+    },
+  };
+  const testHarness = await harness({}, contextProvider);
+
+  try {
+    const listed = await testHarness.client.listTools();
+    const names = listed.tools.map((tool) => tool.name);
+    assert.equal(names.includes("topo_context"), true);
+    assert.equal(names.includes("topo_search_pages"), true);
+
+    const capabilities = textResult(
+      await testHarness.client.callTool({
+        name: "topo_capabilities",
+        arguments: {},
+      }),
+    );
+    assert.equal(capabilities.contextMode, "memory-pages");
+    assert.equal(capabilities.contextTransport, "test-provider");
+
+    const context = textResult(
+      await testHarness.client.callTool({
+        name: "topo_context",
+        arguments: {
+          subject: "project:topo",
+          purpose: "Continue the implementation",
+          query: "MCP context",
+          maxItems: 6,
+        },
+      }),
+    );
+    assert.equal(context.objects[0].id, "memory-1");
+    assert.deepEqual(requests[0], [
+      "context",
+      {
+        subject: "project:topo",
+        purpose: "Continue the implementation",
+        query: "MCP context",
+        maxItems: 6,
+        requestedBy: "topo-mcp",
+      },
+    ]);
+
+    await testHarness.client.callTool({
+      name: "topo_search_pages",
+      arguments: { query: "portable memory", limit: 5 },
+    });
+    assert.deepEqual(requests[1], [
+      "search",
+      {
+        query: "portable memory",
+        limit: 5,
+        requestedBy: "topo-mcp",
+      },
+    ]);
   } finally {
     await testHarness.close();
   }
