@@ -107,32 +107,100 @@ The gateway contract deliberately does not decide where the resolver runs. There
 
 ### Mode A — online device relay
 
+**CE3 prototype implemented on `context-everywhere`.**
+
 ```text
 remote client
      │
+     │ remote grant
      ▼
-cloud relay
-     │
-     │ outbound-established channel
-     ▼
-user's TOPO Desktop
+read-only context gateway
      │
      ▼
-local resolver
+ephemeral relay broker
+     │
+     │ short-lived request envelope only
+     ▼
+device relay endpoint
+     ▲
+     │ outbound poll / response
+     │
+user's TOPO device
+     │
+     ▼
+TopoLocalClient
+     │
+     ▼
+Desktop loopback /v0/context
+     │
+     ▼
+local Memory Page resolver
 ```
+
+The implementation is split deliberately:
+
+- `@topo/oos/remote-relay` — an in-memory broker implementing the remote resolver contract;
+- `@topo/oos/remote-relay-http` — the authenticated device-facing relay API;
+- `@topo/oos/remote-relay-device` — an outbound device worker;
+- `serviceLocalTopoRelayOnce` — composes that worker with the same `TopoLocalClient` used by CLI/MCP.
+
+The relay broker holds only outstanding request envelopes and their transient response promises. It does not persist Memory Pages or Context Packets.
+
+A task is:
+
+```json
+{
+  "version": "topo.remote-relay-task/0.1",
+  "id": "relay-...",
+  "action": "context",
+  "deviceId": "device-home",
+  "createdAt": "2026-09-17T08:00:00Z",
+  "expiresAt": "2026-09-17T08:00:20Z",
+  "request": {
+    "subject": "project:topo",
+    "purpose": "Continue implementation",
+    "requestedBy": "remote:grant-example",
+    "query": "mobile relay",
+    "maxItems": 8
+  }
+}
+```
+
+Current prototype protections:
+
+1. pending requests are bounded;
+2. requests expire and fail closed;
+3. request IDs are single-use;
+4. one enrolled device identity must claim and complete a task;
+5. a different device cannot complete another device's request;
+6. response payload size is bounded;
+7. device responses are `Cache-Control: no-store`;
+8. device and remote-client credentials are separate authorities;
+9. a local sharing refusal is returned as a failure — there is no fallback memory source;
+10. the final remote grant still narrows the packet after local resolution.
+
+The device-facing prototype routes are:
+
+- `GET /v0/device/capabilities`;
+- `GET /v0/device/next`;
+- `POST /v0/device/complete`;
+- `POST /v0/device/fail`.
+
+`StaticRelayDeviceAuthorizer` is prototype-only. Production should enrol devices and issue revocable, rotated device credentials rather than long-lived static bearer tokens.
 
 Advantages:
 
 - canonical Memory Pages remain only on the user's device;
 - remote infrastructure does not need a memory decryption key;
 - the exact same local resolver runs;
-- easiest mode to prove safely.
+- no inbound connection or open port is required on Desktop;
+- relay unavailability cannot mutate or corrupt local memory.
 
 Trade-off:
 
 - the user's TOPO device must be online and connected.
 
-This should be the first end-to-end remote experiment.
+The next step for Mode A is not more memory logic. It is transport hardening: replace short polling with an authenticated long-poll/WebSocket/streaming session, add enrolment/revocation, and surface connection state in Desktop.
 
 ### Mode B — encrypted synced memory
 
@@ -178,7 +246,7 @@ remote context gateway contract
 resolver mode A or B
 ```
 
-This lets clients such as hosted agents use TOPO without making the Desktop loopback endpoint remotely reachable.
+This lets hosted agents use TOPO without making the Desktop loopback endpoint remotely reachable.
 
 Remote MCP should initially expose only:
 
@@ -195,26 +263,30 @@ For a mobile **Use my context** action, the app requests a bounded Context Packe
 
 For **Remember this**, mobile capture is a separate write path and must not be smuggled into the read grant.
 
+The online-device relay means the first mobile prototype can work without cloud memory sync while the user's Desktop TOPO is online.
+
 ## Threats this boundary is designed to contain
 
-- stolen bearer token — short lifetime and revocation in production;
+- stolen remote bearer token — short lifetime and revocation in production;
+- stolen device credential — separate device enrolment/revocation and no memory write authority;
 - token replay — production auth should support stronger client/session binding;
 - overscoped client — exact subjects/actions and a sensitivity ceiling;
 - gateway compromise — no review/write authority and, in Mode A, no canonical memory at rest;
 - accidental network exposure of Desktop — gateway never publishes the loopback endpoint;
 - broad profile injection — only purpose-bound context requests exist;
+- stale relay work — short expiry and one-time request IDs;
+- response substitution — only the device that claimed a task can complete it;
 - secondary use — grant/purpose metadata remains visible and auditable.
 
 ## Next prototype
 
-The next CE3 implementation step is an **online-device relay experiment**:
+With the request lifecycle now implemented, the next CE3 tranche is operational hardening:
 
-1. Desktop establishes an outbound authenticated connection to a relay;
-2. a remote context request arrives under a valid grant;
-3. relay forwards only the request envelope to the enrolled device;
-4. Desktop resolves context locally;
-5. response returns through the relay;
-6. relay retains no Memory Page store and no long-lived plaintext context cache;
-7. device disconnect/offline behaviour is explicit rather than silently falling back to a different memory source.
+1. move from one-shot polling to an authenticated long-lived outbound device session;
+2. add device enrolment, rotation and revocation contracts;
+3. surface relay connected/disconnected state and explicit remote-sharing consent in Desktop;
+4. add request/use audit events without logging Memory Page contents;
+5. test disconnect, timeout, duplicate-response, grant-revocation and lost-device scenarios;
+6. expose the read-only gateway through a small remote MCP adapter for hosted clients.
 
 Only after that works should TOPO prototype encrypted multi-device sync for offline remote retrieval.
