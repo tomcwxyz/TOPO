@@ -9,9 +9,8 @@ type TerrainFieldProps = {
   className?: string;
 };
 
-type DesktopStatus = {
-  total: number;
-  candidates: number;
+type MemoryPageSummary = {
+  status: "candidate" | "confirmed" | "rejected" | "superseded" | "expired";
 };
 
 type CaptureInboxStatus = {
@@ -130,13 +129,13 @@ export function TopoTerrainBridge() {
 
   const refreshCounts = useCallback(async () => {
     try {
-      const [desktop, capture] = await Promise.all([
-        invoke<DesktopStatus>("desktop_status"),
+      const [pages, capture] = await Promise.all([
+        invoke<MemoryPageSummary[]>("list_memory_pages", { status: null, query: null }),
         invoke<CaptureInboxStatus>("capture_inbox_status"),
       ]);
       setCounts({
-        total: desktop.total,
-        candidates: desktop.candidates,
+        total: pages.length,
+        candidates: pages.filter((page) => page.status === "candidate").length,
         captured: capture.pending,
       });
     } catch {
