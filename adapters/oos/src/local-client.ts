@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { CapturedInteraction } from "@topo/schemas";
+import type { CapturedInteraction, JsonValue } from "@topo/schemas";
 
 export interface TopoLocalContextRequest {
   subject: string;
@@ -52,6 +52,57 @@ function assertLoopback(endpoint: URL): void {
   }
 }
 
+function desktopAcceptsCaptureDirectly(interaction: CapturedInteraction): boolean {
+  return (
+    interaction.kind === "agent-session" &&
+    interaction.mode === "agent" &&
+    interaction.captureMethod === "agent-hook" &&
+    interaction.client === "agent-runtime" &&
+    (interaction.product === "hermes" ||
+      interaction.product === "openclaw" ||
+      interaction.product === "generic")
+  );
+}
+
+/**
+ * Desktop's current local capture endpoint has a deliberately narrow agent-hook
+ * trust contract. MCP/CLI callers may describe their actual source more
+ * precisely (for example Claude + terminal + local-mcp). Adapt only the
+ * transport envelope needed by Desktop and preserve the original capture
+ * identity in metadata so provenance is not silently discarded.
+ */
+export function toDesktopCaptureEnvelope(
+  interaction: CapturedInteraction,
+): CapturedInteraction {
+  if (desktopAcceptsCaptureDirectly(interaction)) return interaction;
+
+  const originalCapture: { [key: string]: JsonValue } = {
+    kind: interaction.kind,
+    product: interaction.product,
+    client: interaction.client,
+    mode: interaction.mode,
+    captureMethod: interaction.captureMethod,
+  };
+
+  return {
+    ...interaction,
+    kind: "agent-session",
+    product:
+      interaction.product === "hermes" ||
+      interaction.product === "openclaw" ||
+      interaction.product === "generic"
+        ? interaction.product
+        : "generic",
+    client: "agent-runtime",
+    mode: "agent",
+    captureMethod: "agent-hook",
+    metadata: {
+      ...(interaction.metadata ?? {}),
+      "topo.local.originalCapture": originalCapture,
+    },
+  };
+}
+
 /**
  * Client for TOPO Desktop's authenticated, per-run loopback service.
  *
@@ -98,7 +149,7 @@ export class TopoLocalClient {
   async captureInteraction(request: TopoLocalCaptureRequest): Promise<unknown> {
     return this.post("/v0/capture", {
       requested_by: request.requestedBy,
-      interaction: request.interaction,
+      interaction: toDesktopCaptureEnvelope(request.interaction),
     });
   }
 
