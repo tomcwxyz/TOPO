@@ -37,7 +37,7 @@ function readBody(request) {
   });
 }
 
-test("desktop context provider maps requests and narrows returned sensitivity", async () => {
+test("desktop context provider maps context, search and governed capture", async () => {
   const directory = mkdtempSync(join(tmpdir(), "topo-context-provider-"));
   const discoveryPath = join(directory, "oos-local.json");
   const seen = [];
@@ -117,6 +117,18 @@ test("desktop context provider maps requests and narrows returned sensitivity", 
       return;
     }
 
+    if (request.url === "/v0/capture") {
+      response.end(
+        JSON.stringify({
+          queued: true,
+          interactionId: body.interaction.id,
+          product: body.interaction.product,
+          turns: body.interaction.turns.length,
+        }),
+      );
+      return;
+    }
+
     response.statusCode = 404;
     response.end(JSON.stringify({ error: "not found" }));
   });
@@ -165,6 +177,39 @@ test("desktop context provider maps requests and narrows returned sensitivity", 
     assert.equal(search.results.length, 1);
     assert.equal(search.results[0].memoryPage.id, "ordinary-page");
 
+    const interaction = {
+      id: "interaction-1",
+      kind: "conversation",
+      product: "generic",
+      client: "terminal",
+      mode: "generic",
+      captureMethod: "local-mcp",
+      fidelity: "conversation-turns",
+      provider: "test-agent",
+      subject: "project:topo",
+      title: "Continue TOPO",
+      capturedAt: "2026-09-17T07:00:00.000Z",
+      turns: [
+        {
+          id: "turn-1",
+          role: "user",
+          content: "Continue implementing Context everywhere.",
+        },
+        {
+          id: "turn-2",
+          role: "assistant",
+          content: "Implemented the next tranche.",
+        },
+      ],
+      retention: "review-window",
+    };
+    const capture = await provider.captureInteraction({
+      interaction,
+      requestedBy: "test-client",
+    });
+    assert.equal(capture.queued, true);
+    assert.equal(capture.interactionId, "interaction-1");
+
     assert.deepEqual(seen[0], [
       "/v0/context",
       {
@@ -177,6 +222,10 @@ test("desktop context provider maps requests and narrows returned sensitivity", 
     assert.deepEqual(seen[1], [
       "/v0/search",
       { query: "MCP", requested_by: "test-client", limit: 10 },
+    ]);
+    assert.deepEqual(seen[2], [
+      "/v0/capture",
+      { requested_by: "test-client", interaction },
     ]);
   } finally {
     await close(server);
