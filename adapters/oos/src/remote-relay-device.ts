@@ -8,6 +8,7 @@ export interface RelayDeviceWorkerOptions {
   resolver: RemoteContextResolver;
   fetchImpl?: typeof fetch;
   now?: () => number;
+  longPollMs?: number;
 }
 
 export interface LocalTopoRelayWorkerOptions {
@@ -17,6 +18,7 @@ export interface LocalTopoRelayWorkerOptions {
   fetchImpl?: typeof fetch;
   localFetch?: typeof fetch;
   now?: () => number;
+  longPollMs?: number;
 }
 
 export interface RelayDeviceWorkResult {
@@ -25,8 +27,18 @@ export interface RelayDeviceWorkResult {
   status?: "completed" | "failed";
 }
 
+const DEFAULT_LONG_POLL_MS = 20_000;
+
 function join(base: string, path: string): URL {
   return new URL(path, `${base.replace(/\/$/, "")}/`);
+}
+
+function longPollMs(value: number | undefined): number {
+  const resolved = value ?? DEFAULT_LONG_POLL_MS;
+  if (!Number.isInteger(resolved) || resolved < 1 || resolved > 25_000) {
+    throw new Error("longPollMs must be an integer between 1 and 25000");
+  }
+  return resolved;
 }
 
 function isTask(value: unknown): value is RelayContextTask {
@@ -107,10 +119,8 @@ async function post(
 }
 
 /**
- * Service at most one relay task using an outbound request from the TOPO device.
- *
- * A scheduler/desktop lifecycle can call this repeatedly or replace polling with
- * a streaming transport later. The local resolver remains authoritative.
+ * Service at most one relay task using an outbound long-poll request from the
+ * TOPO device. The local resolver remains authoritative.
  */
 export async function serviceRelayOnce(
   options: RelayDeviceWorkerOptions,
@@ -120,7 +130,9 @@ export async function serviceRelayOnce(
   }
   const fetchImpl = options.fetchImpl ?? fetch;
   const clock = options.now ?? (() => Date.now());
-  const next = await fetchImpl(join(options.relayBaseUrl, "/v0/device/next"), {
+  const nextUrl = join(options.relayBaseUrl, "/v0/device/next");
+  nextUrl.searchParams.set("waitMs", String(longPollMs(options.longPollMs)));
+  const next = await fetchImpl(nextUrl, {
     method: "GET",
     headers: { Authorization: `Bearer ${options.deviceToken}` },
   });
@@ -189,5 +201,8 @@ export async function serviceLocalTopoRelayOnce(
     resolver: local,
     ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
     ...(options.now === undefined ? {} : { now: options.now }),
+    ...(options.longPollMs === undefined
+      ? {}
+      : { longPollMs: options.longPollMs }),
   });
 }
