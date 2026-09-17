@@ -35,9 +35,15 @@ type PendingRelayEntry = {
   timeout: ReturnType<typeof setTimeout>;
 };
 
+type RelayWaiter = {
+  resolve: (task: RelayContextTask | undefined) => void;
+  timeout: ReturnType<typeof setTimeout>;
+};
+
 const DEFAULT_REQUEST_TTL_MS = 20_000;
 const DEFAULT_MAX_PENDING = 32;
 const DEFAULT_MAX_RESPONSE_BYTES = 256 * 1024;
+const MAX_LONG_POLL_MS = 25_000;
 
 function iso(ms: number): string {
   return new Date(ms).toISOString();
@@ -79,6 +85,7 @@ export class InMemoryContextRelay implements RemoteContextResolver {
   private readonly now: () => number;
   private readonly requestId: () => string;
   private readonly pending = new Map<string, PendingRelayEntry>();
+  private readonly waiters = new Set<RelayWaiter>();
 
   constructor(options: InMemoryContextRelayOptions) {
     if (options.deviceId.trim().length === 0) {
@@ -151,6 +158,7 @@ export class InMemoryContextRelay implements RemoteContextResolver {
         reject,
         timeout,
       });
+      this.wakeOneWaiter();
     });
   }
 
@@ -165,6 +173,27 @@ export class InMemoryContextRelay implements RemoteContextResolver {
       return structuredClone(entry.task);
     }
     return undefined;
+  }
+
+  waitForNext(deviceId: string, waitMs: number): Promise<RelayContextTask | undefined> {
+    this.assertDevice(deviceId);
+    if (!Number.isInteger(waitMs) || waitMs < 1 || waitMs > MAX_LONG_POLL_MS) {
+      throw new Error(`waitMs must be between 1 and ${MAX_LONG_POLL_MS}`);
+    }
+
+    const immediate = this.claimNext(deviceId);
+    if (immediate !== undefined) return Promise.resolve(immediate);
+
+    return new Promise<RelayContextTask | undefined>((resolve) => {
+      const waiter: RelayWaiter = {
+        resolve,
+        timeout: setTimeout(() => {
+          this.waiters.delete(waiter);
+          resolve(undefined);
+        }, waitMs),
+      };
+      this.waiters.add(waiter);
+    });
   }
 
   complete(deviceId: string, requestId: string, packet: unknown): void {
@@ -200,11 +229,27 @@ export class InMemoryContextRelay implements RemoteContextResolver {
   }
 
   close(): void {
+    for (const waiter of this.waiters) {
+      clearTimeout(waiter.timeout);
+      waiter.resolve(undefined);
+    }
+    this.waiters.clear();
+
     for (const [id, entry] of this.pending.entries()) {
       clearTimeout(entry.timeout);
       entry.reject(new Error("TOPO remote relay closed before the device responded"));
       this.pending.delete(id);
     }
+  }
+
+  private wakeOneWaiter(): void {
+    const waiter = this.waiters.values().next().value as RelayWaiter | undefined;
+    if (waiter === undefined) return;
+    const task = this.claimNext(this.deviceId);
+    if (task === undefined) return;
+    clearTimeout(waiter.timeout);
+    this.waiters.delete(waiter);
+    waiter.resolve(task);
   }
 
   private assertDevice(deviceId: string): void {
