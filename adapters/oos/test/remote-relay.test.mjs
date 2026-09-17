@@ -51,6 +51,33 @@ test("online device relay resolves a remote request without persisting a packet"
   broker.close();
 });
 
+test("long-polling device is woken when a remote context request arrives", async () => {
+  const broker = relay();
+  const waiting = broker.waitForNext("device-home", 200);
+  await new Promise((resolve) => setImmediate(resolve));
+
+  const pending = broker.context(request());
+  const task = await waiting;
+  assert.ok(task);
+  assert.equal(task.id, "relay-test-1");
+  assert.equal(task.request.subject, "project:topo");
+
+  broker.complete("device-home", task.id, { ok: true });
+  assert.deepEqual(await pending, { ok: true });
+  broker.close();
+});
+
+test("long-polling returns no task at the bounded timeout", async () => {
+  const broker = relay();
+  assert.equal(await broker.waitForNext("device-home", 5), undefined);
+  assert.equal(broker.pendingCount(), 0);
+  assert.throws(
+    () => broker.waitForNext("device-home", 25_001),
+    /waitMs must be between 1 and 25000/,
+  );
+  broker.close();
+});
+
 test("relay tasks can only be claimed and completed by the registered device", async () => {
   const broker = relay();
   const pending = broker.context(request());
