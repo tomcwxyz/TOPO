@@ -1,0 +1,184 @@
+.topo-terrain-slot {
+  pointer-events: none;
+  position: absolute;
+  overflow: hidden;
+}
+
+.topo-terrain-slot--masthead {
+  z-index: -1;
+  top: -34px;
+  right: -26px;
+  width: min(48vw, 620px);
+  height: 320px;
+  opacity: .78;
+}
+
+.topo-terrain-slot--setup {
+  z-index: 0;
+  top: -90px;
+  right: -90px;
+  width: min(62vw, 760px);
+  height: 520px;
+  opacity: .5;
+}
+
+.topo-terrain-field {
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.topo-terrain-contours path {
+  fill: none;
+  stroke: var(--topo-moss);
+  stroke-width: .42;
+  vector-effect: non-scaling-stroke;
+  opacity: .42;
+}
+
+.topo-terrain-contours path:nth-child(2n) {
+  opacity: .28;
+}
+
+.topo-terrain-waypoints circle {
+  fill: var(--topo-paper);
+  stroke: var(--topo-moss-deep);
+  stroke-width: .65;
+  vector-effect: non-scaling-stroke;
+}
+
+.topo-mark {
+  display: block;
+  width: 72px;
+  height: 42px;
+  overflow: visible;
+}
+
+.topo-mark path,
+.topo-mark circle {
+  fill: none;
+  stroke: var(--topo-moss);
+  stroke-width: 1.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.topo-mark .topo-mark-trace {
+  stroke: var(--topo-line);
+}
+
+.topo-mark .topo-mark-waypoint {
+  fill: var(--topo-paper);
+  stroke: var(--topo-moss-deep);
+}
+
+.topo-mark--masthead {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.topo-mark--setup {
+  flex: 0 0 auto;
+  width: 54px;
+  height: 31px;
+}
+
+.topo-waypoint {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border: 1px solid var(--topo-moss);
+  border-radius: 50%;
+  background: var(--topo-paper);
+}
+
+.topo-trace {
+  display: inline-block;
+  width: 28px;
+  height: 1px;
+  background: var(--topo-line-soft);
+}
+
+.topo-family-signature {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--topo-ink-soft);
+  font-family: var(--topo-serif);
+  font-size: .78rem;
+  letter-spacing: -.01em;
+  white-space: nowrap;
+}
+
+.topo-family-signature > span {
+  color: var(--topo-line);
+  font-family: var(--topo-sans);
+  font-size: .62rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+/* Replace the first-pass CSS-generated marks with reusable SVG primitives. */
+.topbar::after,
+.topbar > div:first-child::before,
+.setup-shell::before,
+.setup-brand::before {
+  display: none !important;
+}
+
+.topbar > div:first-child {
+  padding-top: 56px;
+}
+
+.setup-shell > .topo-terrain-slot {
+  position: fixed;
+}
+
+.setup-card,
+.setup-shell > :not(.topo-terrain-slot) {
+  position: relative;
+  z-index: 1;
+}
+
+.setup-brand {
+  gap: 11px;
+}
+
+@media (max-width: 760px) {
+  .topo-terrain-slot--masthead {
+    top: -10px;
+    right: -120px;
+    width: 420px;
+    height: 260px;
+    opacity: .5;
+  }
+
+  .topbar > div:first-child {
+    padding-top: 48px;
+  }
+
+  .topo-mark--masthead {
+    width: 62px;
+    height: 36px;
+  }
+
+  .topo-terrain-slot--setup {
+    right: -220px;
+    width: 620px;
+    opacity: .34;
+  }
+
+  .topo-family-signature {
+    width: 100%;
+    margin-left: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .topo-terrain-field,
+  .topo-mark {
+    animation: none !important;
+    transition: none !important;
+  }
+}
