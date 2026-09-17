@@ -118,6 +118,14 @@ export function Trace({ className = "" }: { className?: string }) {
   return <span className={`topo-trace ${className}`.trim()} aria-hidden="true" />;
 }
 
+export function FamilySignature() {
+  return (
+    <span className="topo-family-signature">
+      <span>from</span> Good Ship
+    </span>
+  );
+}
+
 export function TopoTerrainBridge() {
   const [counts, setCounts] = useState({ total: 0, candidates: 0, captured: 0 });
   const [targets, setTargets] = useState<{
@@ -125,7 +133,8 @@ export function TopoTerrainBridge() {
     heading: Element | null;
     setup: Element | null;
     setupBrand: Element | null;
-  }>({ topbar: null, heading: null, setup: null, setupBrand: null });
+    footer: Element | null;
+  }>({ topbar: null, heading: null, setup: null, setupBrand: null, footer: null });
 
   const refreshCounts = useCallback(async () => {
     try {
@@ -150,6 +159,7 @@ export function TopoTerrainBridge() {
         heading: document.querySelector(".topbar > div:first-child"),
         setup: document.querySelector(".setup-shell"),
         setupBrand: document.querySelector(".setup-brand"),
+        footer: document.querySelector(".app-shell > footer"),
       });
     };
 
@@ -187,6 +197,7 @@ export function TopoTerrainBridge() {
           targets.setup,
         )}
       {targets.setupBrand && createPortal(<TopoMark className="topo-mark--setup" />, targets.setupBrand)}
+      {targets.footer && createPortal(<FamilySignature />, targets.footer)}
     </>
   );
 }
