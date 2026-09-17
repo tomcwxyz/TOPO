@@ -19,6 +19,10 @@
     "./remote-gateway": {
       "types": "./dist/remote-gateway.d.ts",
       "default": "./dist/remote-gateway.js"
+    },
+    "./remote-relay": {
+      "types": "./dist/remote-relay.d.ts",
+      "default": "./dist/remote-relay.js"
     }
   },
   "scripts": {
