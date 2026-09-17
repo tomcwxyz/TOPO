@@ -91,7 +91,9 @@ async function post(handler, body, authorization = `Bearer ${token}`) {
     new Request("https://gateway.example/v0/context", {
       method: "POST",
       headers: {
-        ...(authorization === undefined ? {} : { Authorization: authorization }),
+        ...(typeof authorization === "string"
+          ? { Authorization: authorization }
+          : {}),
         "Content-Type": "application/json",
       },
       body: JSON.stringify(body),
@@ -134,7 +136,7 @@ test("remote gateway rejects missing, wrong and expired authorisation", async ()
   const missingResponse = await post(
     missing.handler,
     { subject: "project:topo", purpose: "test" },
-    undefined,
+    null,
   );
   assert.equal(missingResponse.status, 401);
   assert.equal(missing.requests.length, 0);
