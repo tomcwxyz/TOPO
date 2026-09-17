@@ -4,7 +4,7 @@ TOPO exposes governed context to MCP-compatible AI clients without giving those 
 
 The implementation uses the MCP TypeScript SDK v2 and stdio transport.
 
-Memory Page retrieval now follows the same principle as the RACK/OOS bridge:
+Memory Page retrieval follows the same principle as the RACK/OOS bridge:
 
 ```text
 TOPO Memory Pages
@@ -30,9 +30,10 @@ When TOPO Desktop is running, the normal MCP surface includes:
 
 | Tool | Purpose |
 | --- | --- |
-| `topo_capabilities` | Report authority, sensitivity, context mode and transport policy |
+| `topo_capabilities` | Report authority, sensitivity, context mode, capture support and transport policy |
 | `topo_context` | Resolve a small purpose-bound Context Packet from governed Memory Pages |
 | `topo_search_pages` | Search confirmed, currently-valid Memory Pages |
+| `topo_capture_interaction` | Queue a completed interaction into TOPO's governed capture inbox |
 | `topo_propose_claims` | Legacy/structured compatibility: add candidate claims |
 | `topo_search` | Legacy/structured compatibility: search confirmed claims |
 | `topo_get_claim` | Legacy/structured compatibility: read one confirmed claim |
@@ -41,7 +42,9 @@ When TOPO Desktop is running, the normal MCP surface includes:
 
 There is deliberately no `store confirmed fact` tool.
 
-For ordinary AI work, clients should prefer `topo_context` when they can describe the current purpose/task. `topo_search_pages` is useful for explicit lookup. The claim-shaped tools remain compatibility/advanced interfaces while the representation migration finishes.
+For ordinary AI work, clients should prefer `topo_context` when they can describe the current purpose/task. `topo_search_pages` is useful for explicit lookup. `topo_capture_interaction` sends source material through TOPO's normal capture → extraction → review path; it does not create durable memory directly.
+
+The claim-shaped tools remain compatibility/advanced interfaces while the representation migration finishes.
 
 ## Desktop context bridge
 
@@ -53,15 +56,17 @@ For ordinary AI work, clients should prefer `topo_context` when they can describ
 
 The discovery file contains a loopback endpoint and per-run bearer token. MCP refuses a discovery endpoint that resolves away from loopback.
 
-Memory Page tools delegate to Desktop's `/v0/context` and `/v0/search` routes, so MCP inherits the canonical page-first resolver rather than reading/interpreting Memory Pages directly from SQLite.
+Memory Page tools delegate to Desktop's `/v0/context` and `/v0/search` routes. Interaction capture delegates to `/v0/capture`. This means MCP inherits the canonical resolver and capture inbox rather than reading/interpreting Memory Pages or writing captures directly to SQLite.
 
-Before an AI client can retrieve context:
+TOPO Desktop keeps local permissions separate:
 
-1. TOPO Desktop must be running;
-2. **Share context** must be enabled in TOPO Desktop for the current session;
-3. the requested context must pass TOPO's governance/relevance rules.
+1. **Share context** — permits purpose-bound retrieval;
+2. **Capture interactions** — permits completed interactions to enter the capture inbox;
+3. **Accept contributions** — separately governs explicit memory proposals.
 
-If Desktop is closed or sharing is disabled, the MCP context tool returns an explicit error rather than silently falling back to a broad profile or ungoverned store read.
+Enabling one does not imply another, and the permissions reset when Desktop restarts.
+
+If Desktop is closed or a required permission is disabled, the MCP tool returns an explicit error rather than silently bypassing TOPO's governance boundary.
 
 A custom discovery path may be supplied with:
 
@@ -87,6 +92,34 @@ A typical request is conceptually:
 TOPO applies sharing authority, review state, sensitivity, temporal validity, subject scope, task relevance, freshness and context budget before returning a compact Context Packet with Memory Page/revision/source provenance.
 
 Do not use MCP to inject every Memory Page into every prompt. The useful contract is **the smallest authorised context that materially helps the current task**.
+
+## Interaction capture
+
+`topo_capture_interaction` accepts TOPO's normal `CapturedInteraction` contract. A minimal shape is:
+
+```json
+{
+  "interaction": {
+    "id": "interaction-123",
+    "kind": "conversation",
+    "product": "generic",
+    "client": "terminal",
+    "mode": "generic",
+    "captureMethod": "local-mcp",
+    "fidelity": "conversation-turns",
+    "provider": "my-agent",
+    "subject": "project:topo",
+    "capturedAt": "2026-09-17T07:00:00.000Z",
+    "turns": [
+      { "id": "u1", "role": "user", "content": "Continue the TOPO work." },
+      { "id": "a1", "role": "assistant", "content": "Implemented the next tranche." }
+    ],
+    "retention": "review-window"
+  }
+}
+```
+
+The interaction is queued only when **Capture interactions** is enabled in Desktop. TOPO then decides what, if anything, is worth proposing as a Memory Page. A successful capture can legitimately result in no durable memory.
 
 ## Review delegation
 
@@ -114,7 +147,7 @@ This adds:
 
 Events produced through this path are recorded with a user actor ID of `mcp-review-delegation`, making the delegation visible in history.
 
-This delegation does **not** currently grant Memory Page review authority. A page-first contribution/review surface will be added separately so an AI client cannot acquire durable page-confirmation authority merely because it can retrieve context.
+This delegation does **not** grant Memory Page review authority. A page-first contribution/review surface will be added separately so an AI client cannot acquire durable page-confirmation authority merely because it can retrieve context or capture interactions.
 
 ## Sensitivity
 
@@ -176,25 +209,137 @@ TOPO deliberately does not expose a `memory://profile` equivalent.
 
 A full-profile resource encourages broad context injection and weakens purpose/sensitivity boundaries. Clients should ask `topo_context` for the current task, or use `topo_search_pages` for an explicit lookup.
 
-## Example client configuration
+## Build before connecting clients
 
-After building the repository, an MCP host can launch:
+From the repository root:
+
+```bash
+npm ci
+npm run build --workspace @topo/schemas
+npm run build --workspace @topo/core
+npm run build --workspace @topo/store
+npm run build --workspace @topo/store-node
+npm run build --workspace @topo/mcp
+npm run build --workspace @topo/mcp-server
+```
+
+Then use the absolute path to:
+
+```text
+/path/to/TOPO/apps/mcp/dist/index.js
+```
+
+TOPO Desktop must be running for Memory Page context/search/capture.
+
+## Codex CLI
+
+Codex supports local stdio MCP servers through `codex mcp add` and stores configuration in `~/.codex/config.toml` or project `.codex/config.toml`.
+
+Add TOPO:
+
+```bash
+codex mcp add topo -- node /absolute/path/to/TOPO/apps/mcp/dist/index.js
+```
+
+Verify:
+
+```bash
+codex mcp list
+```
+
+For a context-only default, use `config.toml` to allow only the retrieval tools:
+
+```toml
+[mcp_servers.topo]
+command = "node"
+args = ["/absolute/path/to/TOPO/apps/mcp/dist/index.js"]
+enabled_tools = ["topo_capabilities", "topo_context", "topo_search_pages"]
+default_tools_approval_mode = "prompt"
+```
+
+Add `topo_capture_interaction` to `enabled_tools` only when you want Codex sessions to be able to submit completed interactions to TOPO. Desktop's **Capture interactions** permission remains the final gate.
+
+## Claude Code
+
+Claude Code supports local stdio MCP servers with `claude mcp add`.
+
+User-scoped example:
+
+```bash
+claude mcp add --transport stdio --scope user topo -- \
+  node /absolute/path/to/TOPO/apps/mcp/dist/index.js
+```
+
+Verify:
+
+```bash
+claude mcp list
+```
+
+Inside Claude Code, `/mcp` shows the connected server and its tools. Keep **Capture interactions** disabled in TOPO Desktop unless you want capture available; context retrieval continues to use the separate **Share context** permission.
+
+## Gemini CLI
+
+Gemini CLI supports local stdio MCP servers through `gemini mcp add` or the `mcpServers` object in `settings.json`.
+
+A conservative user-scoped setup that exposes only TOPO retrieval tools:
+
+```bash
+gemini mcp add --scope user \
+  --include-tools topo_capabilities,topo_context,topo_search_pages \
+  topo node /absolute/path/to/TOPO/apps/mcp/dist/index.js
+```
+
+Verify:
+
+```bash
+gemini mcp list
+```
+
+Equivalent `~/.gemini/settings.json` configuration:
 
 ```json
 {
-  "command": "node",
-  "args": ["/path/to/TOPO/apps/mcp/dist/index.js"]
+  "mcpServers": {
+    "topo": {
+      "command": "node",
+      "args": ["/absolute/path/to/TOPO/apps/mcp/dist/index.js"],
+      "includeTools": [
+        "topo_capabilities",
+        "topo_context",
+        "topo_search_pages"
+      ],
+      "trust": false
+    }
+  }
 }
 ```
 
-For non-default paths, add `--store` and/or `--discovery` to `args`.
+Add `topo_capture_interaction` only when capture is desired. Leaving `trust` false keeps Gemini's normal tool confirmation boundary as an additional layer.
 
-The normal flow is then:
+## Direct CLI use without MCP
+
+Scripts that do not host MCP can now ask the running Desktop resolver directly:
+
+```bash
+topo context \
+  --subject project:topo \
+  --purpose "Continue the implementation" \
+  --query "MCP mobile context" \
+  --max-items 8
+```
+
+This uses the same Desktop discovery file, bearer token and `/v0/context` resolver as MCP. It therefore requires TOPO Desktop to be running with **Share context** enabled.
+
+`topo oos context` remains available as a legacy structured-claim compatibility command; new integrations should use `topo context` or MCP.
+
+## Recommended local flow
 
 1. launch TOPO Desktop;
 2. enable **Share context**;
-3. start/use the MCP client;
-4. allow the client to call `topo_context` for relevant tasks;
-5. keep durable memory review in TOPO unless review authority has been explicitly delegated.
+3. optionally enable **Capture interactions** if you want the AI client to feed completed work back into TOPO;
+4. start/use the MCP client or `topo context`;
+5. let the client request bounded context for relevant tasks;
+6. review proposed Memory Pages in TOPO rather than granting silent durable memory writes.
 
 Do not put API keys, encryption keys or other secrets in TOPO MCP arguments unless a future feature explicitly documents a safe mechanism for them.
