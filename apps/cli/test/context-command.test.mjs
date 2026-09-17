@@ -61,7 +61,7 @@ test("topo context delegates purpose-bound retrieval to TOPO Desktop", async () 
       subject: "project:topo",
       purpose: "continue implementation",
       query: "MCP mobile",
-      requester: "codex",
+      requestedBy: "codex",
       maxItems: 7,
     },
   ]);
