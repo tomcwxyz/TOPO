@@ -37,6 +37,14 @@ async function body(request: Request): Promise<Record<string, unknown> | undefin
   }
 }
 
+function waitMsFrom(url: URL): number | undefined | "invalid" {
+  const raw = url.searchParams.get("waitMs");
+  if (raw === null) return undefined;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 1 || value > 25_000) return "invalid";
+  return value;
+}
+
 /**
  * Device-facing side of the CE3 relay experiment.
  *
@@ -60,15 +68,23 @@ export function createRelayDeviceHandler(
       return json({
         protocol: "topo.remote-relay-device/0.1",
         deviceId: identity.deviceId,
-        actions: ["poll", "complete", "fail"],
+        actions: ["poll", "long-poll", "complete", "fail"],
+        maxLongPollMs: 25_000,
         memoryStorage: false,
         inboundDesktopConnectionRequired: false,
       });
     }
 
     if (request.method === "GET" && url.pathname === "/v0/device/next") {
+      const waitMs = waitMsFrom(url);
+      if (waitMs === "invalid") {
+        return json({ error: "waitMs must be an integer between 1 and 25000" }, 400);
+      }
       try {
-        const task = options.relay.claimNext(identity.deviceId);
+        const task =
+          waitMs === undefined
+            ? options.relay.claimNext(identity.deviceId)
+            : await options.relay.waitForNext(identity.deviceId, waitMs);
         if (task === undefined) {
           return new Response(null, {
             status: 204,
