@@ -1,7 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import type { EditCandidatePatch } from "@topo/core";
-import type { JsonValue } from "@topo/schemas";
+import {
+  capturedInteractionSchema,
+  type CapturedInteraction,
+  type JsonValue,
+} from "@topo/schemas";
 import { TopoMcpService } from "./service.js";
 
 export interface TopoContextRequest {
@@ -19,16 +23,25 @@ export interface TopoPageSearchRequest {
   requestedBy?: string;
 }
 
+export interface TopoCaptureRequest {
+  interaction: CapturedInteraction;
+  requestedBy?: string;
+}
+
 /**
  * A context provider deliberately sits above TOPO's persistence representation.
  * The preferred implementation delegates to the running TOPO Desktop resolver,
  * so MCP, RACK and local agent adapters all share one governance/retrieval path.
+ *
+ * Capture is optional because it requires a separate, explicit Desktop session
+ * permission. A context-capable client must not silently gain capture authority.
  */
 export interface TopoContextProvider {
   readonly mode: "memory-pages";
   readonly transport: string;
   context(request: TopoContextRequest): Promise<unknown>;
   searchPages(request: TopoPageSearchRequest): Promise<unknown>;
+  captureInteraction?(request: TopoCaptureRequest): Promise<unknown>;
 }
 
 const epistemicType = z.enum([
@@ -96,7 +109,7 @@ export function createTopoMcpServer(
     "topo_capabilities",
     {
       description:
-        "Show this TOPO connection's memory authority, sensitivity ceiling, context mode and transport policy.",
+        "Show this TOPO connection's memory authority, sensitivity ceiling, context mode, capture support and transport policy.",
       inputSchema: z.object({}),
     },
     async () =>
@@ -104,6 +117,7 @@ export function createTopoMcpServer(
         ...service.capabilities(),
         contextMode: contextProvider?.mode ?? "legacy-claims",
         contextTransport: contextProvider?.transport ?? null,
+        interactionCapture: contextProvider?.captureInteraction !== undefined,
       }),
   );
 
@@ -167,6 +181,31 @@ export function createTopoMcpServer(
         }
       },
     );
+
+    if (contextProvider.captureInteraction !== undefined) {
+      server.registerTool(
+        "topo_capture_interaction",
+        {
+          description:
+            "Submit a completed AI interaction to TOPO's governed capture inbox. This queues source material for TOPO extraction/review; it does not directly create confirmed memory.",
+          inputSchema: z.object({
+            interaction: capturedInteractionSchema,
+          }),
+        },
+        async ({ interaction }) => {
+          try {
+            return result(
+              await contextProvider.captureInteraction?.({
+                interaction,
+                requestedBy: "topo-mcp",
+              }),
+            );
+          } catch (error) {
+            return failure(error);
+          }
+        },
+      );
+    }
   }
 
   server.registerTool(
