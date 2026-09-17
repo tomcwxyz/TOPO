@@ -1,19 +1,11 @@
-import { readFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
 import type {
   TopoCaptureRequest,
   TopoContextProvider,
   TopoContextRequest,
   TopoPageSearchRequest,
 } from "@topo/mcp";
+import { TopoLocalClient } from "@topo/oos/local-client";
 import type { Sensitivity } from "@topo/schemas";
-
-interface DiscoveryFile {
-  protocol: string;
-  endpoint: string;
-  token: string;
-}
 
 const sensitivityRank: Record<Sensitivity, number> = {
   ordinary: 0,
@@ -131,58 +123,42 @@ function filterPageSearch(value: unknown, ceiling: Sensitivity): unknown {
   };
 }
 
-function assertLoopback(endpoint: URL): void {
-  const host = endpoint.hostname.toLowerCase();
-  if (
-    host !== "127.0.0.1" &&
-    host !== "localhost" &&
-    host !== "[::1]" &&
-    host !== "::1"
-  ) {
-    throw new Error(
-      `TOPO Desktop discovery resolved to non-loopback host ${endpoint.hostname}; refusing connection`,
-    );
-  }
-}
-
 export class LocalDesktopContextProvider implements TopoContextProvider {
   readonly mode = "memory-pages" as const;
   readonly transport = "desktop-loopback";
 
-  private readonly discoveryPath: string;
+  private readonly client: TopoLocalClient;
   private readonly maxSensitivity: Sensitivity;
 
   constructor(options: {
     discoveryPath?: string;
     maxSensitivity: Sensitivity;
   }) {
-    this.discoveryPath = resolve(
-      options.discoveryPath ??
-        process.env.TOPO_LOCAL_DISCOVERY ??
-        join(homedir(), ".topo", "oos-local.json"),
-    );
+    this.client = new TopoLocalClient({
+      ...(options.discoveryPath === undefined
+        ? {}
+        : { discoveryPath: options.discoveryPath }),
+    });
     this.maxSensitivity = options.maxSensitivity;
   }
 
   async context(request: TopoContextRequest): Promise<unknown> {
-    const value = await this.post("/v0/context", {
+    const value = await this.client.context({
       subject: request.subject,
       purpose: request.purpose,
-      requested_by: request.requestedBy ?? "topo-mcp",
-      wanted: {
-        ...(request.query === undefined ? {} : { query: request.query }),
-        ...(request.maxItems === undefined
-          ? {}
-          : { max_items: request.maxItems }),
-      },
+      requestedBy: request.requestedBy ?? "topo-mcp",
+      ...(request.query === undefined ? {} : { query: request.query }),
+      ...(request.maxItems === undefined
+        ? {}
+        : { maxItems: request.maxItems }),
     });
     return filterContextPacket(value, this.maxSensitivity);
   }
 
   async searchPages(request: TopoPageSearchRequest): Promise<unknown> {
-    const value = await this.post("/v0/search", {
+    const value = await this.client.searchPages({
       query: request.query,
-      requested_by: request.requestedBy ?? "topo-mcp",
+      requestedBy: request.requestedBy ?? "topo-mcp",
       ...(request.category === undefined ? {} : { category: request.category }),
       ...(request.limit === undefined ? {} : { limit: request.limit }),
     });
@@ -190,81 +166,9 @@ export class LocalDesktopContextProvider implements TopoContextProvider {
   }
 
   async captureInteraction(request: TopoCaptureRequest): Promise<unknown> {
-    return this.post("/v0/capture", {
-      requested_by: request.requestedBy ?? "topo-mcp",
+    return this.client.captureInteraction({
+      requestedBy: request.requestedBy ?? "topo-mcp",
       interaction: request.interaction,
     });
-  }
-
-  private discovery(): DiscoveryFile {
-    let raw: string;
-    try {
-      raw = readFileSync(this.discoveryPath, "utf8");
-    } catch {
-      throw new Error(
-        `TOPO Desktop is not discoverable at ${this.discoveryPath}. Open TOPO Desktop and enable the relevant local permission.`,
-      );
-    }
-
-    const value: unknown = JSON.parse(raw);
-    if (
-      !isRecord(value) ||
-      typeof value.protocol !== "string" ||
-      typeof value.endpoint !== "string" ||
-      typeof value.token !== "string"
-    ) {
-      throw new Error("TOPO Desktop discovery file is invalid");
-    }
-    if (value.protocol !== "oos-local/0.1") {
-      throw new Error(`Unsupported TOPO Desktop protocol: ${value.protocol}`);
-    }
-    return {
-      protocol: value.protocol,
-      endpoint: value.endpoint,
-      token: value.token,
-    };
-  }
-
-  private async post(path: string, body: unknown): Promise<unknown> {
-    const discovery = this.discovery();
-    const base = new URL(discovery.endpoint);
-    assertLoopback(base);
-    const url = new URL(path, `${base.toString().replace(/\/$/, "")}/`);
-    assertLoopback(url);
-
-    let response: Response;
-    try {
-      response = await fetch(url, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${discovery.token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(body),
-      });
-    } catch (error) {
-      throw new Error(
-        `Could not reach TOPO Desktop: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-
-    const text = await response.text();
-    let value: unknown = {};
-    if (text.trim().length > 0) {
-      try {
-        value = JSON.parse(text);
-      } catch {
-        throw new Error(`TOPO Desktop returned invalid JSON (${response.status})`);
-      }
-    }
-
-    if (!response.ok) {
-      const detail =
-        isRecord(value) && typeof value.error === "string"
-          ? value.error
-          : `HTTP ${response.status}`;
-      throw new Error(`TOPO Desktop local request failed: ${detail}`);
-    }
-    return value;
   }
 }
