@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import type {
+  TopoCaptureRequest,
   TopoContextProvider,
   TopoContextRequest,
   TopoPageSearchRequest,
@@ -132,7 +133,12 @@ function filterPageSearch(value: unknown, ceiling: Sensitivity): unknown {
 
 function assertLoopback(endpoint: URL): void {
   const host = endpoint.hostname.toLowerCase();
-  if (host !== "127.0.0.1" && host !== "localhost" && host !== "[::1]" && host !== "::1") {
+  if (
+    host !== "127.0.0.1" &&
+    host !== "localhost" &&
+    host !== "[::1]" &&
+    host !== "::1"
+  ) {
     throw new Error(
       `TOPO Desktop discovery resolved to non-loopback host ${endpoint.hostname}; refusing connection`,
     );
@@ -183,13 +189,20 @@ export class LocalDesktopContextProvider implements TopoContextProvider {
     return filterPageSearch(value, this.maxSensitivity);
   }
 
+  async captureInteraction(request: TopoCaptureRequest): Promise<unknown> {
+    return this.post("/v0/capture", {
+      requested_by: request.requestedBy ?? "topo-mcp",
+      interaction: request.interaction,
+    });
+  }
+
   private discovery(): DiscoveryFile {
     let raw: string;
     try {
       raw = readFileSync(this.discoveryPath, "utf8");
     } catch {
       throw new Error(
-        `TOPO Desktop is not discoverable at ${this.discoveryPath}. Open TOPO Desktop and enable Share context.`,
+        `TOPO Desktop is not discoverable at ${this.discoveryPath}. Open TOPO Desktop and enable the relevant local permission.`,
       );
     }
 
@@ -250,7 +263,7 @@ export class LocalDesktopContextProvider implements TopoContextProvider {
         isRecord(value) && typeof value.error === "string"
           ? value.error
           : `HTTP ${response.status}`;
-      throw new Error(`TOPO Desktop context request failed: ${detail}`);
+      throw new Error(`TOPO Desktop local request failed: ${detail}`);
     }
     return value;
   }
