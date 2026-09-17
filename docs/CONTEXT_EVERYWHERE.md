@@ -63,9 +63,9 @@ Desktop keeps **Share context**, **Capture interactions** and **Accept contribut
 
 ### CLI and agent tools
 
-Tools such as coding CLIs should prefer MCP when they already support it. Codex CLI, Claude Code and Gemini CLI can all launch TOPO as a local stdio MCP server; tested configuration examples live in [MCP](MCP.md).
+Tools such as coding CLIs should prefer MCP when they already support it. Codex CLI, Claude Code and Gemini CLI can all launch TOPO as a local stdio MCP server; current configuration examples live in [MCP](MCP.md).
 
-Scripts and tools that do not host MCP can use the first-class CLI command:
+Scripts and tools that do not host MCP can use the first-class context command:
 
 ```bash
 topo context \
@@ -75,6 +75,20 @@ topo context \
 ```
 
 `topo context` discovers the running Desktop app and requests the same `/v0/context` Context Packet used by MCP and RACK. `topo oos context` remains as a claim-based compatibility path.
+
+A captured interaction can also be submitted explicitly for testing or non-MCP integrations:
+
+```bash
+topo capture interaction.json
+```
+
+or from stdin:
+
+```bash
+cat interaction.json | topo capture -
+```
+
+The input must satisfy TOPO's `CapturedInteraction` contract. The command calls the same `/v0/capture` endpoint as MCP, so **Capture interactions** must be enabled in Desktop and the interaction still flows through extraction and human review rather than becoming memory directly.
 
 Native agent adapters may continue to use the local `/v0/context`, `/v0/search` and `/v0/capture` endpoints directly.
 
@@ -102,12 +116,12 @@ TOPO complements an agent's own short-lived memory; it does not replace it or mi
 
 ### Capture is not memory authority
 
-The new MCP capture route deliberately accepts a **completed interaction**, not a finished memory page.
+The MCP and CLI capture routes deliberately accept a **completed interaction**, not a finished memory page.
 
 ```text
 AI interaction
       │
-      │ topo_capture_interaction
+      │ topo_capture_interaction / topo capture
       ▼
 Desktop /v0/capture
       │
@@ -234,6 +248,7 @@ Status: **implemented; live-client dogfooding next**.
 - [x] expose context mode/transport in capabilities;
 - [x] keep MCP stdio-only;
 - [x] apply MCP sensitivity as a final narrowing boundary;
+- [x] extract one shared authenticated loopback client for CLI/MCP adapters;
 - [x] integration-test the Desktop discovery/loopback bridge with a local fixture;
 - [x] document current configuration snippets for Codex, Claude Code and Gemini CLI;
 - [x] add direct `topo context` CLI access to the Desktop resolver;
@@ -245,6 +260,7 @@ Status: **interaction capture implemented; page-first explicit contribution rema
 
 - [x] expose `topo_capture_interaction` through MCP using Desktop's capture permission;
 - [x] route MCP capture through the existing capture inbox rather than durable memory writes;
+- [x] add `topo capture` for direct capture-path testing and non-MCP scripts;
 - [x] retain a separate Desktop permission boundary for capture;
 - [ ] replace claim-shaped `topo_propose_claims` as the primary contribution path with `topo_propose_memory` / captured-source workflows;
 - [ ] retain structured claim proposal only for explicit annotation use;
