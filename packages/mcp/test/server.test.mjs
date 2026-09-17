@@ -56,6 +56,7 @@ test("default MCP tool surface is proposal-first", async () => {
     assert.equal(names.includes("topo_propose_claims"), true);
     assert.equal(names.includes("topo_search"), true);
     assert.equal(names.includes("topo_context"), false);
+    assert.equal(names.includes("topo_capture_interaction"), false);
     assert.equal(names.includes("topo_confirm_candidate"), false);
     assert.equal(names.includes("topo_reject_candidate"), false);
     assert.equal(names.includes("topo_edit_candidate"), false);
@@ -87,7 +88,7 @@ test("default MCP tool surface is proposal-first", async () => {
   }
 });
 
-test("Memory Page context tools delegate to a context provider", async () => {
+test("Memory Page context and capture tools delegate to a context provider", async () => {
   const requests = [];
   const contextProvider = {
     mode: "memory-pages",
@@ -108,6 +109,13 @@ test("Memory Page context tools delegate to a context provider", async () => {
       requests.push(["search", request]);
       return { representation: "memory-page", results: [] };
     },
+    async captureInteraction(request) {
+      requests.push(["capture", request]);
+      return {
+        queued: true,
+        interactionId: request.interaction.id,
+      };
+    },
   };
   const testHarness = await harness({}, contextProvider);
 
@@ -116,6 +124,7 @@ test("Memory Page context tools delegate to a context provider", async () => {
     const names = listed.tools.map((tool) => tool.name);
     assert.equal(names.includes("topo_context"), true);
     assert.equal(names.includes("topo_search_pages"), true);
+    assert.equal(names.includes("topo_capture_interaction"), true);
 
     const capabilities = textResult(
       await testHarness.client.callTool({
@@ -125,6 +134,7 @@ test("Memory Page context tools delegate to a context provider", async () => {
     );
     assert.equal(capabilities.contextMode, "memory-pages");
     assert.equal(capabilities.contextTransport, "test-provider");
+    assert.equal(capabilities.interactionCapture, true);
 
     const context = textResult(
       await testHarness.client.callTool({
@@ -158,6 +168,47 @@ test("Memory Page context tools delegate to a context provider", async () => {
       {
         query: "portable memory",
         limit: 5,
+        requestedBy: "topo-mcp",
+      },
+    ]);
+
+    const interaction = {
+      id: "interaction-1",
+      kind: "conversation",
+      product: "generic",
+      client: "terminal",
+      mode: "generic",
+      captureMethod: "local-mcp",
+      fidelity: "conversation-turns",
+      provider: "test-agent",
+      subject: "project:topo",
+      title: "TOPO implementation",
+      capturedAt: "2026-09-17T07:00:00.000Z",
+      turns: [
+        {
+          id: "turn-1",
+          role: "user",
+          content: "Continue implementing TOPO.",
+        },
+        {
+          id: "turn-2",
+          role: "assistant",
+          content: "Implemented the next tranche.",
+        },
+      ],
+      retention: "review-window",
+    };
+    const capture = textResult(
+      await testHarness.client.callTool({
+        name: "topo_capture_interaction",
+        arguments: { interaction },
+      }),
+    );
+    assert.equal(capture.queued, true);
+    assert.deepEqual(requests[2], [
+      "capture",
+      {
+        interaction,
         requestedBy: "topo-mcp",
       },
     ]);
