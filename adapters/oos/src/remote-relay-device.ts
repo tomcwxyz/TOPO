@@ -7,6 +7,7 @@ export interface RelayDeviceWorkerOptions {
   deviceToken: string;
   resolver: RemoteContextResolver;
   fetchImpl?: typeof fetch;
+  now?: () => number;
 }
 
 export interface LocalTopoRelayWorkerOptions {
@@ -15,6 +16,7 @@ export interface LocalTopoRelayWorkerOptions {
   discoveryPath?: string;
   fetchImpl?: typeof fetch;
   localFetch?: typeof fetch;
+  now?: () => number;
 }
 
 export interface RelayDeviceWorkResult {
@@ -117,6 +119,7 @@ export async function serviceRelayOnce(
     throw new Error("deviceToken is required");
   }
   const fetchImpl = options.fetchImpl ?? fetch;
+  const clock = options.now ?? (() => Date.now());
   const next = await fetchImpl(join(options.relayBaseUrl, "/v0/device/next"), {
     method: "GET",
     headers: { Authorization: `Bearer ${options.deviceToken}` },
@@ -131,7 +134,7 @@ export async function serviceRelayOnce(
   if (!isTask(value)) {
     throw new Error("TOPO relay returned an invalid device task");
   }
-  if (Date.now() >= Date.parse(value.expiresAt)) {
+  if (clock() >= Date.parse(value.expiresAt)) {
     throw new Error("TOPO relay returned an expired device task");
   }
 
@@ -185,5 +188,6 @@ export async function serviceLocalTopoRelayOnce(
     deviceToken: options.deviceToken,
     resolver: local,
     ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
+    ...(options.now === undefined ? {} : { now: options.now }),
   });
 }
