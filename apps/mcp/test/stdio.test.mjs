@@ -30,6 +30,7 @@ test("stdio server negotiates MCP and exposes safe default capabilities", async 
     const names = tools.tools.map((tool) => tool.name);
     assert.equal(names.includes("topo_context"), true);
     assert.equal(names.includes("topo_search_pages"), true);
+    assert.equal(names.includes("topo_capture_interaction"), true);
     assert.equal(names.includes("topo_propose_claims"), true);
     assert.equal(names.includes("topo_confirm_candidate"), false);
 
@@ -46,6 +47,7 @@ test("stdio server negotiates MCP and exposes safe default capabilities", async 
     assert.equal(parsed.transport, "stdio");
     assert.equal(parsed.contextMode, "memory-pages");
     assert.equal(parsed.contextTransport, "desktop-loopback");
+    assert.equal(parsed.interactionCapture, true);
 
     const context = await client.callTool({
       name: "topo_context",
