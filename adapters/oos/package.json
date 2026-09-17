@@ -36,6 +36,10 @@
       "types": "./dist/remote-relay-device.d.ts",
       "default": "./dist/remote-relay-device.js"
     },
+    "./remote-relay-session": {
+      "types": "./dist/remote-relay-session.d.ts",
+      "default": "./dist/remote-relay-session.js"
+    },
     "./remote-device-registry": {
       "types": "./dist/remote-device-registry.d.ts",
       "default": "./dist/remote-device-registry.js"
