@@ -16,6 +16,10 @@
       "types": "./dist/local-client.d.ts",
       "default": "./dist/local-client.js"
     },
+    "./remote-client": {
+      "types": "./dist/remote-client.d.ts",
+      "default": "./dist/remote-client.js"
+    },
     "./remote-gateway": {
       "types": "./dist/remote-gateway.d.ts",
       "default": "./dist/remote-gateway.js"
