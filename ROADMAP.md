@@ -8,7 +8,7 @@ What changes is the durable thing TOPO is trying to create.
 
 The primary durable memory object is now a **Memory Page**: a short, coherent, human-readable piece of context with governance metadata and traceable evidence. Claims remain available as optional structured annotations where structure materially helps, but TOPO should no longer atomise all useful memory into claims by default.
 
-See [Memory architecture](docs/MEMORY_ARCHITECTURE.md) and [ADR 0011](docs/adr/0011-memory-pages-are-the-primary-durable-memory-unit.md).
+See [Memory architecture](docs/MEMORY_ARCHITECTURE.md), [Context everywhere](docs/CONTEXT_EVERYWHERE.md) and [ADR 0011](docs/adr/0011-memory-pages-are-the-primary-durable-memory-unit.md).
 
 Across every phase, personal context remains personal by default. TOPO uses the non-hierarchical **inside / between / beneath / around** model for reasoning about relationships and information movement. A Context Packet is a purpose-bound disclosure, not permission for secondary use, organisational analytics or individual monitoring.
 
@@ -19,6 +19,7 @@ Across every phase, personal context remains personal by default. TOPO uses the 
 - **M3 — Page-first capture and review:** implemented; now ready for dogfooding/hardening.
 - **M4 — Page-aware context resolution:** implemented; deterministic retrieval evaluation is now active.
 - **M5 — Small local semantic index:** **deferred/conditional**. Build only if real retrieval misses justify it.
+- **CE1 — Context everywhere / local MCP:** **first tranche implemented** on `context-everywhere`.
 
 The main representation migration is now implemented across capture, review, portable memory and local retrieval. `/v0/context` and `/v0/search` are Memory Page first, with SQLite FTS5 as a disposable ranking projection over canonical pages.
 
@@ -31,6 +32,73 @@ The next milestone is:
 > Use AI tools normally for a day, open TOPO, review a small number of coherent memories worth keeping, then see the right context surface in another AI/tool without that tool needing to understand TOPO's internal storage model.
 
 A successful memory should also remain useful when exported as ordinary Markdown and read outside TOPO.
+
+## Context everywhere — immediate integration track
+
+The representation work is only useful if Memory Pages can materially improve work **inside** AI tools. The integration contract is now explicit:
+
+> **Memory Pages are durable material. Context Packets are what AI tools consume. MCP, local HTTP, adapters and future remote APIs are transports.**
+
+This track runs alongside dogfooding rather than waiting for the later managed/cloud phase.
+
+### CE1 — Local context everywhere
+
+**Status:** first tranche implemented on `context-everywhere`.
+
+Implemented:
+
+- `topo_context` MCP tool for purpose-bound Context Packets;
+- `topo_search_pages` MCP tool for explicit Memory Page lookup;
+- MCP Memory Page retrieval delegates to the running TOPO Desktop resolver instead of reimplementing retrieval over SQLite;
+- loopback-only Desktop discovery through `~/.topo/oos-local.json`;
+- explicit context mode/transport in MCP capabilities;
+- MCP sensitivity remains a narrowing boundary and cannot widen Desktop sharing;
+- claim-shaped MCP tools remain compatibility/advanced paths;
+- MCP host transport remains stdio-only.
+
+Next:
+
+- live Desktop integration fixture covering context sharing on/off and page retrieval;
+- tested setup snippets for Codex, Claude Code and Gemini CLI;
+- direct `topo context` CLI command for scripts/clients that do not host MCP;
+- page-first MCP capture/contribution rather than claim-first proposals;
+- dogfood cross-tool handoff: retrieve context in one AI tool, capture useful new context, then reuse it in another.
+
+### CE2 — Capture and contribution parity
+
+Build:
+
+- `topo_capture_interaction` over Desktop's existing capture permission;
+- `topo_propose_memory` / captured-source workflows as the primary contribution interface;
+- structured claims retained only where explicit annotation adds value;
+- page review authority remains separate and cannot be inferred from context-read authority.
+
+### CE3 — Remote/cloud context
+
+Bring the **transport design** forwards without making cloud canonical.
+
+Build/specify:
+
+- authenticated, revocable remote Context Packet API;
+- encrypted multi-device sync envelope and device identity;
+- read-only remote context gateway prototype before remote writes/review;
+- expiry, revocation, lost-device and offline behaviour;
+- remote MCP/API as an optional access layer over the same portable Memory Pages.
+
+Do **not** expose the current loopback endpoint to a network.
+
+### CE4 — Mobile context and capture
+
+Prototype mobile as a context/capture surface before building a full mobile memory application:
+
+- Android share target: **Remember this**;
+- explicit **Use my context** share-out flow;
+- Memory Page search and a small review inbox;
+- selected text/URL/conversation export capture rather than ambient device monitoring;
+- process locally/on-device, back on Desktop after sync, or via explicitly opted-in managed processing;
+- iOS share extension after the interaction model is proven.
+
+See [Context everywhere](docs/CONTEXT_EVERYWHERE.md) for the detailed architecture and constraints.
 
 ---
 
@@ -52,9 +120,9 @@ Tauri/React desktop architecture, runtime-neutral storage contracts and shared T
 
 ### Phase 2 — MCP
 
-A proposal-first stdio MCP server is implemented with search, candidate proposal, optional delegated review, history and sensitivity ceilings.
+A proposal-first stdio MCP server is implemented with legacy structured search/proposals, optional delegated review, history and sensitivity ceilings.
 
-The MCP transport remains useful, but its memory-facing contracts will become Memory Page aware during migration.
+Memory Page-facing MCP is now being migrated onto the canonical Desktop resolver under **CE1**, beginning with `topo_context` and `topo_search_pages`. MCP should not grow a second Memory Page retrieval implementation.
 
 ### Early RACK/OOS context bridge
 
@@ -62,7 +130,7 @@ TOPO Desktop exposes an authenticated loopback context endpoint with explicit pe
 
 This bridge is strategically important because it already demonstrates the boundary we want to preserve: **RACK consumes purpose-bound context, not TOPO's internal memory schema.**
 
-Do not broaden the transport until the Memory Page migration is stable.
+Network/remote transport must remain a separately authenticated design; the loopback endpoint itself must not be broadened beyond local use.
 
 ---
 
@@ -431,13 +499,15 @@ Extend the existing bridge with:
 
 ## Phase 8 — Optional sync / managed TOPO
 
-Only after the local page-first capture/review/retrieval loop is trustworthy:
+The **remote transport design and prototype now begin earlier under CE3**, because mobile and remote AI clients need a safe way to request Context Packets. This does not change TOPO's local-first source-of-truth boundary.
+
+The mature managed phase still includes:
 
 - encrypted multi-device sync;
 - backup/recovery;
 - managed connectors;
 - team/shared boundaries that model shared context as a separate relationship/source rather than administrator access to personal memory;
-- mobile client.
+- fuller mobile client after share/search/review interactions are proven.
 
 Local use and open portable files must remain first-class.
 
@@ -477,6 +547,14 @@ Track:
 - cross-tool recall success;
 - portability/round-trip integrity;
 - token cost of resolved context.
+
+For **Context everywhere**, also track:
+
+- cross-tool reuse rate;
+- Context Packets that materially improved a task;
+- retrievals ignored by the model/user;
+- forbidden disclosure count (must remain zero);
+- failures caused by Desktop being closed, sharing disabled or remote sync unavailable.
 
 Capture quality is defined in [Capture evaluation](docs/CAPTURE_EVALUATION.md). Retrieval quality and the entry condition for any semantic index are defined separately in [Retrieval evaluation](docs/RETRIEVAL_EVALUATION.md).
 
