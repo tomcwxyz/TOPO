@@ -46,21 +46,37 @@ The local resolver remains the single implementation of Memory Page governance a
 
 ### MCP
 
-`topo-mcp` remains a stdio MCP server, but Memory Page-facing tools now delegate to the running Desktop resolver rather than opening and interpreting Memory Pages themselves.
+`topo-mcp` remains a stdio MCP server, but Memory Page-facing tools delegate to the running Desktop resolver rather than opening and interpreting Memory Pages themselves.
 
-Primary context tools:
+Primary tools:
 
 - `topo_context` — resolve a purpose-bound Context Packet;
 - `topo_search_pages` — search confirmed, currently-valid Memory Pages;
+- `topo_capture_interaction` — queue a completed interaction into TOPO's capture inbox;
 - `topo_capabilities` — report the active authority and transport.
 
 Existing claim tools remain as compatibility/advanced interfaces while the representation migration finishes.
 
-The MCP process discovers Desktop through `~/.topo/oos-local.json`, connects only to loopback, and uses the per-run bearer token written by Desktop. Context sharing must be enabled in Desktop. A configured MCP sensitivity ceiling is also applied as a final disclosure narrowing step; it may never widen Desktop's own sharing boundary.
+The MCP process discovers Desktop through `~/.topo/oos-local.json`, connects only to loopback, and uses the per-run bearer token written by Desktop. A configured MCP sensitivity ceiling is applied as a final disclosure narrowing step; it may never widen Desktop's own sharing boundary.
+
+Desktop keeps **Share context**, **Capture interactions** and **Accept contributions** separate. Context access therefore never silently turns into capture or durable memory authority.
 
 ### CLI and agent tools
 
-Tools such as coding CLIs should prefer MCP when they already support it. Native agent adapters may continue to use the local `/v0/context`, `/v0/search` and capture endpoints directly.
+Tools such as coding CLIs should prefer MCP when they already support it. Codex CLI, Claude Code and Gemini CLI can all launch TOPO as a local stdio MCP server; tested configuration examples live in [MCP](MCP.md).
+
+Scripts and tools that do not host MCP can use the first-class CLI command:
+
+```bash
+topo context \
+  --subject project:topo \
+  --purpose "Continue the implementation" \
+  --query "MCP mobile context"
+```
+
+`topo context` discovers the running Desktop app and requests the same `/v0/context` Context Packet used by MCP and RACK. `topo oos context` remains as a claim-based compatibility path.
+
+Native agent adapters may continue to use the local `/v0/context`, `/v0/search` and `/v0/capture` endpoints directly.
 
 The desired turn lifecycle is:
 
@@ -83,6 +99,32 @@ agent-native working memory
 ```
 
 TOPO complements an agent's own short-lived memory; it does not replace it or mirror the whole TOPO store into `MEMORY.md`, `AGENTS.md` or equivalent files.
+
+### Capture is not memory authority
+
+The new MCP capture route deliberately accepts a **completed interaction**, not a finished memory page.
+
+```text
+AI interaction
+      │
+      │ topo_capture_interaction
+      ▼
+Desktop /v0/capture
+      │
+      ▼
+Capture inbox
+      │
+      ▼
+TOPO extraction
+      │
+      ▼
+Memory Page candidate(s)
+      │
+      ▼
+human review
+```
+
+This means an AI client can help TOPO notice potentially useful context without silently deciding what becomes durable memory. Desktop's **Capture interactions** session permission is a separate gate from **Share context**.
 
 ## Portable fallback
 
@@ -183,7 +225,7 @@ Extraction may happen on-device, on the user's desktop after sync, or through an
 
 ### CE1 — Local context everywhere
 
-Status: **first tranche implemented on `context-everywhere`**.
+Status: **implemented; live-client dogfooding next**.
 
 - [x] add `topo_context` to MCP;
 - [x] add `topo_search_pages` to MCP;
@@ -192,13 +234,18 @@ Status: **first tranche implemented on `context-everywhere`**.
 - [x] expose context mode/transport in capabilities;
 - [x] keep MCP stdio-only;
 - [x] apply MCP sensitivity as a final narrowing boundary;
-- [ ] integration-test against a live Desktop fixture;
-- [ ] document tested configuration snippets for Codex, Claude Code and Gemini CLI;
-- [ ] add a direct `topo context` CLI command for scripts that do not host MCP.
+- [x] integration-test the Desktop discovery/loopback bridge with a local fixture;
+- [x] document current configuration snippets for Codex, Claude Code and Gemini CLI;
+- [x] add direct `topo context` CLI access to the Desktop resolver;
+- [ ] dogfood the three CLI clients against a real Desktop store and preserve any retrieval misses as evaluation cases.
 
 ### CE2 — Capture/contribution parity
 
-- [ ] expose `topo_capture_interaction` through MCP using Desktop's capture permission;
+Status: **interaction capture implemented; page-first explicit contribution remains**.
+
+- [x] expose `topo_capture_interaction` through MCP using Desktop's capture permission;
+- [x] route MCP capture through the existing capture inbox rather than durable memory writes;
+- [x] retain a separate Desktop permission boundary for capture;
 - [ ] replace claim-shaped `topo_propose_claims` as the primary contribution path with `topo_propose_memory` / captured-source workflows;
 - [ ] retain structured claim proposal only for explicit annotation use;
 - [ ] ensure no MCP client can confirm durable Memory Pages without separately delegated review authority.
