@@ -9,6 +9,7 @@ export interface RelayDeviceWorkerOptions {
   fetchImpl?: typeof fetch;
   now?: () => number;
   longPollMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface LocalTopoRelayWorkerOptions {
@@ -19,6 +20,7 @@ export interface LocalTopoRelayWorkerOptions {
   localFetch?: typeof fetch;
   now?: () => number;
   longPollMs?: number;
+  signal?: AbortSignal;
 }
 
 export interface RelayDeviceWorkResult {
@@ -96,6 +98,7 @@ async function post(
   url: URL,
   token: string,
   body: unknown,
+  signal?: AbortSignal,
 ): Promise<void> {
   const response = await fetchImpl(url, {
     method: "POST",
@@ -104,6 +107,7 @@ async function post(
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
+    ...(signal === undefined ? {} : { signal }),
   });
   if (!response.ok) {
     const value = await parseJson(response);
@@ -128,6 +132,9 @@ export async function serviceRelayOnce(
   if (options.deviceToken.trim().length === 0) {
     throw new Error("deviceToken is required");
   }
+  if (options.signal?.aborted === true) {
+    throw options.signal.reason ?? new DOMException("Aborted", "AbortError");
+  }
   const fetchImpl = options.fetchImpl ?? fetch;
   const clock = options.now ?? (() => Date.now());
   const nextUrl = join(options.relayBaseUrl, "/v0/device/next");
@@ -135,6 +142,7 @@ export async function serviceRelayOnce(
   const next = await fetchImpl(nextUrl, {
     method: "GET",
     headers: { Authorization: `Bearer ${options.deviceToken}` },
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
   });
 
   if (next.status === 204) return { processed: false };
@@ -162,12 +170,14 @@ export async function serviceRelayOnce(
         : { maxItems: value.request.maxItems }),
     });
   } catch (error) {
+    if (options.signal?.aborted === true) throw error;
     const message = error instanceof Error ? error.message : String(error);
     await post(
       fetchImpl,
       join(options.relayBaseUrl, "/v0/device/fail"),
       options.deviceToken,
       { requestId: value.id, error: message },
+      options.signal,
     );
     return { processed: true, requestId: value.id, status: "failed" };
   }
@@ -177,6 +187,7 @@ export async function serviceRelayOnce(
     join(options.relayBaseUrl, "/v0/device/complete"),
     options.deviceToken,
     { requestId: value.id, packet },
+    options.signal,
   );
   return { processed: true, requestId: value.id, status: "completed" };
 }
@@ -204,5 +215,6 @@ export async function serviceLocalTopoRelayOnce(
     ...(options.longPollMs === undefined
       ? {}
       : { longPollMs: options.longPollMs }),
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
   });
 }
