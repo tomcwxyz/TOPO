@@ -4,6 +4,33 @@ import type { EditCandidatePatch } from "@topo/core";
 import type { JsonValue } from "@topo/schemas";
 import { TopoMcpService } from "./service.js";
 
+export interface TopoContextRequest {
+  subject: string;
+  purpose: string;
+  query?: string;
+  maxItems?: number;
+  requestedBy?: string;
+}
+
+export interface TopoPageSearchRequest {
+  query: string;
+  category?: string;
+  limit?: number;
+  requestedBy?: string;
+}
+
+/**
+ * A context provider deliberately sits above TOPO's persistence representation.
+ * The preferred implementation delegates to the running TOPO Desktop resolver,
+ * so MCP, RACK and local agent adapters all share one governance/retrieval path.
+ */
+export interface TopoContextProvider {
+  readonly mode: "memory-pages";
+  readonly transport: string;
+  context(request: TopoContextRequest): Promise<unknown>;
+  searchPages(request: TopoPageSearchRequest): Promise<unknown>;
+}
+
 const epistemicType = z.enum([
   "assertion",
   "observation",
@@ -56,7 +83,10 @@ function failure(error: unknown) {
   };
 }
 
-export function createTopoMcpServer(service: TopoMcpService): McpServer {
+export function createTopoMcpServer(
+  service: TopoMcpService,
+  contextProvider?: TopoContextProvider,
+): McpServer {
   const server = new McpServer({
     name: "topo",
     version: "0.1.0",
@@ -66,17 +96,84 @@ export function createTopoMcpServer(service: TopoMcpService): McpServer {
     "topo_capabilities",
     {
       description:
-        "Show this TOPO connection's memory authority, sensitivity ceiling and transport policy.",
+        "Show this TOPO connection's memory authority, sensitivity ceiling, context mode and transport policy.",
       inputSchema: z.object({}),
     },
-    async () => result(service.capabilities()),
+    async () =>
+      result({
+        ...service.capabilities(),
+        contextMode: contextProvider?.mode ?? "legacy-claims",
+        contextTransport: contextProvider?.transport ?? null,
+      }),
   );
+
+  if (contextProvider !== undefined) {
+    server.registerTool(
+      "topo_context",
+      {
+        description:
+          "Resolve a small purpose-bound Context Packet from governed TOPO Memory Pages for the current task. Prefer this over broad memory/profile injection.",
+        inputSchema: z.object({
+          subject: z.string().min(1).default("self"),
+          purpose: z.string().min(1),
+          query: z.string().min(1).optional(),
+          maxItems: z.number().int().min(1).max(100).optional(),
+        }),
+      },
+      async (input) => {
+        try {
+          return result(
+            await contextProvider.context({
+              subject: input.subject,
+              purpose: input.purpose,
+              ...(input.query === undefined ? {} : { query: input.query }),
+              ...(input.maxItems === undefined
+                ? {}
+                : { maxItems: input.maxItems }),
+              requestedBy: "topo-mcp",
+            }),
+          );
+        } catch (error) {
+          return failure(error);
+        }
+      },
+    );
+
+    server.registerTool(
+      "topo_search_pages",
+      {
+        description:
+          "Search confirmed, currently-valid TOPO Memory Pages through the canonical desktop resolver. Use topo_context when the task purpose is known.",
+        inputSchema: z.object({
+          query: z.string().min(1),
+          category: z.string().min(1).optional(),
+          limit: z.number().int().min(1).max(100).optional(),
+        }),
+      },
+      async (input) => {
+        try {
+          return result(
+            await contextProvider.searchPages({
+              query: input.query,
+              ...(input.category === undefined
+                ? {}
+                : { category: input.category }),
+              ...(input.limit === undefined ? {} : { limit: input.limit }),
+              requestedBy: "topo-mcp",
+            }),
+          );
+        } catch (error) {
+          return failure(error);
+        }
+      },
+    );
+  }
 
   server.registerTool(
     "topo_propose_claims",
     {
       description:
-        "Propose one or more candidate memory claims. Proposals are reviewable and are never silently confirmed.",
+        "Propose one or more candidate memory claims. This is a legacy/structured compatibility path; proposals are reviewable and are never silently confirmed.",
       inputSchema: z.object({
         sourceTitle: z.string().min(1).optional(),
         sourceProvider: z.string().min(1).optional(),
@@ -130,7 +227,7 @@ export function createTopoMcpServer(service: TopoMcpService): McpServer {
     "topo_search",
     {
       description:
-        "Search confirmed, currently-valid TOPO claims within this connection's sensitivity ceiling. This is scoped retrieval, not a full-profile dump.",
+        "Search confirmed, currently-valid legacy structured TOPO claims within this connection's sensitivity ceiling. Prefer topo_context/topo_search_pages for Memory Page context.",
       inputSchema: z.object({
         query: z.string().min(1),
         category: z.string().min(1).optional(),
@@ -156,7 +253,7 @@ export function createTopoMcpServer(service: TopoMcpService): McpServer {
     "topo_get_claim",
     {
       description:
-        "Retrieve one confirmed, currently-valid claim by ID if it is within this connection's sensitivity ceiling.",
+        "Retrieve one confirmed, currently-valid legacy structured claim by ID if it is within this connection's sensitivity ceiling.",
       inputSchema: z.object({
         id: z.string().min(1),
       }),
@@ -168,7 +265,7 @@ export function createTopoMcpServer(service: TopoMcpService): McpServer {
     "topo_list_candidates",
     {
       description:
-        "List candidate memory claims awaiting review within this connection's sensitivity ceiling.",
+        "List candidate legacy structured claims awaiting review within this connection's sensitivity ceiling.",
       inputSchema: z.object({
         limit: z.number().int().min(1).max(100).optional(),
       }),
@@ -188,7 +285,7 @@ export function createTopoMcpServer(service: TopoMcpService): McpServer {
     "topo_claim_history",
     {
       description:
-        "Read the audit events for a claim within this connection's sensitivity ceiling.",
+        "Read the audit events for a legacy structured claim within this connection's sensitivity ceiling.",
       inputSchema: z.object({
         id: z.string().min(1),
         limit: z.number().int().min(1).max(100).optional(),
