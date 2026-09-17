@@ -44,11 +44,27 @@ function isTask(value: unknown): value is RelayContextTask {
     return false;
   }
   const request = record.request as Record<string, unknown>;
-  return (
-    typeof request.subject === "string" &&
-    typeof request.purpose === "string" &&
-    typeof request.requestedBy === "string"
-  );
+  if (
+    typeof request.subject !== "string" ||
+    typeof request.purpose !== "string" ||
+    typeof request.requestedBy !== "string"
+  ) {
+    return false;
+  }
+  if (request.query !== undefined && typeof request.query !== "string") {
+    return false;
+  }
+  if (
+    request.maxItems !== undefined &&
+    (!Number.isInteger(request.maxItems) ||
+      Number(request.maxItems) < 1 ||
+      Number(request.maxItems) > 100)
+  ) {
+    return false;
+  }
+  const created = Date.parse(record.createdAt);
+  const expires = Date.parse(record.expiresAt);
+  return !Number.isNaN(created) && !Number.isNaN(expires) && expires > created;
 }
 
 async function parseJson(response: Response): Promise<unknown> {
@@ -115,9 +131,13 @@ export async function serviceRelayOnce(
   if (!isTask(value)) {
     throw new Error("TOPO relay returned an invalid device task");
   }
+  if (Date.now() >= Date.parse(value.expiresAt)) {
+    throw new Error("TOPO relay returned an expired device task");
+  }
 
+  let packet: unknown;
   try {
-    const packet = await options.resolver.context({
+    packet = await options.resolver.context({
       subject: value.request.subject,
       purpose: value.request.purpose,
       requestedBy: value.request.requestedBy,
@@ -126,14 +146,6 @@ export async function serviceRelayOnce(
         ? {}
         : { maxItems: value.request.maxItems }),
     });
-
-    await post(
-      fetchImpl,
-      join(options.relayBaseUrl, "/v0/device/complete"),
-      options.deviceToken,
-      { requestId: value.id, packet },
-    );
-    return { processed: true, requestId: value.id, status: "completed" };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await post(
@@ -144,6 +156,14 @@ export async function serviceRelayOnce(
     );
     return { processed: true, requestId: value.id, status: "failed" };
   }
+
+  await post(
+    fetchImpl,
+    join(options.relayBaseUrl, "/v0/device/complete"),
+    options.deviceToken,
+    { requestId: value.id, packet },
+  );
+  return { processed: true, requestId: value.id, status: "completed" };
 }
 
 /**
