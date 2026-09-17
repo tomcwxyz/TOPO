@@ -99,6 +99,26 @@
   background: var(--topo-line-soft);
 }
 
+.topo-family-signature {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-left: auto;
+  color: var(--topo-ink-soft);
+  font-family: var(--topo-serif);
+  font-size: .78rem;
+  letter-spacing: -.01em;
+  white-space: nowrap;
+}
+
+.topo-family-signature > span {
+  color: var(--topo-line);
+  font-family: var(--topo-sans);
+  font-size: .62rem;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
 /* Replace the first-pass CSS-generated marks with reusable SVG primitives. */
 .topbar::after,
 .topbar > div:first-child::before,
@@ -147,6 +167,11 @@
     right: -220px;
     width: 620px;
     opacity: .34;
+  }
+
+  .topo-family-signature {
+    width: 100%;
+    margin-left: 0;
   }
 }
 
