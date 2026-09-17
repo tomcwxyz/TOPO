@@ -4,7 +4,10 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { TopoLocalClient } from "../dist/local-client.js";
+import {
+  TopoLocalClient,
+  toDesktopCaptureEnvelope,
+} from "../dist/local-client.js";
 
 function listen(server) {
   return new Promise((resolve, reject) => {
@@ -37,7 +40,7 @@ function readBody(request) {
   });
 }
 
-test("shared local client maps context and capture through authenticated loopback", async () => {
+test("shared local client maps context and adapts MCP capture through authenticated loopback", async () => {
   const directory = mkdtempSync(join(tmpdir(), "topo-local-client-"));
   const discoveryPath = join(directory, "oos-local.json");
   const seen = [];
@@ -74,16 +77,17 @@ test("shared local client maps context and capture through authenticated loopbac
     const interaction = {
       id: "interaction-1",
       kind: "conversation",
-      product: "generic",
+      product: "claude",
       client: "terminal",
-      mode: "generic",
+      mode: "code",
       captureMethod: "local-mcp",
       fidelity: "conversation-turns",
-      provider: "test",
+      provider: "anthropic",
       subject: "project:topo",
       capturedAt: "2026-09-17T07:00:00.000Z",
       turns: [{ id: "u1", role: "user", content: "Remember this interaction." }],
       retention: "review-window",
+      metadata: { repo: "tomcwxyz/TOPO" },
     };
     await client.captureInteraction({
       requestedBy: "test",
@@ -99,14 +103,50 @@ test("shared local client maps context and capture through authenticated loopbac
         wanted: { query: "context", max_items: 4 },
       },
     ]);
-    assert.deepEqual(seen[1], [
-      "/v0/capture",
-      { requested_by: "test", interaction },
-    ]);
+
+    const capture = seen[1][1];
+    assert.equal(seen[1][0], "/v0/capture");
+    assert.equal(capture.requested_by, "test");
+    assert.equal(capture.interaction.id, interaction.id);
+    assert.equal(capture.interaction.provider, "anthropic");
+    assert.equal(capture.interaction.kind, "agent-session");
+    assert.equal(capture.interaction.product, "generic");
+    assert.equal(capture.interaction.client, "agent-runtime");
+    assert.equal(capture.interaction.mode, "agent");
+    assert.equal(capture.interaction.captureMethod, "agent-hook");
+    assert.deepEqual(capture.interaction.metadata, {
+      repo: "tomcwxyz/TOPO",
+      "topo.local.originalCapture": {
+        kind: "conversation",
+        product: "claude",
+        client: "terminal",
+        mode: "code",
+        captureMethod: "local-mcp",
+      },
+    });
   } finally {
     await close(server);
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test("native agent-hook captures are not rewritten", () => {
+  const interaction = {
+    id: "hermes-1",
+    kind: "agent-session",
+    product: "hermes",
+    client: "agent-runtime",
+    mode: "agent",
+    captureMethod: "agent-hook",
+    fidelity: "conversation-turns",
+    provider: "hermes",
+    subject: "self",
+    capturedAt: "2026-09-17T07:00:00.000Z",
+    turns: [{ id: "u1", role: "user", content: "Keep this." }],
+    retention: "review-window",
+  };
+
+  assert.equal(toDesktopCaptureEnvelope(interaction), interaction);
 });
 
 test("shared local client refuses non-loopback discovery endpoints", async () => {
