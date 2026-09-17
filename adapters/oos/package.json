@@ -8,9 +8,17 @@
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
     },
+    "./context-filter": {
+      "types": "./dist/context-filter.d.ts",
+      "default": "./dist/context-filter.js"
+    },
     "./local-client": {
       "types": "./dist/local-client.d.ts",
       "default": "./dist/local-client.js"
+    },
+    "./remote-gateway": {
+      "types": "./dist/remote-gateway.d.ts",
+      "default": "./dist/remote-gateway.js"
     }
   },
   "scripts": {
