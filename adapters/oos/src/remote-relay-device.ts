@@ -1,3 +1,4 @@
+import { TopoLocalClient } from "./local-client.js";
 import type { RelayContextTask } from "./remote-relay.js";
 import type { RemoteContextResolver } from "./remote-gateway.js";
 
@@ -6,6 +7,14 @@ export interface RelayDeviceWorkerOptions {
   deviceToken: string;
   resolver: RemoteContextResolver;
   fetchImpl?: typeof fetch;
+}
+
+export interface LocalTopoRelayWorkerOptions {
+  relayBaseUrl: string;
+  deviceToken: string;
+  discoveryPath?: string;
+  fetchImpl?: typeof fetch;
+  localFetch?: typeof fetch;
 }
 
 export interface RelayDeviceWorkResult {
@@ -135,4 +144,26 @@ export async function serviceRelayOnce(
     );
     return { processed: true, requestId: value.id, status: "failed" };
   }
+}
+
+/**
+ * Convenience composition for the actual TOPO device: resolve relay tasks via
+ * the same authenticated Desktop loopback client used by CLI/MCP integrations.
+ */
+export async function serviceLocalTopoRelayOnce(
+  options: LocalTopoRelayWorkerOptions,
+): Promise<RelayDeviceWorkResult> {
+  const local = new TopoLocalClient({
+    ...(options.discoveryPath === undefined
+      ? {}
+      : { discoveryPath: options.discoveryPath }),
+    ...(options.localFetch === undefined ? {} : { fetch: options.localFetch }),
+  });
+
+  return serviceRelayOnce({
+    relayBaseUrl: options.relayBaseUrl,
+    deviceToken: options.deviceToken,
+    resolver: local,
+    ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
+  });
 }
