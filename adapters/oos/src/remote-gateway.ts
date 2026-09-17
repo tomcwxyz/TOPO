@@ -1,6 +1,11 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import type { Sensitivity } from "@topo/schemas";
 import { narrowContextPacket } from "./context-filter.js";
+import {
+  remoteResponseMetrics,
+  type RemoteContextAuditEvent,
+  type RemoteContextAuditSink,
+} from "./remote-audit.js";
 
 export type RemoteContextAction = "context";
 
@@ -41,12 +46,17 @@ export interface RemoteContextGatewayOptions {
   resolver: RemoteContextResolver;
   authorizer: RemoteContextAuthorizer;
   now?: () => string;
+  requestId?: () => string;
+  audit?: RemoteContextAuditSink;
 }
 
 function json(value: unknown, status = 200): Response {
   return new Response(JSON.stringify(value), {
     status,
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "Cache-Control": "no-store",
+    },
   });
 }
 
@@ -113,6 +123,17 @@ function subjectAllowed(grant: RemoteContextGrant, subject: string): boolean {
   return grant.subjects.includes(subject);
 }
 
+async function audit(
+  sink: RemoteContextAuditSink | undefined,
+  event: RemoteContextAuditEvent,
+): Promise<void> {
+  try {
+    await sink?.record(event);
+  } catch {
+    // Audit/telemetry failure must never widen or block context authority.
+  }
+}
+
 /**
  * Create a fetch-style, read-only remote context handler.
  *
@@ -124,6 +145,7 @@ export function createRemoteContextHandler(
   options: RemoteContextGatewayOptions,
 ): (request: Request) => Promise<Response> {
   const clock = options.now ?? (() => new Date().toISOString());
+  const nextRequestId = options.requestId ?? (() => `remote-${randomUUID()}`);
 
   return async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
@@ -144,16 +166,45 @@ export function createRemoteContextHandler(
       return json({ error: "not found" }, 404);
     }
 
+    const requestId = nextRequestId().trim();
+    if (requestId.length === 0) {
+      return json({ error: "gateway could not allocate a request id" }, 500);
+    }
+    const at = clock();
+    const event = (
+      outcome: RemoteContextAuditEvent["outcome"],
+      extra: Partial<RemoteContextAuditEvent> = {},
+    ): RemoteContextAuditEvent => ({
+      version: "topo.remote-audit/0.1",
+      requestId,
+      at,
+      audience: options.audience,
+      action: "context",
+      outcome,
+      ...extra,
+    });
+
     const grant = await options.authorizer.authorise(
       request.headers.get("Authorization"),
     );
     if (grant === undefined) {
+      await audit(
+        options.audit,
+        event("denied", { code: "TOPO_REMOTE_UNAUTHORISED" }),
+      );
       return json({ error: "unauthorised", code: "TOPO_REMOTE_UNAUTHORISED" }, 401);
     }
 
     try {
       validateGrant(grant);
     } catch (error) {
+      await audit(
+        options.audit,
+        event("denied", {
+          grantId: grant.id,
+          code: "TOPO_REMOTE_INVALID_GRANT",
+        }),
+      );
       return json(
         {
           error: error instanceof Error ? error.message : String(error),
@@ -164,13 +215,20 @@ export function createRemoteContextHandler(
     }
 
     if (grant.audience !== options.audience) {
+      await audit(
+        options.audit,
+        event("denied", {
+          grantId: grant.id,
+          code: "TOPO_REMOTE_AUDIENCE",
+        }),
+      );
       return json(
         { error: "grant audience does not match this gateway", code: "TOPO_REMOTE_AUDIENCE" },
         403,
       );
     }
 
-    const now = validDate(clock());
+    const now = validDate(at);
     const issued = validDate(grant.issuedAt);
     const expires = validDate(grant.expiresAt);
     if (
@@ -180,10 +238,24 @@ export function createRemoteContextHandler(
       now < issued ||
       now >= expires
     ) {
+      await audit(
+        options.audit,
+        event("denied", {
+          grantId: grant.id,
+          code: "TOPO_REMOTE_EXPIRED",
+        }),
+      );
       return json({ error: "grant is not currently valid", code: "TOPO_REMOTE_EXPIRED" }, 401);
     }
 
     if (!grant.actions.includes("context")) {
+      await audit(
+        options.audit,
+        event("denied", {
+          grantId: grant.id,
+          code: "TOPO_REMOTE_SCOPE",
+        }),
+      );
       return json(
         { error: "grant does not allow context retrieval", code: "TOPO_REMOTE_SCOPE" },
         403,
@@ -194,6 +266,13 @@ export function createRemoteContextHandler(
     try {
       body = await request.json();
     } catch {
+      await audit(
+        options.audit,
+        event("denied", {
+          grantId: grant.id,
+          code: "TOPO_REMOTE_BAD_REQUEST",
+        }),
+      );
       return json({ error: "request body must be valid JSON" }, 400);
     }
 
@@ -201,15 +280,40 @@ export function createRemoteContextHandler(
     try {
       input = parseContextRequest(body);
     } catch (error) {
+      await audit(
+        options.audit,
+        event("denied", {
+          grantId: grant.id,
+          code: "TOPO_REMOTE_BAD_REQUEST",
+        }),
+      );
       return json({ error: error instanceof Error ? error.message : String(error) }, 400);
     }
 
     if (!subjectAllowed(grant, input.subject)) {
+      await audit(
+        options.audit,
+        event("denied", {
+          grantId: grant.id,
+          subject: input.subject,
+          code: "TOPO_REMOTE_SUBJECT_SCOPE",
+          sensitivityCeiling: grant.maxSensitivity,
+        }),
+      );
       return json(
         { error: "grant does not allow this subject", code: "TOPO_REMOTE_SUBJECT_SCOPE" },
         403,
       );
     }
+
+    await audit(
+      options.audit,
+      event("requested", {
+        grantId: grant.id,
+        subject: input.subject,
+        sensitivityCeiling: grant.maxSensitivity,
+      }),
+    );
 
     try {
       const packet = await options.resolver.context({
@@ -219,15 +323,34 @@ export function createRemoteContextHandler(
         ...(input.query === undefined ? {} : { query: input.query }),
         ...(input.maxItems === undefined ? {} : { maxItems: input.maxItems }),
       });
-
-      return json(
-        narrowContextPacket(
-          packet,
-          grant.maxSensitivity,
-          "topo.remote_grant_sensitivity_ceiling",
-        ),
+      const narrowed = narrowContextPacket(
+        packet,
+        grant.maxSensitivity,
+        "topo.remote_grant_sensitivity_ceiling",
       );
+      const metrics = remoteResponseMetrics(narrowed);
+
+      await audit(
+        options.audit,
+        event("completed", {
+          grantId: grant.id,
+          subject: input.subject,
+          sensitivityCeiling: grant.maxSensitivity,
+          objectCount: metrics.objectCount,
+          responseBytes: metrics.responseBytes,
+        }),
+      );
+      return json(narrowed);
     } catch (error) {
+      await audit(
+        options.audit,
+        event("failed", {
+          grantId: grant.id,
+          subject: input.subject,
+          code: "TOPO_REMOTE_RESOLVER_ERROR",
+          sensitivityCeiling: grant.maxSensitivity,
+        }),
+      );
       return json(
         {
           error: error instanceof Error ? error.message : String(error),
