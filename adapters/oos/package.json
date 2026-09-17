@@ -7,6 +7,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./local-client": {
+      "types": "./dist/local-client.d.ts",
+      "default": "./dist/local-client.js"
     }
   },
   "scripts": {
