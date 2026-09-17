@@ -49,7 +49,7 @@ function setup() {
   return { relay, deviceHandler, gateway, relayFetch };
 }
 
-test("remote request is resolved on the enrolled TOPO device over outbound polling", async () => {
+test("remote request is resolved on the enrolled TOPO device over outbound long-polling", async () => {
   const { relay, gateway, relayFetch } = setup();
   const remoteResponse = gateway(
     new Request("https://relay.example/v0/context", {
@@ -148,6 +148,44 @@ test("remote request is resolved on the enrolled TOPO device over outbound polli
     packet.extensions["topo.remote_grant_sensitivity_ceiling"],
     "ordinary",
   );
+  assert.equal(relay.pendingCount(), 0);
+  relay.close();
+});
+
+test("authenticated long-poll waits and wakes when remote work arrives", async () => {
+  const { relay, deviceHandler } = setup();
+  const waiting = deviceHandler(
+    new Request("https://relay.example/v0/device/next?waitMs=200", {
+      headers: { Authorization: `Bearer ${deviceToken}` },
+    }),
+  );
+
+  await new Promise((resolve) => setImmediate(resolve));
+  const pending = relay.context({
+    subject: "project:topo",
+    purpose: "wake the device",
+    requestedBy: "remote:grant-relay",
+  });
+
+  const response = await waiting;
+  assert.equal(response.status, 200);
+  const task = await response.json();
+  assert.equal(task.id, "relay-e2e-1");
+  assert.equal(task.request.purpose, "wake the device");
+
+  relay.complete("device-home", task.id, { ok: true });
+  assert.deepEqual(await pending, { ok: true });
+  relay.close();
+});
+
+test("invalid long-poll windows are rejected before claiming work", async () => {
+  const { relay, deviceHandler } = setup();
+  const response = await deviceHandler(
+    new Request("https://relay.example/v0/device/next?waitMs=30000", {
+      headers: { Authorization: `Bearer ${deviceToken}` },
+    }),
+  );
+  assert.equal(response.status, 400);
   assert.equal(relay.pendingCount(), 0);
   relay.close();
 });
