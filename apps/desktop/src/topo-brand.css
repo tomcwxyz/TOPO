@@ -731,3 +731,42 @@ footer {
     padding-left: 21px;
   }
 }
+
+
+/* Keep the legacy workbench visually subordinate inside Alpha 4 Advanced. */
+.calm-workbench > .app-shell {
+  width: 100%;
+  margin: 0;
+  padding-top: 0;
+}
+
+.calm-workbench .topbar {
+  min-height: 0;
+  padding: 12px 0 18px;
+  overflow: visible;
+  align-items: start;
+}
+
+.calm-workbench .topbar::after,
+.calm-workbench .topbar > div:first-child::before {
+  display: none !important;
+}
+
+.calm-workbench .topbar > div:first-child {
+  padding-top: 0;
+}
+
+.calm-workbench .topbar h1 {
+  font-size: clamp(1.7rem, 3vw, 2.7rem);
+  line-height: 1;
+}
+
+.calm-workbench .store-status {
+  min-width: 0;
+  padding-top: 8px;
+}
+
+.calm-workbench .topo-terrain-slot,
+.calm-workbench .topo-mark--masthead {
+  display: none;
+}
