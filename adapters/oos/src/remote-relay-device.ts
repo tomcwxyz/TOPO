@@ -137,7 +137,7 @@ export async function serviceRelayOnce(
     throw new Error("deviceToken is required");
   }
   if (signalAborted(options.signal)) {
-    throw options.signal.reason ?? new DOMException("Aborted", "AbortError");
+    throw options.signal?.reason ?? new DOMException("Aborted", "AbortError");
   }
   const fetchImpl = options.fetchImpl ?? fetch;
   const clock = options.now ?? (() => Date.now());
