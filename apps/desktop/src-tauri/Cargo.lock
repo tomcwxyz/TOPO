@@ -3924,6 +3924,7 @@ dependencies = [
  "tauri-build",
  "tempfile",
  "tiny_http",
+ "tokio",
  "topo-contracts",
  "uuid",
  "winreg",
