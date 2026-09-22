@@ -7,6 +7,50 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./context-filter": {
+      "types": "./dist/context-filter.d.ts",
+      "default": "./dist/context-filter.js"
+    },
+    "./local-client": {
+      "types": "./dist/local-client.d.ts",
+      "default": "./dist/local-client.js"
+    },
+    "./mobile-share": {
+      "types": "./dist/mobile-share.d.ts",
+      "default": "./dist/mobile-share.js"
+    },
+    "./remote-audit": {
+      "types": "./dist/remote-audit.d.ts",
+      "default": "./dist/remote-audit.js"
+    },
+    "./remote-client": {
+      "types": "./dist/remote-client.d.ts",
+      "default": "./dist/remote-client.js"
+    },
+    "./remote-gateway": {
+      "types": "./dist/remote-gateway.d.ts",
+      "default": "./dist/remote-gateway.js"
+    },
+    "./remote-relay": {
+      "types": "./dist/remote-relay.d.ts",
+      "default": "./dist/remote-relay.js"
+    },
+    "./remote-relay-http": {
+      "types": "./dist/remote-relay-http.d.ts",
+      "default": "./dist/remote-relay-http.js"
+    },
+    "./remote-relay-device": {
+      "types": "./dist/remote-relay-device.d.ts",
+      "default": "./dist/remote-relay-device.js"
+    },
+    "./remote-relay-session": {
+      "types": "./dist/remote-relay-session.d.ts",
+      "default": "./dist/remote-relay-session.js"
+    },
+    "./remote-device-registry": {
+      "types": "./dist/remote-device-registry.d.ts",
+      "default": "./dist/remote-device-registry.js"
     }
   },
   "scripts": {

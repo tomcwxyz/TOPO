@@ -13,6 +13,7 @@
   "dependencies": {
     "@modelcontextprotocol/server": "2.0.0",
     "@topo/mcp": "0.1.0",
+    "@topo/oos": "0.1.0",
     "@topo/schemas": "0.1.0",
     "@topo/store-node": "0.1.0"
   },
