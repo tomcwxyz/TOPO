@@ -1,5 +1,12 @@
 # Context everywhere
 
+## Product sequencing
+
+This document records the transport architecture and experiments, not the immediate product milestone.
+
+For Alpha 4, **local context is the priority**: TOPO Desktop remains the authoritative resolver and local MCP/CLI clients may request purpose-bound Context Packets through it. Remote relay, remote MCP and mobile-sharing work stays experimental until the calm local capture → review → recall loop has been dogfooded and shown to be useful. Do not broaden remote transport simply because the contracts exist.
+
+
 TOPO's useful unit for other AI tools is not the whole memory store and not an exported profile. It is a **purpose-bound Context Packet** resolved from governed Memory Pages.
 
 The product contract is:
