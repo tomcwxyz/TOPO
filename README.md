@@ -38,11 +38,12 @@ The primary path has now been reoriented from **Claim-as-memory** to **Memory Pa
 2. portable Markdown Memory Pages are implemented;
 3. capture and review are page-first;
 4. local context resolution and `/v0/search` are Memory Page first;
-5. deterministic SQLite FTS5 retrieval is measured against a labelled evaluation set.
+5. deterministic SQLite FTS5 retrieval is measured against a labelled evaluation set;
+6. local MCP/CLI consumers can request Memory Page context through the same Desktop resolver, with capture governed separately from context sharing.
 
 Claims remain useful as optional structured annotations and compatibility records rather than the required carrier of all meaning.
 
-The immediate priority is now **dogfooding the complete loop**, not adding more retrieval infrastructure. The first deterministic retrieval fixture baseline recalls all ordinary lexical/FTS cases and deliberately misses one unmatched semantic-vocabulary case. See [ROADMAP.md](ROADMAP.md) and [retrieval evaluation](docs/RETRIEVAL_EVALUATION.md). A semantic/embedding index remains optional and should only be built if repeated real misses demonstrate that it earns its complexity.
+The immediate priority is now **dogfooding the complete cross-tool loop**, not adding more retrieval or remote infrastructure. The first deterministic retrieval fixture baseline recalls all ordinary lexical/FTS cases and deliberately misses one unmatched semantic-vocabulary case. See [ROADMAP.md](ROADMAP.md) and [retrieval evaluation](docs/RETRIEVAL_EVALUATION.md). A semantic/embedding index remains optional and should only be built if repeated real misses demonstrate that it earns its complexity.
 
 The practical product proof is:
 
@@ -101,7 +102,7 @@ See [docs/RELEASE.md](docs/RELEASE.md) for the exact release/trust contract.
 - `packages/formats` — portable TOPO bundle import/export.
 - `adapters/oos` — purpose-bound Organisational OS Context Packet adapter.
 - `packages/mcp` — proposal-first MCP service and tool policy.
-- `apps/mcp` — local stdio MCP server over the same governed local store.
+- `apps/mcp` — local stdio MCP server; Memory Page context/search delegate to the running Desktop resolver while legacy structured-claim tools retain their compatibility store.
 - `apps/cli` — advanced command-line workflows for development/integrations.
 - `apps/desktop` — Tauri + React desktop application and primary user surface, including the local Memory Page resolver and disposable FTS projection.
 - `apps/extension` — packaged Chromium capture companion.
