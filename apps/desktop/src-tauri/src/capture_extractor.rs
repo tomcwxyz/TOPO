@@ -252,12 +252,6 @@ pub async fn install_recommended_ollama_model() -> Result<OllamaStatus, String> 
     Ok(ollama_extractor_status().await)
 }
 
-async fn wait_for_cancellation(cancellation: Arc<AtomicBool>) {
-    while !cancellation.load(Ordering::SeqCst) {
-        tokio::time::sleep(Duration::from_millis(100)).await;
-    }
-}
-
 async fn call_ollama(
     interaction: &CapturedInteraction,
     model: &str,
@@ -293,26 +287,42 @@ async fn call_ollama(
         .build()
         .map_err(|error| error.to_string())?;
 
-    let response = tokio::select! {
-        result = client
-            .post(format!("{OLLAMA_BASE_URL}/api/chat"))
-            .json(&json!({
+    let request = client
+        .post(format!("{OLLAMA_BASE_URL}/api/chat"))
+        .json(&json!({
+            "model": model,
+            "stream": false,
+            "think": false,
+            "format": format,
+            "keep_alive": "10m",
+            "options": {
+                "temperature": 0,
+                "num_predict": 1200
+            },
+            "messages": [
+                { "role": "system", "content": system },
+                { "role": "user", "content": user_content }
+            ]
+        }))
+        .send();
+    let mut request = Box::pin(request);
+
+    let response = loop {
+        if cancellation.load(Ordering::SeqCst) {
+            append_extractor_diagnostic(json!({
+                "event": "extract.cancelled",
+                "interactionId": interaction.id,
                 "model": model,
-                "stream": false,
-                "think": false,
-                "format": format,
-                "keep_alive": "10m",
-                "options": {
-                    "temperature": 0,
-                    "num_predict": 1200
-                },
-                "messages": [
-                    { "role": "system", "content": system },
-                    { "role": "user", "content": user_content }
-                ]
-            }))
-            .send() => {
-                result.map_err(|error| {
+                "representation": representation,
+                "elapsedMs": elapsed_ms(started),
+                "inputChars": input_chars
+            }));
+            return Err("Extraction stopped by user.".to_owned());
+        }
+
+        match tokio::time::timeout(Duration::from_millis(100), request.as_mut()).await {
+            Ok(result) => {
+                break result.map_err(|error| {
                     append_extractor_diagnostic(json!({
                         "event": if error.is_timeout() { "extract.timeout" } else { "extract.request_failed" },
                         "interactionId": interaction.id,
@@ -329,18 +339,9 @@ async fn call_ollama(
                     } else {
                         format!("Could not call local Ollama model {model}: {error}")
                     }
-                })?
+                })?;
             }
-        _ = wait_for_cancellation(cancellation.clone()) => {
-            append_extractor_diagnostic(json!({
-                "event": "extract.cancelled",
-                "interactionId": interaction.id,
-                "model": model,
-                "representation": representation,
-                "elapsedMs": elapsed_ms(started),
-                "inputChars": input_chars
-            }));
-            return Err("Extraction stopped by user.".to_owned());
+            Err(_) => continue,
         }
     };
 
