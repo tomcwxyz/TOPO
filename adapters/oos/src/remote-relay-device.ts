@@ -31,6 +31,10 @@ export interface RelayDeviceWorkResult {
 
 const DEFAULT_LONG_POLL_MS = 20_000;
 
+function signalAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
+}
+
 function join(base: string, path: string): URL {
   return new URL(path, `${base.replace(/\/$/, "")}/`);
 }
@@ -132,7 +136,7 @@ export async function serviceRelayOnce(
   if (options.deviceToken.trim().length === 0) {
     throw new Error("deviceToken is required");
   }
-  if (options.signal?.aborted === true) {
+  if (signalAborted(options.signal)) {
     throw options.signal.reason ?? new DOMException("Aborted", "AbortError");
   }
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -170,7 +174,7 @@ export async function serviceRelayOnce(
         : { maxItems: value.request.maxItems }),
     });
   } catch (error) {
-    if (options.signal?.aborted === true) throw error;
+    if (signalAborted(options.signal)) throw error;
     const message = error instanceof Error ? error.message : String(error);
     await post(
       fetchImpl,
