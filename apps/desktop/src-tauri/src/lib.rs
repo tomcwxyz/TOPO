@@ -1,3 +1,5 @@
+#![recursion_limit = "256"]
+
 mod capture_extractor;
 mod capture_inbox;
 mod capture_processor;
@@ -986,6 +988,7 @@ pub fn run() {
             capture_extractor::ollama_extractor_status,
             capture_extractor::install_recommended_ollama_model,
             capture_processor::process_capture_with_ollama,
+            capture_processor::cancel_capture_extraction,
             capture_setup::browser_capture_setup_status,
             capture_setup::prepare_browser_capture,
             capture_setup::open_capture_extension_folder,

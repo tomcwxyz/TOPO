@@ -72,19 +72,21 @@ See [Product/architecture plan](PLAN.md), [roadmap](ROADMAP.md), [memory archite
 
 ## Install and first run
 
-TOPO `0.1.1-alpha.1` is being shaped as an installer-first desktop alpha for **Windows and Linux**.
+TOPO `0.1.1-alpha.4` is the current dogfood target. **Windows is the release gate for this alpha cycle**; Linux remains supported by the packaging work but is not blocking Alpha 4 product proof.
 
 Normal setup should be graphical from start to finish:
 
-1. install TOPO using the Windows installer, Linux `.deb`, or Linux AppImage;
+1. install the controlled Windows test build;
 2. open TOPO;
 3. follow the first-run card to prepare private local extraction;
-4. let TOPO install its recommended local model;
+4. let TOPO install its recommended `qwen3:4b` local model;
 5. let TOPO register the bundled browser capture companion;
 6. grant the browser's one explicit extension permission;
-7. start using ChatGPT, Claude or Gemini normally.
+7. use ChatGPT, Claude or Gemini normally;
+8. return to **Home** to keep, edit or dismiss the small number of memories TOPO thinks are worth your attention;
+9. use **Memories** to find what you kept and **Connections** to control where approved context may be used.
 
-There should be no Node/npm/Rust setup and no terminal commands in the normal user journey. Windows user-facing releases are required to be signed; unsigned builds are internal smoke-test artefacts only. Linux local-engine setup is launched by TOPO behind the normal graphical system-authorisation prompt rather than asking people to paste an install command.
+There should be no Node/npm/Rust setup and no terminal commands in the normal user journey. Alpha 4 deliberately keeps extraction controls, raw queues and retrieval diagnostics under **Advanced**. Unsigned Windows builds are for controlled dogfooding only; trusted code signing remains a hard gate before wider distribution.
 
 See [docs/RELEASE.md](docs/RELEASE.md) for the exact release/trust contract.
 

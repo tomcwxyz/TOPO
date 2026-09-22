@@ -24,6 +24,28 @@ The main representation migration is now implemented across capture, review, por
 
 The important remaining boundary is **product proof rather than another architecture migration**: use TOPO normally, govern a small useful inbox, retrieve the right context in another tool, and turn real misses into labelled evaluation cases. See [Retrieval evaluation](docs/RETRIEVAL_EVALUATION.md).
 
+## Alpha 4 — calm product proof
+
+**Status:** implementation in progress; this is the next dogfood release.
+
+Alpha 4 turns the completed Memory Page architecture into a quieter everyday product:
+
+- **Home** shows only what needs attention and uses **Keep / Not useful / Edit**;
+- **Memories** is the obvious searchable home for confirmed context;
+- **Connections** separates browser capture, context sharing, local agent capture and memory-suggestion authority;
+- **Advanced** retains extraction queues, model choice, raw diagnostics, retrieval evaluation and Structured Claim compatibility;
+- local extraction uses the recommended `qwen3:4b` path, structured output and strict user-authored evidence;
+- in-flight extraction can be stopped without losing the captured interaction;
+- the terrain-led TOPO visual system is applied to this calm shell rather than the superseded dashboard.
+
+The Alpha 4 proof is behavioural, not architectural: can a normal day produce a small useful review queue, can it be governed in minutes, and does the right approved context then appear somewhere else?
+
+## Context expansion boundary
+
+Local context access is the next transport priority: Memory Page retrieval through the existing Desktop resolver for local MCP/CLI consumers, with the same purpose, sensitivity and sharing boundaries.
+
+Remote relay, remote MCP and mobile-sharing work remain **experimental/deferred until the local Alpha 4 loop is proven**. They must not become a reason to postpone or complicate dogfooding. No remote transport should become a second implementation of memory governance or retrieval.
+
 ## Near-term product proof
 
 The next milestone is:
