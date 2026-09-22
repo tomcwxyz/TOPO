@@ -23,6 +23,7 @@ serde_json = "1"
 sha2 = "0.10"
 tauri = { version = "2", features = [] }
 tiny_http = "0.12"
+tokio = { version = "1", features = ["macros", "time"] }
 topo-contracts = { path = "../../../crates/topo-contracts" }
 uuid = { version = "1", features = ["v4"] }
 
