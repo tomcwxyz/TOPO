@@ -6,17 +6,17 @@ The release experience should nevertheless be ordinary desktop software: install
 
 ## Current version
 
-`0.1.1-alpha.1`
+`0.1.1-alpha.4`
 
 ## User-facing scope
 
-The installer-first alpha includes:
+Alpha 4 is a controlled Windows-first dogfood build. The installer includes:
 
-- the native TOPO desktop memory manager;
+- the calm Home / Memories / Connections / Advanced desktop shell;
 - the canonical local SQLite store at `~/.topo/topo.sqlite`;
 - a guided first-run setup screen;
-- private local extraction through Ollama;
-- one-click installation of TOPO's recommended local model once Ollama is available;
+- private local extraction through Ollama with a cancellable in-flight request;
+- one-click installation of TOPO's recommended `qwen3:4b` local model once Ollama is available;
 - packaged Chrome / Edge / Chromium capture companion setup on Windows and Linux;
 - purpose-bound Context Packet generation and the local context boundary used by RACK;
 - the existing proposal-first MCP and advanced CLI interfaces for integrations/development, without requiring either for normal desktop use.
@@ -79,11 +79,11 @@ The Linux packages do not require a terminal-based post-install step. Browser-na
 
 ## Testing steps while signing is deferred
 
-1. Ensure `main` is green.
+1. Ensure the Alpha 4 candidate is green and merged to `main`.
 2. Run **installer-package-smoke** manually from `main`.
 3. Download the `topo-windows-unsigned-smoke` Actions artefact for controlled Windows testing.
 4. Test first run on a clean Windows account using only the graphical setup path.
-5. Exercise capture, extraction, review and recall with a disposable or backed-up TOPO store first.
+5. Exercise the normal Alpha 4 loop without opening Advanced: capture → Home review → Memories → approved context in another local tool.\n6. Confirm **Stop extraction** cancels an in-flight local request and leaves the captured interaction retryable.\n7. Use Advanced only for diagnosis/evaluation if the normal loop fails.
 6. Record installer/trust problems separately from TOPO product behaviour; an unsigned trust warning is expected during this phase.
 
 ## Signed release steps
@@ -112,7 +112,7 @@ Do not broaden distribution until we have exercised:
 - Windows signature verification and clean-machine SmartScreen/Defender behaviour before wider distribution;
 - Ollama detection and local-model installation;
 - browser companion registration and extension capture;
-- a normal day's captured interactions through the review inbox;
+- a normal day's captured interactions producing a small, governable Home review queue;
 - capture quality against `docs/CAPTURE_EVALUATION.md`;
 - purpose-bound context preview and correct recall elsewhere;
 - RACK consuming that context in a real prompt build;
