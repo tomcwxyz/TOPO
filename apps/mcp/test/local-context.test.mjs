@@ -225,7 +225,25 @@ test("desktop context provider maps context, search and governed capture", async
     ]);
     assert.deepEqual(seen[2], [
       "/v0/capture",
-      { requested_by: "test-client", interaction },
+      {
+        requested_by: "test-client",
+        interaction: {
+          ...interaction,
+          kind: "agent-session",
+          client: "agent-runtime",
+          mode: "agent",
+          captureMethod: "agent-hook",
+          metadata: {
+            "topo.local.originalCapture": {
+              kind: "conversation",
+              product: "generic",
+              client: "terminal",
+              mode: "generic",
+              captureMethod: "local-mcp",
+            },
+          },
+        },
+      },
     ]);
   } finally {
     await close(server);
