@@ -105,6 +105,7 @@ export function CalmApp() {
   const attemptedIds = useRef(new Set<string>());
   const processingRef = useRef(false);
   const stopRequestedRef = useRef(false);
+  const surfaceRef = useRef<Surface>("home");
 
   const refreshOverview = useCallback(async () => {
     try {
@@ -135,6 +136,17 @@ export function CalmApp() {
     const timer = window.setInterval(() => void refreshOverview(), 5000);
     return () => window.clearInterval(timer);
   }, [refreshOverview]);
+
+  useEffect(() => {
+    surfaceRef.current = surface;
+    if (surface === "home" || !processingRef.current) return;
+
+    stopRequestedRef.current = true;
+    setExtractionPaused(true);
+    if (activeInteractionId) {
+      void invoke<boolean>("cancel_capture_extraction", { interactionId: activeInteractionId }).catch(() => undefined);
+    }
+  }, [surface]);
 
   const recommendedReady = Boolean(
     ollama?.available && ollama.models.includes(ollama.recommendedModel),
@@ -172,7 +184,7 @@ export function CalmApp() {
 
       try {
         for (const item of items) {
-          if (stopRequestedRef.current || surface !== "home") break;
+          if (stopRequestedRef.current || surfaceRef.current !== "home") break;
 
           attemptedIds.current.add(item.id);
           summary.attempted += 1;
