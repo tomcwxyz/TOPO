@@ -26,7 +26,7 @@ The important remaining boundary is **product proof rather than another architec
 
 ## Alpha 4 — calm product proof
 
-**Status:** implementation in progress; this is the next dogfood release.
+**Status:** implemented and merged; this is the current dogfood baseline.
 
 Alpha 4 turns the completed Memory Page architecture into a quieter everyday product:
 
@@ -42,7 +42,15 @@ The Alpha 4 proof is behavioural, not architectural: can a normal day produce a 
 
 ## Context expansion boundary
 
-Local context access is the next transport priority: Memory Page retrieval through the existing Desktop resolver for local MCP/CLI consumers, with the same purpose, sensitivity and sharing boundaries.
+Local context access is implemented on top of Alpha 4. MCP and CLI consumers now use the existing Desktop resolver rather than reading Memory Pages directly:
+
+- `topo_context` resolves purpose-bound Context Packets;
+- `topo_search_pages` searches confirmed, currently-valid Memory Pages;
+- `topo_capture_interaction` and `topo capture` feed completed interactions into the separately governed capture inbox;
+- `topo context` gives scripts the same local resolver path without MCP;
+- transport sensitivity may narrow Desktop's decision, never widen it.
+
+The immediate priority is to **dogfood this local cross-tool loop**, not add another transport.
 
 Remote relay, remote MCP and mobile-sharing work remain **experimental/deferred until the local Alpha 4 loop is proven**. They must not become a reason to postpone or complicate dogfooding. No remote transport should become a second implementation of memory governance or retrieval.
 
@@ -74,9 +82,7 @@ Tauri/React desktop architecture, runtime-neutral storage contracts and shared T
 
 ### Phase 2 — MCP
 
-A proposal-first stdio MCP server is implemented with search, candidate proposal, optional delegated review, history and sensitivity ceilings.
-
-The MCP transport remains useful, but its memory-facing contracts will become Memory Page aware during migration.
+A proposal-first stdio MCP server is implemented with search, candidate proposal, optional delegated review, history and sensitivity ceilings. Its primary context tools are now Memory Page aware and delegate to the running Desktop resolver; legacy claim-shaped tools remain compatibility/advanced paths.
 
 ### Early RACK/OOS context bridge
 
