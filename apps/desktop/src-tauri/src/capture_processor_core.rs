@@ -4,7 +4,10 @@ use rusqlite::{params, Connection};
 use serde::Serialize;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::{atomic::AtomicBool, Arc},
+};
 use topo_contracts::{
     Actor, ActorType, CaptureKind, CapturedInteraction, EventEntityType, EventType,
     ExtractedMemoryPageProposal, MemoryEvent, MemoryHorizon, MemoryPage, MemoryPageEvent,
@@ -62,6 +65,7 @@ fn duplicate_result(interaction_id: String, extractor: String) -> CaptureProcess
 pub async fn process_capture_with_ollama(
     interaction_id: String,
     model: String,
+    cancellation: Arc<AtomicBool>,
 ) -> Result<CaptureProcessResult, String> {
     let loaded = load_capture(&interaction_id)?;
     let digest = snapshot_digest(&loaded.interaction)?;
@@ -75,8 +79,12 @@ pub async fn process_capture_with_ollama(
         }
     }
 
-    let proposals =
-        capture_extractor::extract_pages_with_ollama(&loaded.interaction, model.trim()).await?;
+    let proposals = capture_extractor::extract_pages_with_ollama(
+        &loaded.interaction,
+        model.trim(),
+        cancellation,
+    )
+    .await?;
 
     let connection = open_store()?;
     if snapshot_processed(&connection, &loaded.interaction.id, &digest)? {
