@@ -628,7 +628,7 @@ function requireClaim(
 }
 
 try {
-  program.parse();
+  await program.parseAsync();
 } catch (error) {
   process.stderr.write(
     `TOPO: ${error instanceof Error ? error.message : String(error)}\n`,
