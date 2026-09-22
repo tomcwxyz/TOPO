@@ -602,6 +602,9 @@ export function CalmApp() {
           </div>
         </section>
       )}
+      <footer className="calm-footer">
+        <span>Portable, user-owned context.</span>
+      </footer>
     </main>
   );
 }
