@@ -6,6 +6,10 @@ use std::{
     fs::{self, OpenOptions},
     io::Write,
     path::PathBuf,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 use topo_contracts::{
@@ -248,6 +252,12 @@ pub async fn install_recommended_ollama_model() -> Result<OllamaStatus, String> 
     Ok(ollama_extractor_status().await)
 }
 
+async fn wait_for_cancellation(cancellation: Arc<AtomicBool>) {
+    while !cancellation.load(Ordering::SeqCst) {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
 async fn call_ollama(
     interaction: &CapturedInteraction,
     model: &str,
@@ -255,13 +265,18 @@ async fn call_ollama(
     representation: &'static str,
     user_content: String,
     format: Value,
+    cancellation: Arc<AtomicBool>,
 ) -> Result<OllamaCallResult, String> {
     let model = model.trim();
     if model.is_empty() {
         return Err("Choose an Ollama model before extracting capture.".to_owned());
     }
+    if cancellation.load(Ordering::SeqCst) {
+        return Err("Extraction stopped by user.".to_owned());
+    }
 
     let started = Instant::now();
+    let input_chars = user_content.chars().count();
     append_extractor_diagnostic(json!({
         "event": "extract.start",
         "interactionId": interaction.id,
@@ -278,38 +293,56 @@ async fn call_ollama(
         .build()
         .map_err(|error| error.to_string())?;
 
-    let response = client
-        .post(format!("{OLLAMA_BASE_URL}/api/chat"))
-        .json(&json!({
-            "model": model,
-            "stream": false,
-            "format": format,
-            "keep_alive": "10m",
-            "options": { "temperature": 0 },
-            "messages": [
-                { "role": "system", "content": system },
-                { "role": "user", "content": user_content }
-            ]
-        }))
-        .send()
-        .await
-        .map_err(|error| {
+    let response = tokio::select! {
+        result = client
+            .post(format!("{OLLAMA_BASE_URL}/api/chat"))
+            .json(&json!({
+                "model": model,
+                "stream": false,
+                "think": false,
+                "format": format,
+                "keep_alive": "10m",
+                "options": {
+                    "temperature": 0,
+                    "num_predict": 1200
+                },
+                "messages": [
+                    { "role": "system", "content": system },
+                    { "role": "user", "content": user_content }
+                ]
+            }))
+            .send() => {
+                result.map_err(|error| {
+                    append_extractor_diagnostic(json!({
+                        "event": if error.is_timeout() { "extract.timeout" } else { "extract.request_failed" },
+                        "interactionId": interaction.id,
+                        "model": model,
+                        "representation": representation,
+                        "elapsedMs": elapsed_ms(started),
+                        "inputChars": input_chars,
+                        "error": error.to_string()
+                    }));
+                    if error.is_timeout() {
+                        format!(
+                            "Local Ollama model {model} did not finish within {OLLAMA_REQUEST_TIMEOUT_SECS} seconds. Stop and retry, or choose a smaller model."
+                        )
+                    } else {
+                        format!("Could not call local Ollama model {model}: {error}")
+                    }
+                })?
+            }
+        _ = wait_for_cancellation(cancellation.clone()) => {
             append_extractor_diagnostic(json!({
-                "event": if error.is_timeout() { "extract.timeout" } else { "extract.request_failed" },
+                "event": "extract.cancelled",
                 "interactionId": interaction.id,
                 "model": model,
                 "representation": representation,
                 "elapsedMs": elapsed_ms(started),
-                "error": error.to_string()
+                "inputChars": input_chars
             }));
-            if error.is_timeout() {
-                format!(
-                    "Local Ollama model {model} did not finish within {OLLAMA_REQUEST_TIMEOUT_SECS} seconds. Try again while the model is warm or choose a smaller model."
-                )
-            } else {
-                format!("Could not call local Ollama model {model}: {error}")
-            }
-        })?;
+            return Err("Extraction stopped by user.".to_owned());
+        }
+    };
 
     let status = response.status();
     let body = response.text().await.map_err(|error| {
@@ -383,6 +416,7 @@ pub async fn extract_with_ollama(
         "claim-compatibility",
         format_interaction(interaction),
         Value::String("json".to_owned()),
+        Arc::new(AtomicBool::new(false)),
     )
     .await?;
     let proposals = parse_proposals(&call.content).map_err(|error| {
@@ -425,6 +459,7 @@ pub async fn extract_with_ollama(
 pub async fn extract_pages_with_ollama(
     interaction: &CapturedInteraction,
     model: &str,
+    cancellation: Arc<AtomicBool>,
 ) -> Result<Vec<ExtractedMemoryPageProposal>, String> {
     let formatted = format_interaction_for_page_extraction(interaction);
     let schema = memory_page_output_schema();
@@ -435,6 +470,7 @@ pub async fn extract_pages_with_ollama(
         "memory-page",
         formatted.content.clone(),
         schema.clone(),
+        cancellation.clone(),
     )
     .await?;
 
@@ -492,6 +528,7 @@ pub async fn extract_pages_with_ollama(
                 "memory-page-repair",
                 formatted.content.clone(),
                 schema,
+                cancellation,
             )
             .await?;
 
