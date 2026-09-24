@@ -49,7 +49,12 @@ jobs:
           fi
           node scripts/check-desktop-version.mjs "$EXPECTED_VERSION"
 
+      - name: Install locked dependencies on Windows without unrelated native lifecycle scripts
+        if: runner.os == 'Windows'
+        run: npm ci --ignore-scripts
+
       - name: Install locked dependencies
+        if: runner.os != 'Windows'
         run: npm ci
 
       - name: Require current Rust lockfiles
