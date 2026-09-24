@@ -49,12 +49,7 @@ jobs:
           fi
           node scripts/check-desktop-version.mjs "$EXPECTED_VERSION"
 
-      - name: Install locked dependencies on Windows without unrelated native lifecycle scripts
-        if: runner.os == 'Windows'
-        run: npm ci --ignore-scripts
-
       - name: Install locked dependencies
-        if: runner.os != 'Windows'
         run: npm ci
 
       - name: Require current Rust lockfiles
@@ -101,7 +96,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
 
+      - name: Install locked dependencies on Windows without unrelated native lifecycle scripts
+        if: runner.os == 'Windows'
+        run: npm ci --ignore-scripts
+
       - name: Install locked dependencies
+        if: runner.os != 'Windows'
         run: npm ci
 
       - name: Require current Rust lockfiles
