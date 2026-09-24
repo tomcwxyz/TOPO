@@ -33,83 +33,76 @@ No setup screen should instruct a normal user to paste a command into a terminal
 
 ## Distribution
 
-TOPO deliberately has two different desktop distribution paths during alpha.
+TOPO has two deliberately different distribution paths during alpha.
 
-### Controlled testing: unsigned short-lived artefacts
+### Canonical alpha distribution: visible GitHub prereleases
 
-The **installer-package-smoke** workflow (`.github/workflows/windows-test-installer.yml`) is the testing route. A manual run builds:
+The **Desktop alpha release** workflow (`.github/workflows/local-alpha-release.yml`) is the canonical way to distribute a TOPO alpha. A manual run from `main`:
 
-- **Windows x64:** an unsigned per-user NSIS installer;
-- **Linux x64:** Debian package and AppImage.
+- checks that the requested version matches the desktop source;
+- re-runs repository validation;
+- builds **Windows x64** (NSIS), **macOS** (DMG) and **Linux x64** (Debian + AppImage);
+- scans the Windows binaries with Microsoft Defender;
+- creates SHA-256 checksum files;
+- publishes one visible GitHub **pre-release** only after all platform builds succeed.
 
-These are uploaded as short-lived GitHub Actions artefacts rather than normal releases. The Windows installer is scanned with Microsoft Defender when Defender is available on the hosted runner. This route is for the development team and known testers while TOPO is still being dogfooded.
+GitHub Releases is therefore the place testers should go to find TOPO installers. Actions artefacts are not the product distribution surface.
 
-Unsigned Windows test builds must be treated as **test-only**. They may trigger Windows trust warnings because they have no publisher signature. Do not present them as production-ready or warning-free downloads, and do not weaken or disable endpoint security as part of the install process.
+Windows and macOS alpha packages are currently unsigned, so operating-system trust warnings may appear. The release notes state this explicitly. Users should not disable endpoint security to install TOPO.
 
-Windows code signing is intentionally deferred while controlled testing continues. Track the hard gate for wider distribution in **issue #42: `[BLOCKER BEFORE PUBLIC RELEASE] Add trusted Windows code signing`**.
+Trusted Windows signing and macOS signing/notarisation remain hard gates before TOPO is presented as a stable or wider public distribution. Track the Windows gate in **issue #42: `[BLOCKER BEFORE PUBLIC RELEASE] Add trusted Windows code signing`**.
 
-### Wider/pilot/public distribution: signed release
+### Internal packaging smoke tests
 
-The manual **Local alpha desktop release** workflow builds:
-
-- **Windows x64:** a signed per-user NSIS installer;
-- **Linux x64:** Debian package and AppImage.
-
-It creates a draft GitHub pre-release for inspection before publication. The workflow fails closed before packaging if the Windows signing credentials are unavailable, preventing a partial Linux-only release.
+The **installer-package-smoke** workflow (`.github/workflows/windows-test-installer.yml`) remains a development check. It produces short-lived Actions artefacts for package verification during pull requests and targeted testing. Those artefacts are not canonical releases and should not be linked as the normal way to install TOPO.
 
 ### Windows trust requirement
 
-Windows releases intended for wider/pilot/public distribution **must be Authenticode signed** and timestamped. The release workflow verifies the Authenticode signature on the packaged installer after the build.
+The visible alpha prerelease is allowed to be unsigned, but Windows releases intended for wider/pilot/public distribution **must be Authenticode signed** and timestamped.
 
 For broader distribution where the goal is to minimise SmartScreen warnings, use a trusted signing route such as Azure Artifact Signing or another suitable public-trust code-signing service. Signing reduces trust friction but no publisher can guarantee that every endpoint-security product will never produce a false positive.
 
-The installer package smoke test also requests a Microsoft Defender custom scan of the built `.exe` whenever Defender is enabled on the hosted Windows runner. A clean-machine Defender test remains mandatory before wider publication because hosted runners cannot substitute for real end-user machines.
+Both the package smoke test and the alpha release workflow require a Microsoft Defender scan of the built Windows binaries. A clean-machine Defender/SmartScreen test remains mandatory before wider publication because hosted runners cannot substitute for real end-user machines.
 
-The current PFX-based signed-release workflow expects:
-
-- `WINDOWS_CERTIFICATE` — base64-encoded PFX/PKCS#12 signing certificate;
-- `WINDOWS_CERTIFICATE_PASSWORD` — certificate password;
-- `WINDOWS_TIMESTAMP_URL` — RFC3161/Authenticode timestamp service supplied by the certificate provider.
-
-If TOPO moves to Azure Artifact Signing, replace the PFX import step with Tauri's `signCommand`/Artifact Signing route rather than weakening the signed-release gate.
+When trusted signing is introduced, add it to the build stage before the release assets are collected, and verify the resulting Authenticode signature before the publish job can run. Do not weaken the one-release-after-all-builds-succeed model.
 
 ### Linux trust requirement
 
 The Linux packages do not require a terminal-based post-install step. Browser-native-messaging registration happens from TOPO in the user's config directories. The Ollama Linux installer bundled into the release is pinned to a known release and verified by SHA-256 during the build before it is packaged.
 
-## Testing steps while signing is deferred
+## Alpha release steps
 
-1. Ensure the Alpha 4 candidate is green and merged to `main`.
-2. Run **installer-package-smoke** manually from `main`.
-3. Download the `topo-windows-unsigned-smoke` Actions artefact for controlled Windows testing.
-4. Test first run on a clean Windows account using only the graphical setup path.
-5. Exercise the normal Alpha 4 loop without opening Advanced: capture → Home review → Memories → approved context in another local tool.\n6. Confirm **Stop extraction** cancels an in-flight local request and leaves the captured interaction retryable.\n7. Use Advanced only for diagnosis/evaluation if the normal loop fails.
-6. Record installer/trust problems separately from TOPO product behaviour; an unsigned trust warning is expected during this phase.
-
-## Signed release steps
-
-Do not use this path until issue #42 is resolved.
-
-1. Ensure `main` is green.
+1. Ensure the alpha candidate is green and merged to `main`.
 2. Confirm the version is identical in:
    - `apps/desktop/package.json`
    - `apps/desktop/src-tauri/Cargo.toml`
    - `apps/desktop/src-tauri/tauri.conf.json`
-3. Confirm a trusted Windows signing route and its required credentials are configured.
-4. Run **Local alpha desktop release** from `main`.
-5. Supply the desktop version and confirmation `RELEASE`.
-6. Inspect the draft release, its verified signer identity and package artefacts before publishing.
-7. Test first run on a clean Windows account and a clean Linux desktop using only the graphical setup path.
-8. Check SmartScreen/Defender behaviour on the actual signed release artefact.
-9. Exercise capture, extraction, review and recall with a disposable or backed-up TOPO store first.
+3. Run **Desktop alpha release** from `main`.
+4. Supply the desktop version and confirmation `RELEASE`.
+5. Wait for Windows, macOS and Linux packaging to complete. The workflow only creates the release once all three succeed.
+6. Open the new entry on the repository's **Releases** page and confirm the expected installers and checksum files are present.
+7. Test first run on clean Windows and macOS accounts, plus a clean Linux desktop where practical.
+8. Exercise the normal loop without opening Advanced: capture → Home review → Memories → approved context in another local tool.
+9. Confirm **Stop extraction** cancels an in-flight local request and leaves the captured interaction retryable.
+10. Record installer/trust problems separately from TOPO product behaviour; unsigned trust warnings are expected during the alpha phase.
+
+## Stable/wider release gate
+
+Before TOPO is presented as stable or distributed beyond controlled alpha testing:
+
+1. configure a trusted Windows signing route and verify Authenticode signatures;
+2. add appropriate macOS signing/notarisation;
+3. check SmartScreen, Defender and Gatekeeper behaviour on the actual release artefacts;
+4. keep the multi-platform build and one-release publication model used by the alpha workflow.
 
 ## Alpha quality gates
 
 Do not broaden distribution until we have exercised:
 
-- clean install/uninstall on Windows and Linux;
+- clean install/uninstall on Windows, macOS and Linux;
 - no user-facing terminal instructions in first run;
 - Windows signature verification and clean-machine SmartScreen/Defender behaviour before wider distribution;
+- macOS signing/notarisation and Gatekeeper behaviour before wider distribution;
 - Ollama detection and local-model installation;
 - browser companion registration and extension capture;
 - a normal day's captured interactions producing a small, governable Home review queue;

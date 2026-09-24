@@ -1,19 +1,19 @@
-name: Local alpha desktop release
+name: Desktop alpha release
 
 on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Desktop version to release (must match source)"
+        description: "Desktop version to release (must match source, e.g. 0.1.1-alpha.4)"
         required: true
         type: string
       confirm:
-        description: "Type RELEASE to confirm the desktop alpha release"
+        description: "Type RELEASE to publish the GitHub prerelease"
         required: true
         type: string
 
 concurrency:
-  group: topo-local-alpha-release
+  group: topo-desktop-alpha-release
   cancel-in-progress: false
 
 permissions:
@@ -21,7 +21,7 @@ permissions:
 
 jobs:
   preflight:
-    name: Desktop release preflight
+    name: Release preflight
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -32,14 +32,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - name: Require main, confirmation, version and signing credentials
+      - name: Require main, confirmation and matching version
         shell: bash
         env:
           EXPECTED_VERSION: ${{ inputs.version }}
           RELEASE_CONFIRMATION: ${{ inputs.confirm }}
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-          WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
@@ -51,24 +48,6 @@ jobs:
             exit 1
           fi
           node scripts/check-desktop-version.mjs "$EXPECTED_VERSION"
-
-          missing=0
-          if [[ -z "$WINDOWS_CERTIFICATE" ]]; then
-            echo "::error::WINDOWS_CERTIFICATE is not configured. Add the base64-encoded PFX/PKCS#12 certificate as a repository Actions secret before releasing."
-            missing=1
-          fi
-          if [[ -z "$WINDOWS_CERTIFICATE_PASSWORD" ]]; then
-            echo "::error::WINDOWS_CERTIFICATE_PASSWORD is not configured. Add the PFX certificate password as a repository Actions secret before releasing."
-            missing=1
-          fi
-          if [[ -z "$WINDOWS_TIMESTAMP_URL" ]]; then
-            echo "::error::WINDOWS_TIMESTAMP_URL is not configured. Add the certificate provider's timestamp service URL as a repository Actions secret before releasing."
-            missing=1
-          fi
-          if [[ "$missing" -ne 0 ]]; then
-            echo "::error::Release stopped before packaging so a partial Linux-only draft cannot be created."
-            exit 1
-          fi
 
       - name: Install locked dependencies
         run: npm ci
@@ -82,23 +61,24 @@ jobs:
       - name: Re-run repository validation
         run: npm run validate
 
-  publish:
+  build:
     name: ${{ matrix.label }}
     needs: preflight
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       matrix:
         include:
-          - platform: windows-latest
-            label: Windows x64 · signed NSIS
-            args: "--bundles nsis --config src-tauri/release.windows.json"
-          - platform: ubuntu-22.04
+          - os: windows-latest
+            label: Windows x64 · unsigned NSIS
+            artifact: topo-release-windows-x64
+          - os: ubuntu-22.04
             label: Linux x64 · deb + AppImage
-            args: "--bundles deb,appimage"
+            artifact: topo-release-linux-x64
+          - os: macos-latest
+            label: macOS · unsigned DMG
+            artifact: topo-release-macos
 
-    runs-on: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 60
 
     steps:
@@ -139,8 +119,8 @@ jobs:
           Copy-Item "apps/extension/dist/*" "$resources/capture-extension" -Recurse -Force
           Copy-Item "target/release/topo-native-host.exe" "$resources/topo-native-host.exe" -Force
 
-      - name: Package Linux browser companion and local-engine installer
-        if: runner.os == 'Linux'
+      - name: Package Unix browser companion
+        if: runner.os != 'Windows'
         shell: bash
         run: |
           set -euo pipefail
@@ -151,8 +131,12 @@ jobs:
           cp -R apps/extension/dist/. "$resources/capture-extension/"
           install -m 0755 target/release/topo-native-host "$resources/topo-native-host"
 
-          # Pin the official Ollama Linux installer used by TOPO's graphical
-          # first-run setup. The user never needs to paste a terminal command.
+      - name: Add verified Linux local-engine installer
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          resources="apps/desktop/src-tauri/resources"
           curl --fail --location --silent --show-error \
             "https://github.com/ollama/ollama/releases/download/v0.33.3/install.sh" \
             --output "$resources/ollama-install.sh"
@@ -160,76 +144,202 @@ jobs:
             | sha256sum --check --strict
           chmod 0755 "$resources/ollama-install.sh"
 
-      - name: Import Windows signing certificate
-        if: runner.os == 'Windows'
-        shell: pwsh
-        env:
-          WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
-          WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
-          WINDOWS_TIMESTAMP_URL: ${{ secrets.WINDOWS_TIMESTAMP_URL }}
+      - name: Generate macOS icon
+        if: runner.os == 'macOS'
+        shell: bash
         run: |
-          if (-not $env:WINDOWS_CERTIFICATE) { throw "WINDOWS_CERTIFICATE is required for user-facing Windows releases." }
-          if (-not $env:WINDOWS_CERTIFICATE_PASSWORD) { throw "WINDOWS_CERTIFICATE_PASSWORD is required for user-facing Windows releases." }
-          if (-not $env:WINDOWS_TIMESTAMP_URL) { throw "WINDOWS_TIMESTAMP_URL is required for user-facing Windows releases." }
+          set -euo pipefail
+          src="apps/desktop/src-tauri/icons/icon.png"
+          iconset="$RUNNER_TEMP/topo.iconset"
+          mkdir -p "$iconset"
+          sips -z 16 16 "$src" --out "$iconset/icon_16x16.png" >/dev/null
+          sips -z 32 32 "$src" --out "$iconset/icon_16x16@2x.png" >/dev/null
+          sips -z 32 32 "$src" --out "$iconset/icon_32x32.png" >/dev/null
+          sips -z 64 64 "$src" --out "$iconset/icon_32x32@2x.png" >/dev/null
+          sips -z 128 128 "$src" --out "$iconset/icon_128x128.png" >/dev/null
+          sips -z 256 256 "$src" --out "$iconset/icon_128x128@2x.png" >/dev/null
+          sips -z 256 256 "$src" --out "$iconset/icon_256x256.png" >/dev/null
+          sips -z 512 512 "$src" --out "$iconset/icon_256x256@2x.png" >/dev/null
+          sips -z 512 512 "$src" --out "$iconset/icon_512x512.png" >/dev/null
+          sips -z 1024 1024 "$src" --out "$iconset/icon_512x512@2x.png" >/dev/null
+          iconutil -c icns "$iconset" -o "apps/desktop/src-tauri/icons/icon.icns"
+          node - <<'NODE'
+          const fs = require('fs');
+          const p = 'apps/desktop/src-tauri/tauri.conf.json';
+          const c = JSON.parse(fs.readFileSync(p, 'utf8'));
+          c.bundle.icon = ['icons/icon.png', 'icons/icon.ico', 'icons/icon.icns'];
+          fs.writeFileSync(p, JSON.stringify(c, null, 2) + '\n');
+          NODE
 
-          $pfxPath = Join-Path $env:RUNNER_TEMP "topo-code-signing.pfx"
-          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
-          $password = ConvertTo-SecureString -String $env:WINDOWS_CERTIFICATE_PASSWORD -Force -AsPlainText
-          $certificate = Import-PfxCertificate -FilePath $pfxPath -CertStoreLocation Cert:\CurrentUser\My -Password $password
-          if (-not $certificate.Thumbprint) { throw "The Windows signing certificate could not be imported." }
+      - name: Build Windows installer
+        if: runner.os == 'Windows'
+        run: npm run tauri --workspace @topo/desktop -- build --bundles nsis --config src-tauri/test.windows.json
 
-          $releaseConfig = @{
-            bundle = @{
-              windows = @{
-                certificateThumbprint = $certificate.Thumbprint
-                digestAlgorithm = "sha256"
-                timestampUrl = $env:WINDOWS_TIMESTAMP_URL
-              }
-            }
-          } | ConvertTo-Json -Depth 5
-          Set-Content -Path "apps/desktop/src-tauri/release.windows.json" -Value $releaseConfig -Encoding UTF8
-
-      - name: Build and create draft desktop release
-        uses: tauri-apps/tauri-action@action-v1.0.0
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CI: true
-        with:
-          projectPath: apps/desktop
-          tagName: topo-v__VERSION__
-          releaseName: "TOPO __VERSION__ · desktop alpha"
-          releaseBody: |
-            Installer-first TOPO desktop alpha for Windows and Linux.
-
-            - Windows uses a signed per-user NSIS installer.
-            - Linux ships a Debian package and AppImage.
-            - Browser capture resources are bundled on both platforms.
-            - Linux local-engine setup is launched from TOPO with a normal graphical PolicyKit prompt; there are no copy/paste terminal instructions.
-            - Setup happens inside TOPO; users do not need Node, npm, Rust, Cargo or terminal commands.
-            - Core data remains local in ~/.topo/topo.sqlite and no account is required.
-
-            Windows signing is a release requirement because the user-facing installer should not ask people to bypass SmartScreen. Code signing materially reduces trust warnings, although no signing process can guarantee that every endpoint-security product will never raise a false positive.
-          releaseDraft: true
-          prerelease: true
-          releaseAssetNamePattern: "TOPO_[version]_[platform]_[arch][setup][ext]"
-          uploadUpdaterJson: false
-          uploadUpdaterSignatures: false
-          args: ${{ matrix.args }}
-
-      - name: Verify packaged Windows Authenticode signature
+      - name: Scan Windows binaries with Microsoft Defender
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
+          $nativeHost = Get-Item "target/release/topo-native-host.exe"
+          $desktop = Get-Item "apps/desktop/src-tauri/target/release/topo.exe"
           $installers = @(Get-ChildItem "apps/desktop/src-tauri/target/release/bundle/nsis/*.exe")
-          if ($installers.Count -eq 0) { throw "No Windows installer was produced for signature verification." }
+          if ($installers.Count -eq 0) { throw "No Windows NSIS installer was produced." }
 
-          foreach ($installer in $installers) {
-            $signature = Get-AuthenticodeSignature $installer.FullName
-            if ($signature.Status -ne "Valid") {
-              throw "Invalid Authenticode signature for $($installer.Name): $($signature.Status)"
-            }
-            if (-not $signature.SignerCertificate.Subject) {
-              throw "Windows installer $($installer.Name) has no signer identity."
-            }
-            Write-Host "Verified $($installer.Name) signed by $($signature.SignerCertificate.Subject)"
+          $status = Get-MpComputerStatus -ErrorAction SilentlyContinue
+          if (-not $status -or -not $status.AntivirusEnabled) {
+            throw "Microsoft Defender Antivirus is not enabled on the Windows release runner."
           }
+
+          $candidates = @()
+          $platformRoot = Join-Path $env:ProgramData "Microsoft\Windows Defender\Platform"
+          if (Test-Path $platformRoot) {
+            $latestPlatform = Get-ChildItem $platformRoot -Directory -ErrorAction SilentlyContinue |
+              Sort-Object Name -Descending |
+              Select-Object -First 1
+            if ($latestPlatform) {
+              $candidates += (Join-Path $latestPlatform.FullName "MpCmdRun.exe")
+            }
+          }
+          $candidates += (Join-Path $env:ProgramFiles "Windows Defender\MpCmdRun.exe")
+          $mpcmd = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $mpcmd) { throw "Microsoft Defender command-line scanner was not found." }
+
+          $files = @($nativeHost, $desktop) + $installers
+          foreach ($file in $files) {
+            $scanLog = Join-Path $env:RUNNER_TEMP ("defender-" + $file.Name + ".log")
+            & $mpcmd -Scan -ScanType 3 -File $file.FullName -DisableRemediation 2>&1 | Tee-Object -FilePath $scanLog
+            $scanExit = $LASTEXITCODE
+            $scanText = if (Test-Path $scanLog) { Get-Content $scanLog -Raw } else { "" }
+            if ($scanText -match '(?i)was skipped') { throw "Defender skipped $($file.Name)." }
+            if ($scanExit -ne 0) { throw "Defender did not return a clean result for $($file.Name)." }
+            if ($scanText -notmatch '(?i)found no threats|detected 0 threats') {
+              throw "Defender returned no positive clean-scan result for $($file.Name)."
+            }
+          }
+
+      - name: Build Linux packages
+        if: runner.os == 'Linux'
+        run: npm run tauri --workspace @topo/desktop -- build --bundles deb,appimage
+
+      - name: Build macOS DMG
+        if: runner.os == 'macOS'
+        env:
+          APPLE_SIGNING_IDENTITY: "-"
+        run: npm run tauri --workspace @topo/desktop -- build --bundles dmg
+
+      - name: Prepare Windows release assets
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          New-Item -ItemType Directory -Force release-assets | Out-Null
+          $installer = Get-ChildItem "apps/desktop/src-tauri/target/release/bundle/nsis/*.exe" | Select-Object -First 1
+          if (-not $installer) { throw "No Windows installer found." }
+          $dest = "release-assets/TOPO_$($env:VERSION)_windows_x64_setup.exe"
+          Copy-Item $installer.FullName $dest
+          $hash = (Get-FileHash -Algorithm SHA256 $dest).Hash.ToLowerInvariant()
+          "$hash  $(Split-Path $dest -Leaf)" | Set-Content "release-assets/TOPO_$($env:VERSION)_windows_x64_SHA256SUMS.txt"
+
+      - name: Prepare Linux release assets
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          deb="$(find apps/desktop/src-tauri/target/release/bundle/deb -maxdepth 1 -name '*.deb' -print -quit)"
+          appimage="$(find apps/desktop/src-tauri/target/release/bundle/appimage -maxdepth 1 -name '*.AppImage' -print -quit)"
+          test -n "$deb"
+          test -n "$appimage"
+          cp "$deb" "release-assets/TOPO_${VERSION}_linux_x64.deb"
+          cp "$appimage" "release-assets/TOPO_${VERSION}_linux_x64.AppImage"
+          (
+            cd release-assets
+            sha256sum "TOPO_${VERSION}_linux_x64.deb" "TOPO_${VERSION}_linux_x64.AppImage" > "TOPO_${VERSION}_linux_x64_SHA256SUMS.txt"
+          )
+
+      - name: Prepare macOS release assets
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          dmg="$(find apps/desktop/src-tauri/target/release/bundle/dmg -maxdepth 1 -name '*.dmg' -print -quit)"
+          test -n "$dmg"
+          arch="$(uname -m)"
+          cp "$dmg" "release-assets/TOPO_${VERSION}_macos_${arch}.dmg"
+          (
+            cd release-assets
+            shasum -a 256 "TOPO_${VERSION}_macos_${arch}.dmg" > "TOPO_${VERSION}_macos_${arch}_SHA256SUMS.txt"
+          )
+
+      - name: Upload release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub prerelease
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download packaged release assets
+        uses: actions/download-artifact@v4
+        with:
+          pattern: topo-release-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Show release payload
+        run: ls -lh release-assets
+
+      - name: Publish visible GitHub prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          tag="topo-v${VERSION}"
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::error::Release $tag already exists. Bump the desktop version before publishing another release."
+            exit 1
+          fi
+
+          cat > "$RUNNER_TEMP/release-notes.md" <<EOF
+          TOPO ${VERSION} is an alpha desktop release for hands-on testing.
+
+          ### Installers
+
+          - **Windows x64:** NSIS installer
+          - **macOS:** DMG
+          - **Linux x64:** Debian package and AppImage
+          - SHA-256 checksum files are included alongside the installers.
+
+          ### Alpha trust note
+
+          The Windows and macOS alpha packages are currently unsigned. Windows SmartScreen and macOS Gatekeeper may therefore show trust warnings. Do not disable endpoint security to install TOPO. Trusted code signing/notarisation remains a release gate before TOPO is presented as a stable or wider public distribution.
+
+          ### What this alpha is for
+
+          This release is for dogfooding the complete TOPO loop: capture useful context, review what is worth keeping, find it again in Memories, and selectively use approved context in another tool.
+
+          Core TOPO data remains local and no TOPO account is required.
+          EOF
+
+          gh release create "$tag" release-assets/* \
+            --target "$GITHUB_SHA" \
+            --title "TOPO ${VERSION}" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --prerelease

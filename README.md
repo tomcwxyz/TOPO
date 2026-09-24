@@ -73,11 +73,13 @@ See [Product/architecture plan](PLAN.md), [roadmap](ROADMAP.md), [memory archite
 
 ## Install and first run
 
-TOPO `0.1.1-alpha.4` is the current dogfood target. **Windows is the release gate for this alpha cycle**; Linux remains supported by the packaging work but is not blocking Alpha 4 product proof.
+TOPO `0.1.1-alpha.4` is the current dogfood target. Installers are published as visible GitHub prereleases on the [Releases page](https://github.com/tomcwxyz/TOPO/releases), which is the canonical place to get a TOPO desktop build.
+
+Alpha packages are currently unsigned on Windows and macOS, so the operating system may show a trust warning. Do not disable endpoint security to install TOPO. Trusted signing/notarisation remains a gate before stable or wider public distribution.
 
 Normal setup should be graphical from start to finish:
 
-1. install the controlled Windows test build;
+1. download the installer for your platform from GitHub Releases and install TOPO;
 2. open TOPO;
 3. follow the first-run card to prepare private local extraction;
 4. let TOPO install its recommended `qwen3:4b` local model;
@@ -87,7 +89,7 @@ Normal setup should be graphical from start to finish:
 8. return to **Home** to keep, edit or dismiss the small number of memories TOPO thinks are worth your attention;
 9. use **Memories** to find what you kept and **Connections** to control where approved context may be used.
 
-There should be no Node/npm/Rust setup and no terminal commands in the normal user journey. Alpha 4 deliberately keeps extraction controls, raw queues and retrieval diagnostics under **Advanced**. Unsigned Windows builds are for controlled dogfooding only; trusted code signing remains a hard gate before wider distribution.
+There should be no Node/npm/Rust setup and no terminal commands in the normal user journey. Alpha 4 deliberately keeps extraction controls, raw queues and retrieval diagnostics under **Advanced**. GitHub prereleases are for controlled alpha dogfooding; trusted Windows signing and macOS notarisation remain hard gates before stable or wider distribution.
 
 See [docs/RELEASE.md](docs/RELEASE.md) for the exact release/trust contract.
 
