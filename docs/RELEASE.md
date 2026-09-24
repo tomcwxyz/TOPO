@@ -58,19 +58,13 @@ The **installer-package-smoke** workflow (`.github/workflows/windows-test-instal
 
 ### Windows trust requirement
 
-Windows releases intended for wider/pilot/public distribution **must be Authenticode signed** and timestamped. The release workflow verifies the Authenticode signature on the packaged installer after the build.
+The visible alpha prerelease is allowed to be unsigned, but Windows releases intended for wider/pilot/public distribution **must be Authenticode signed** and timestamped.
 
 For broader distribution where the goal is to minimise SmartScreen warnings, use a trusted signing route such as Azure Artifact Signing or another suitable public-trust code-signing service. Signing reduces trust friction but no publisher can guarantee that every endpoint-security product will never produce a false positive.
 
-The installer package smoke test also requests a Microsoft Defender custom scan of the built `.exe` whenever Defender is enabled on the hosted Windows runner. A clean-machine Defender test remains mandatory before wider publication because hosted runners cannot substitute for real end-user machines.
+Both the package smoke test and the alpha release workflow require a Microsoft Defender scan of the built Windows binaries. A clean-machine Defender/SmartScreen test remains mandatory before wider publication because hosted runners cannot substitute for real end-user machines.
 
-The current PFX-based signed-release workflow expects:
-
-- `WINDOWS_CERTIFICATE` — base64-encoded PFX/PKCS#12 signing certificate;
-- `WINDOWS_CERTIFICATE_PASSWORD` — certificate password;
-- `WINDOWS_TIMESTAMP_URL` — RFC3161/Authenticode timestamp service supplied by the certificate provider.
-
-If TOPO moves to Azure Artifact Signing, replace the PFX import step with Tauri's `signCommand`/Artifact Signing route rather than weakening the signed-release gate.
+When trusted signing is introduced, add it to the build stage before the release assets are collected, and verify the resulting Authenticode signature before the publish job can run. Do not weaken the one-release-after-all-builds-succeed model.
 
 ### Linux trust requirement
 
@@ -105,9 +99,10 @@ Before TOPO is presented as stable or distributed beyond controlled alpha testin
 
 Do not broaden distribution until we have exercised:
 
-- clean install/uninstall on Windows and Linux;
+- clean install/uninstall on Windows, macOS and Linux;
 - no user-facing terminal instructions in first run;
 - Windows signature verification and clean-machine SmartScreen/Defender behaviour before wider distribution;
+- macOS signing/notarisation and Gatekeeper behaviour before wider distribution;
 - Ollama detection and local-model installation;
 - browser companion registration and extension capture;
 - a normal day's captured interactions producing a small, governable Home review queue;
