@@ -1,0 +1,42 @@
+name: Cloud alpha
+on:
+  pull_request:
+    paths:
+      - "cloud/**"
+      - "docs/CLOUD_CAPTURE.md"
+      - "docs/adr/0012-optional-managed-cloud-and-mobile-capture.md"
+      - ".github/workflows/cloud-alpha.yml"
+  push:
+    branches:
+      - "feat/cloud-mobile-agent-capture"
+    paths:
+      - "cloud/**"
+      - ".github/workflows/cloud-alpha.yml"
+permissions:
+  contents: read
+jobs:
+  contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Test cloud capture and authority contracts
+        run: node --test cloud/test/*.test.mjs
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cloud
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Resolve standalone cloud dependencies (lockfile to be committed before deployment)
+        run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+      - name: Install pinned dependency resolution
+        run: npm ci --no-audit --no-fund
+      - name: Build Next.js cloud alpha
+        run: npm run build

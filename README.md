@@ -49,6 +49,10 @@ The practical product proof is:
 
 > Use AI normally for a day, review a small number of coherent memories worth keeping, then see the right context surface in another AI/tool — while the memories still make sense when opened outside TOPO.
 
+## Experimental TOPO Cloud capture
+
+The optional cloud/mobile capture work is isolated on [`feat/cloud-mobile-agent-capture`](https://github.com/tomcwxyz/TOPO/tree/feat/cloud-mobile-agent-capture). It does not change the local-first alpha or its canonical Memory Page contract. The current cloud branch has a private source inbox and explicit mobile/agent capture, **not** automatic memory confirmation or a public multi-user service. See [cloud capture plan](docs/CLOUD_CAPTURE.md) and [ADR 0012](docs/adr/0012-optional-managed-cloud-and-mobile-capture.md).
+
 ## RACK integration
 
 TOPO remains a local context node for RACK and the draft Organisational OS.
