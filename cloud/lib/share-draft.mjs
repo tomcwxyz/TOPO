@@ -23,6 +23,13 @@ async function operation(mode, action) {
     tx.onerror = () => { db.close(); reject(tx.error); };
   });
 }
-export const getDraft = () => operation("readonly", (store) => store.get("latest"));
-export const saveDraft = (value) => operation("readwrite", (store) => store.put(value, "latest"));
+export async function getDraft() {
+  const draft = await operation("readonly", (store) => store.get("latest"));
+  if (draft && (!Number.isFinite(draft.createdAt) || Date.now() - draft.createdAt > 24 * 3600 * 1000)) {
+    await clearDraft();
+    return null;
+  }
+  return draft;
+}
+export const saveDraft = (value) => operation("readwrite", (store) => store.put({ ...value, createdAt: Date.now() }, "latest"));
 export const clearDraft = () => operation("readwrite", (store) => store.delete("latest"));

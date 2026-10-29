@@ -27,7 +27,7 @@ self.addEventListener("fetch", (event) => {
       const title = String(form.get("title") || "").slice(0, 180);
       const sourceUrl = String(form.get("url") || "").slice(0, 2048);
       await save({ title, text, sourceUrl, createdAt: Date.now(), idempotencyKey: crypto.randomUUID() });
-      return Response.redirect("/capture?shared=1", 303);
+      return Response.redirect(new URL("/capture?shared=1", self.location.origin).href, 303);
     } catch {
       return new Response("Unable to stage this share. Open TOPO and paste it manually.", { status: 400 });
     }

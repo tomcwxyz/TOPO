@@ -46,7 +46,7 @@ export default function Capture() {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Capture failed");
       await clearDraft();
-      setText(""); setTitle(""); setSourceUrl(""); setIdempotencyKey("");
+      setText(""); setTitle(""); setSourceUrl(""); setIdempotencyKey(""); setSource("manual");
       setStatus(result.deduplicated ? "This source was already captured." : "Saved to your pending source inbox. No memory has been approved.");
     } catch (error) { setStatus(error.message || "Something went wrong. Your draft is retained locally."); }
     finally { setBusy(false); }

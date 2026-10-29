@@ -12,5 +12,5 @@ export function GET() {
       action: "/share-target", method: "POST", enctype: "multipart/form-data",
       params: { title: "title", text: "text", url: "url" },
     },
-  }, { headers: { "Cache-Control": "public, max-age=3600" } });
+  }, { headers: { "Cache-Control": "public, max-age=3600", "Content-Type": "application/manifest+json; charset=utf-8" } });
 }
